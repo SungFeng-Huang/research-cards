@@ -1,0 +1,97 @@
+{
+  "$comment": "Copy to ~/.config/research-cards/config.json and fill in. backend: 'heptabase' (author in Heptabase only), 'obsidian' (author in an Obsidian vault only), or 'both' (Heptabase is canonical, obsidian-sync mirrors to the vault).",
+  "backend": "heptabase",
+  "agent": "claude",
+  "$agent_comment": "驅動 skills 的 AI agent CLI：'claude'（claude --print）或 'codex'（codex exec）。影響 cron/scripts 的文字生成呼叫；互動 session 由你所在的 agent 本人執行 SKILL.md。",
+  "plugin_root": null,
+  "$plugin_root_comment": "選配：plugin 的 live 路徑（如 ~/my-config/plugins/research-cards）。Codex 以靜態 cache 副本執行 plugin，設定此值可讓 topology snapshot、highlights.json 等 repo 狀態讀寫錨定回 live 樹。Claude Code 直接從 live 樹執行者可留 null。",
+  "profile": {
+    "$comment": "教學式內容的目標讀者——影響 card-rewrite/clip 的開場段（『為什麼〈讀者〉該讀』）與先備知識的深度假設。reader=讀者身分（用於段落標題），field=讀者的主領域。",
+    "reader": "研究者",
+    "field": "你的研究領域"
+  },
+  "features": {
+    "$comment": "兩個使用方向的開關（預設皆開）。study=論文管線（scholar-inbox-clip/card-rewrite/overview 家族/obsidian-sync）；project=研究專案卡（project-card-log/project-card-merge）。",
+    "study": true,
+    "project": true
+  },
+  "email": {
+    "$comment": "scholar-inbox-clip 的郵件來源（Mac Mail.app）。account=帳號名稱包含的字串；mailbox=專用信箱資料夾。用 Mail rule 把論文 digest 信（Scholar Inbox 等）導進這個信箱——信箱本身就是過濾器，任何含 arxiv/alphaXiv 連結的 digest 都能萃取。",
+    "account": "iCloud",
+    "mailbox": "Scholar Inbox"
+  },
+  "heptabase": {
+    "workspace_id": "<your-heptabase-workspace-uuid>",
+    "collections": {
+      "papers": {
+        "tag_id": "<tag-uuid>",
+        "tag_name": "study/paper",
+        "filter": {
+          "Source Type": "alphaXiv"
+        },
+        "new_card_props": {
+          "Source Type": "alphaXiv"
+        }
+      },
+      "overviews": {
+        "tag_id": "<tag-uuid>",
+        "tag_name": "study/overview"
+      },
+      "projects": {
+        "$comment": "project 方向用：hub_card=Research-Projects hub（其 card mentions=各專案卡）；tag_name=自動建卡時上的 tag（create_project_card.py）。",
+        "hub_card": "<research-projects-hub-card-uuid>",
+        "tag_name": "project"
+      }
+    },
+    "props": {
+      "$comment": "tag database 的 property UUID（用 `heptabase tag properties <tagId>` 查）。",
+      "tasks": "<multiSelect-prop-uuid>",
+      "source_type": "<select-prop-uuid>",
+      "arxiv": "<text-prop-uuid>",
+      "level": "<select-prop-uuid>"
+    },
+    "scan_tags": [
+      "<papers-tag-uuid>"
+    ],
+    "$scan_tags_comment": "overview/exporter 掃描論文語料的 tag 完整清單（覆寫預設，至少含 papers tag）。",
+    "graph": {
+      "$comment": "overview-graph 用（heptabase 模式）：root_card=📚 目錄卡 UUID；whiteboard=知識地圖 whiteboard UUID；level_prop=Level property UUID；whiteboard_optional=允許不上圖的卡；hubs=topology 錨點（topic key -> hub 卡 UUID）。",
+      "root_card": "<card-uuid>",
+      "whiteboard": "<whiteboard-uuid>",
+      "level_prop": "<prop-uuid>",
+      "whiteboard_optional": [],
+      "hubs": {
+        "my-topic": "<hub-card-uuid>"
+      }
+    }
+  },
+  "obsidian": {
+    "vault": "~/Documents/MyVault",
+    "folders": {
+      "papers": "Papers",
+      "overviews": "Overviews"
+    },
+    "graph": {
+      "$comment": "overview-graph 用（obsidian 模式）。canvas=知識地圖（JSON Canvas，工具只加節點不動你的排版）；root_card=📚 目錄卡的 id（Folder/Name）；canvas_optional=允許不在地圖上的卡 id。",
+      "canvas": "知識地圖.canvas",
+      "root_card": null,
+      "canvas_optional": [],
+      "hubs": {
+        "$comment": "topology.py 用：topic key -> hub 卡 vault id；設定後可用 refresh/check 自動維護 topic snapshot",
+        "my-topic": "Overviews/My Topic Hub"
+      }
+    }
+  },
+  "integrations": {
+    "$comment": "選配的跨 skill 整合。缺少時相關功能自動跳過（graceful degradation）。",
+    "hung_yi_lee": {
+      "$comment": "hung-yi-lee 教學 skill 的安裝路徑（overview-graph 的 Direction A 匯出用它的 hungyi_kb.py 建外部語料圖）。測試相容版本：github.com/SungFeng-Huang/hung-yi-lee-skill @ local/conda-env-integration。教學『風格』不依賴此套件——風格規則內嵌於各 SKILL.md。",
+      "skill_path": "~/.claude/skills/hung-yi-lee"
+    }
+  },
+  "gold_cards": {
+    "$comment": "選配：風格金樣卡（card-rewrite 的教學式範本卡、overview-daodu 的導讀範本卡）。未設定時 skills 以內嵌的 spec 為準。",
+    "card_rewrite": null,
+    "overview_daodu": null
+  }
+}

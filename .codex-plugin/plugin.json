@@ -1,0 +1,28 @@
+{
+  "name": "research-cards",
+  "version": "0.7.0",
+  "description": "Research-card automation with selectable backend (Heptabase, Obsidian vault, or both with bidirectional sync) and selectable agent (Claude Code or Codex): clip papers from digests into teaching-style cards, maintain Tasks-based comparison overviews and a knowledge graph, log and consolidate research-project cards. Configure via ~/.config/research-cards/config.json (see config.example.json).",
+  "interface": {
+    "displayName": "Research Cards",
+    "shortDescription": "Research-card automation for Heptabase / Obsidian",
+    "category": "Education & Research",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ]
+  },
+  "author": {
+    "name": "Sung-Feng Huang"
+  },
+  "keywords": [
+    "heptabase",
+    "obsidian",
+    "research",
+    "papers",
+    "alphaxiv",
+    "knowledge-graph"
+  ],
+  "skills": "./skills/",
+  "license": "MIT"
+}

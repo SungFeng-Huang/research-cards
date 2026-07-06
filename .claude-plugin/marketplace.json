@@ -1,0 +1,13 @@
+{
+  "name": "research-cards",
+  "owner": {
+    "name": "Sung-Feng Huang"
+  },
+  "plugins": [
+    {
+      "name": "research-cards",
+      "source": "./",
+      "description": "Research-card automation with selectable backend (Heptabase, Obsidian, or both with bidirectional sync) and selectable agent (Claude Code or Codex): clip papers into teaching-style cards, maintain comparison overviews and a knowledge graph, log and consolidate research-project cards."
+    }
+  ]
+}

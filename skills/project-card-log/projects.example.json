@@ -1,0 +1,10 @@
+{
+  "_comment": "Registry mapping a project (by cwd-path / git-remote substring) to its Heptabase project card. COPY TO ~/.config/research-cards/projects.json (per-user state, not shipped). Highest-precedence override is a per-repo .heptabase-card file.",
+  "projects": [
+    {
+      "card": "<project-card-uuid>",
+      "title": "My Project",
+      "match_any": ["my_repo_dirname", "github.com/me/my-repo"]
+    }
+  ]
+}

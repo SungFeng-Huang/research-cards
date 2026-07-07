@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 — 2026-07-07
+- **多來源 digest：HuggingFace Daily Papers**——與 Scholar Inbox 共用同一
+  信箱資料夾、逐封自動分流。HF 信的 arxiv ID 直取自 papers 連結（QP 軟斷
+  行已處理）、讚數自「(N ▲)」行；因榜單非個人化，入選前先過
+  `email.hf_min_upvotes` 門檻、再依 `profile.field` 做 agent 領域相關性
+  選文（NONE＝整封略過；呼叫失敗＝保守全收並記錄）。journal 標題帶來源
+  標籤。以真實信件實測：12 篇全數萃取、選文正確判 0 篇語音相關。
+
 ## 0.10.0 — 2026-07-07
 - **whiteboard 鏡像重現 mention 線**：Heptabase 在板上自動畫的「卡片互相
   mention」連線，鏡像時從卡片內文的 mention 節點推導成 canvas edge——

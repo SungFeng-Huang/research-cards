@@ -474,6 +474,75 @@ def _extract_intermediate_report(html):
         return report if report.strip() else None
     return None
 
+# ── Source: HuggingFace Daily Papers ─────────────────────────────────────────
+def is_hf_daily(subject, source=""):
+    """HF 每日精選信：主旨「Daily papers of …」＋source 內有 papers 連結
+    （雙重確認，避免撞到其他同名信件）。"""
+    if not re.match(r"(?i)^daily papers of\b", (subject or "").strip()):
+        return False
+    return "huggingface.co/papers" in (source or "").replace("=\n", "")
+
+
+def extract_hf_papers(body, source):
+    """[{id, title, upvotes}]。arxiv ID 直接取自 source 的
+    huggingface.co/papers/<id> 連結（順序即榜單序）；標題與讚數取自純文字
+    行「Title (N ▲)」依序配對——數量不合時以連結序為準（標題僅供選文，
+    配錯不影響建卡正確性）。"""
+    decoded = (source or "").replace("=\n", "")
+    ids, seen = [], set()
+    for m in re.finditer(r"huggingface\.co/papers/(\d{4}\.\d{4,5})", decoded):
+        if m.group(1) not in seen:
+            ids.append(m.group(1))
+            seen.add(m.group(1))
+    rows = re.findall(r"^(.+?)\s*\((\d+)\s*▲\)\s*$", body or "", re.M)
+    if len(ids) != len(rows):
+        log(f"  [HF] 連結 {len(ids)} 筆 vs 標題行 {len(rows)} 筆——依連結序配對")
+    return [{"id": aid,
+             "title": (rows[i][0].strip() if i < len(rows) else ""),
+             "upvotes": (int(rows[i][1]) if i < len(rows) else 0)}
+            for i, aid in enumerate(ids)]
+
+
+def select_hf_papers(papers):
+    """HF 榜單不是個人化清單——選文兩層：
+    1. 讚數門檻：config email.hf_min_upvotes（預設 0 ＝不過濾）。
+    2. 領域相關性：config profile.field 有設時，請 agent 依標題挑出相關
+       論文（只回 arxiv ID）。agent 明確回 NONE → 這天沒有相關論文（信
+       照樣標記已處理）；呼叫失敗 → 保守全收並大聲記錄（寧多勿漏，
+       多的靠既有 dedup 與人工清理）。"""
+    try:
+        cfg = _hbconfig.load_config()
+    except Exception:
+        cfg = {}
+    min_up = 0
+    try:
+        min_up = int((cfg.get("email") or {}).get("hf_min_upvotes") or 0)
+    except (TypeError, ValueError):
+        pass
+    kept = [p for p in papers if p["upvotes"] >= min_up]
+    if len(kept) < len(papers):
+        log(f"  [HF] 讚數門檻 {min_up}：{len(papers)} → {len(kept)}")
+    field = ((cfg.get("profile") or {}).get("field") or "").strip()
+    if not field or not kept:
+        return kept
+    listing = "\n".join(f"{p['id']}: {p['title'] or '(no title)'}" for p in kept)
+    prompt = (f"你是「{field}」領域研究者的論文篩選助理。以下是今天 HuggingFace "
+              f"Daily Papers 的清單（arxiv ID: 標題）。只挑出與該領域直接相關的"
+              f"論文（模型、資料、評測、應用皆算；跨領域方法僅在明顯可遷移時"
+              f"入選）。只輸出入選的 arxiv ID、每行一個；全部不相關就輸出 "
+              f"NONE。\n\n{listing}")
+    out = call_claude(prompt, timeout=180)
+    if not (out or "").strip():
+        log("  [HF] 領域篩選呼叫失敗——保守全收（靠 dedup/人工清理）")
+        return kept
+    chosen = set(re.findall(r"\d{4}\.\d{4,5}", out))
+    sel = [p for p in kept if p["id"] in chosen]
+    log(f"  [HF] 領域篩選（{field}）：{len(kept)} → {len(sel)}")
+    for p in sel:
+        log(f"    ✓ {p['id']} {p['title'][:60]}")
+    return sel
+
+
 def fetch_alphaxiv(paper_id):
     """Fetch the alphaXiv overview. Works for numeric arxiv IDs and named
     slugs (alphaxiv:slug) alike — both have overview/{bare} pages.
@@ -2059,7 +2128,10 @@ def update_journal(entries, subject="", recv_date=""):
 
     # Section heading with email subject + the email's RECEIVED date
     date_label = recv_date or today
-    heading_text = f"Scholar Inbox — {subject}（{date_label}）" if subject else f"Scholar Inbox（{date_label}）"
+    src_label = ("HF Daily Papers"
+                 if re.match(r"(?i)^daily papers of\b", (subject or "").strip())
+                 else "Scholar Inbox")
+    heading_text = f"{src_label} — {subject}（{date_label}）" if subject else f"{src_label}（{date_label}）"
     doc["content"].append({
         "type": "heading",
         "attrs": {"id": None, "level": 2},
@@ -2116,7 +2188,12 @@ def process_one_email(index, processed_keys):
         log(f"[{index}] Already processed, skipping.")
         return dedup_key, subject, recv_date, None  # None entries = skip, but don't stop
 
-    arxiv_ids = extract_arxiv_ids(body, source)
+    if is_hf_daily(subject, source):
+        papers = extract_hf_papers(body, source)
+        log(f"[{index}] HF Daily Papers：{len(papers)} 篇上榜")
+        arxiv_ids = [p["id"] for p in select_hf_papers(papers)]
+    else:
+        arxiv_ids = extract_arxiv_ids(body, source)
     log(f"[{index}] Papers found: {arxiv_ids or '(none)'}")
     if not arxiv_ids:
         return dedup_key, subject, recv_date, []

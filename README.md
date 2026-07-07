@@ -383,9 +383,12 @@ python3 verify.py             # vault 完整性檢查；預期 CLEAN
   信件重跑是廉價 no-op，排多密都安全——但**去重 key 在下游步驟失敗時也會
   記錄**，所以排程前先互動式跑通整條管線；否則失敗的首跑會把信標成已處理
   卻沒有卡。
-- Digest 來源：Scholar Inbox 完整支援（分數／連結都解析）；任何帶
-  arxiv/alphaXiv 連結的 digest 都可抽取。其他來源（如 HuggingFace Daily
-  Papers）在 roadmap 上。
+- Digest 來源：**Scholar Inbox**（分數／連結都解析）與 **HuggingFace
+  Daily Papers**（arxiv ID 直取自連結；因榜單非個人化，入選前先過
+  `email.hf_min_upvotes` 讚數門檻＋依 config `profile.field` 的領域相關
+  性篩選——agent 判全不相關就整封略過）完整支援；其他任何帶
+  arxiv/alphaXiv 連結的 digest 也可抽取。多來源共用同一個信箱資料夾，
+  逐封自動分流。
 
 ## 整合（選用）
 

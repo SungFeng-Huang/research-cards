@@ -18,7 +18,9 @@
   "email": {
     "$comment": "scholar-inbox-clip 的郵件來源（Mac Mail.app）。account=帳號名稱包含的字串；mailbox=專用信箱資料夾。用 Mail rule 把論文 digest 信（Scholar Inbox 等）導進這個信箱——信箱本身就是過濾器，任何含 arxiv/alphaXiv 連結的 digest 都能萃取。",
     "account": "iCloud",
-    "mailbox": "Scholar Inbox"
+    "mailbox": "Scholar Inbox",
+    "hf_min_upvotes": 0,
+    "$hf_comment": "HuggingFace Daily Papers 的讚數門檻（榜單非個人化，先粗篩再交給 profile.field 的領域相關性選文）。0 = 不過濾。"
   },
   "heptabase": {
     "workspace_id": "<your-heptabase-workspace-uuid>",

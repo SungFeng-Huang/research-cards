@@ -42,9 +42,19 @@ obsidian 模式改為「OVERVIEW_TASKS ∪ vault 既有 tasks 值」（無 tag d
    自行決定後 `run.insert_figures_into_card(cid, arxiv_id, placements=[...])`。
    cron 路徑仍走 call_claude，失敗時自動降級為無圖並進 retry 記錄，不會中斷管線。
 
-Automates the full pipeline: read Scholar Inbox email → fetch alphaXiv AI
+Automates the full pipeline: read digest emails → fetch alphaXiv AI
 overview per paper → translate to Traditional Chinese → color-highlight key
 text → create Heptabase cards.
+
+**Sources（同一信箱資料夾、逐封自動分流）**：
+- **Scholar Inbox / Scholar Alert digests**——個人化清單，信裡的論文全數
+  進管線（分數／連結解析）。
+- **HuggingFace Daily Papers**（主旨「Daily papers of …」）——arxiv ID 直
+  取自 `huggingface.co/papers/<id>` 連結、讚數取自「(N ▲)」行。榜單**非**
+  個人化，入選前兩層選文：`email.hf_min_upvotes` 讚數門檻（預設 0）→
+  config `profile.field` 領域相關性（`call_claude` 依標題挑；明確回 NONE
+  ＝整封略過並標記已處理；呼叫失敗＝保守全收、大聲記錄）。
+- 其他帶 arxiv/alphaXiv 連結的信件走通用萃取。
 
 ---
 

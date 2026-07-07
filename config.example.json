@@ -38,9 +38,10 @@
         "tag_name": "study/overview"
       },
       "projects": {
-        "$comment": "project 方向用：hub_card=Research-Projects hub（其 card mentions=各專案卡）；tag_name=自動建卡時上的 tag（create_project_card.py）。",
+        "$comment": "project 方向用：hub_card=Research-Projects hub（其 card mentions=各專案卡）；tag_name=自動建卡時上的 tag（create_project_card.py）。 tag_id 選填：填上 project tag 的 uuid 後，obsidian-sync 會把 project 卡也鏡像成一個 collection（放進 obsidian.folders.projects，預設 Projects/）；不填則此條目只作為 project 方向的 metadata、sync 略過。",
         "hub_card": "<research-projects-hub-card-uuid>",
-        "tag_name": "project"
+        "tag_name": "project",
+        "tag_id": "<tag-uuid-optional>"
       }
     },
     "props": {
@@ -69,7 +70,8 @@
     "vault": "~/Documents/MyVault",
     "folders": {
       "papers": "Papers",
-      "overviews": "Overviews"
+      "overviews": "Overviews",
+      "projects": "Projects"
     },
     "graph": {
       "$comment": "overview-graph 用（obsidian 模式）。canvas=知識地圖（JSON Canvas，工具只加節點不動你的排版）；root_card=📚 目錄卡的 id（Folder/Name）；canvas_optional=允許不在地圖上的卡 id。",

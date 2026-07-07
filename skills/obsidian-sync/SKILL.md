@@ -36,8 +36,13 @@ iCloud Drive, run OUTSIDE the sandbox (the terminal needs Full Disk Access).
 
 ## What it does
 
-- **Collections** (config at top of `sync.py`): `study/paper` filtered to
-  Source Type=alphaXiv → `Papers/`; `study/overview` (all) → `Overviews/`.
+- **Collections** are config-driven: every `heptabase.collections.<key>`
+  entry with a filled `tag_id` becomes one collection, mirrored into
+  `obsidian.folders.<key>` (default: capitalized key). Optional `filter`
+  narrows by property (e.g. papers → Source Type=alphaXiv). Typical set:
+  papers → `Papers/`, overviews → `Overviews/`, projects → `Projects/`.
+  Entries without a `tag_id` (or with a `<placeholder>`) are skipped —
+  they may exist as metadata for other skills.
 - **Body**: one-way Heptabase → Obsidian. Skips cards whose `lastEditedTime`
   and `contentMd5` are unchanged (fast incremental). ProseMirror → markdown
   incl. math (`$...$`/`$$...$$`), tables, toggle/numbered/todo lists,

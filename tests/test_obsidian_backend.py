@@ -76,5 +76,34 @@ class TestObsidianBackend(unittest.TestCase):
         self.assertIn("第一筆", open(os.path.join(self.tmp, "2026-01-01.md")).read())
 
 
+class TestSyncCollectionsGuard(unittest.TestCase):
+    """sync.py must skip collection entries without a usable tag_id (e.g. the
+    example's projects entry, which exists as project-direction metadata) —
+    importing it with such a config used to KeyError."""
+
+    def test_import_skips_tagless_collections(self):
+        import subprocess, sys as _sys, tempfile
+        tmp = tempfile.mkdtemp(prefix="hbcards-collguard-")
+        cfg = {"backend": "both",
+               "obsidian": {"vault": tmp, "folders": {"papers": "Papers"}},
+               "heptabase": {"workspace_id": "w",
+                             "collections": {
+                                 "papers": {"tag_id": "aaaa-bbbb"},
+                                 "projects": {"hub_card": "<uuid>", "tag_name": "project"},
+                                 "guides": {"tag_id": "<tag-uuid>"}}}}
+        cp = os.path.join(tmp, "config.json")
+        json.dump(cfg, open(cp, "w"))
+        env = dict(os.environ, HEPTABASE_CARDS_CONFIG=cp)
+        env.pop("RESEARCH_CARDS_CONFIG", None)
+        sync_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                "..", "skills", "obsidian-sync")
+        r = subprocess.run(
+            [_sys.executable, "-c",
+             "import sync; print([c['key'] for c in sync.COLLECTIONS])"],
+            cwd=sync_dir, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-400:])
+        self.assertIn("['papers']", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,9 @@ if _cfg["backend"] != "both":
              f"（目前 config 是 {_cfg['backend']!r}）。單一 backend 不需要同步。")
 VAULT = _cfg["obsidian"]["vault"]
 WORKSPACE = _cfg["heptabase"]["workspace_id"]
+# A collection syncs only when its tag_id is filled in — entries without one
+# (or with a <placeholder>) are metadata for other skills (e.g. projects'
+# hub_card for project-card-merge) and must not crash the sync.
 COLLECTIONS = [
     {"key": key,
      "tag_id": col["tag_id"],
@@ -36,7 +39,9 @@ COLLECTIONS = [
      "folder": _cfg["obsidian"]["folders"].get(key, key.capitalize()),
      "filter": col.get("filter"),
      "new_card_props": col.get("new_card_props") or {}}
-    for key, col in _cfg["heptabase"]["collections"].items()]
+    for key, col in _cfg["heptabase"]["collections"].items()
+    if isinstance(col.get("tag_id"), str) and col["tag_id"]
+    and not col["tag_id"].startswith("<")]
 STATE_PATH = os.path.join(VAULT, ".hepta-sync", "state.json")
 CACHE_DIR = os.path.join(VAULT, ".hepta-sync", "pm-cache")
 CONFLICT_NOTE = os.path.join(VAULT, "Sync Conflicts.md")

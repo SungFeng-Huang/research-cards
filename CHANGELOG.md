@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.3 — 2026-07-07
+- **projects 也可成為 sync collection**：`heptabase.collections.projects`
+  填上 `tag_id` 後，project 卡與 Papers/Overviews 一樣走完整三級雙向同步
+  （前向鏡像／properties 三方／區塊級寫回＋收養），鏡像到
+  `obsidian.folders.projects`（預設 `Projects/`）。
+- **修**：collections 條目缺 `tag_id`（或為 `<佔位符>`）時 sync 啟動會
+  KeyError——現在略過該條目（example 的 projects 條目正是這種 metadata）。
+- SKILL.md collections 說明改為 config-driven 的一般化描述。
+
 ## 0.7.2 — 2026-07-07
 - **verify.py 資料夾對照設定化**：collection → vault 資料夾改讀 config
   `obsidian.folders`（原殘留硬編 `Papers`/`Overviews`，folders 自訂或搬移

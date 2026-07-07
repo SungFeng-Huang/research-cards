@@ -61,10 +61,16 @@ It prints one JSON line. Act on `source`:
 
      It creates the card WITH the 定位/現狀/brief skeleton, tags it with
      config `heptabase.collections.projects.tag_name`（default `project`；
-     tag 不存在會自動建立）, and pins the mapping by writing
-     `.heptabase-card` at the git root. Transport auto-picked（local
-     heptabase CLI → tag 完整；hb bridge → 建卡＋提醒回 Mac 補 tag；
-     backend=obsidian → `Projects/` 資料夾＋frontmatter tag）.
+     tag 不存在會自動建立）, and pins the mapping — check `record` in the
+     JSON output: inside a git repo it writes `.heptabase-card` at the git
+     root（`record: marker`）；cwd NOT in a git repo（典型：project root 是
+     普通目錄、git repos 在它底下）→ 改為在 registry 追加
+     `match_any: [<dir name>]` 條目（`record: registry`——marker 放在
+     nested repo 的 git root 之上會被 marker 搜尋的 stop-at-git-root 規則
+     擋住，registry 的路徑子字串比對才蓋得到；條目 per-machine，別台機器
+     要重加）. Transport auto-picked（local heptabase CLI → tag 完整；
+     hb bridge → 建卡＋提醒回 Mac 補 tag；backend=obsidian →
+     `Projects/` 資料夾＋frontmatter tag）.
   3. Manual pin (existing card):
      ```bash
      printf 'card: <CARD_ID>\ntitle: <Title>\n' > "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.heptabase-card"
@@ -122,3 +128,7 @@ final merge/cleanup on the Mac (where full edit/overwrite is available), since
 - Adding a brand-new project: `create_project_card.py` handles card + skeleton
   + tag + pin in one step from anywhere（見上方 none 分支）；monorepo 子專案
   記得傳 `--marker-dir "$(pwd)"`，marker 才不會 pin 到整個 repo。
+- Project root 不是 git root（git repos 在它底下）：從 project root 跑
+  create_project_card.py 會自動 fallback 成 registry 條目
+  （`match_any: [<dir name>]`），底下所有 nested repo 都經路徑子字串比對
+  解析到同一張卡——一卡對多 repo 本來就是 registry 的守備範圍。

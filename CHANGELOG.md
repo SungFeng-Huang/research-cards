@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 — 2026-07-07
+- **project-card-log 建卡 pin 位置自動分流**：`create_project_card.py` 在 git
+  repo 內照舊寫 `.heptabase-card` marker；cwd 不在 git repo（project root 是
+  普通目錄、git repos 在底下）改為在 registry `projects.json` 追加
+  `match_any: [<dir name>]` 條目——nested repo 靠路徑子字串比對解析，marker
+  放在其 git root 之上是搜不到的。撞名 fail-fast（先擋、不建卡）。輸出新增
+  `record: marker|registry`。
+
 ## 0.7.0 — 2026-07-07
 - **改名：heptabase-cards → research-cards**（plugin 已不只服務 Heptabase）。
   config 目錄新家 `~/.config/research-cards/`（舊目錄與舊環境變數

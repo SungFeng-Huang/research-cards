@@ -14,10 +14,17 @@ What it does (transport picked automatically):
      - `hb` bridge (remote)   → create; tagging may need a Mac-side follow-up
      - backend=obsidian       → .md in config obsidian.folders.projects
        (default "Projects/"), tag recorded in frontmatter
-  3. Pins the mapping: writes `.heptabase-card` at the git root (falls back
-     to cwd) so every future session here resolves automatically.
+  3. Pins the mapping:
+     - inside a git repo → `.heptabase-card` marker at the git root
+       (--marker-dir overrides; monorepo 子專案傳自己的目錄)
+     - NOT inside a git repo (e.g. a project root whose git repos live one
+       level down) → appends {card, title, match_any: [dir name]} to the
+       registry projects.json instead. A marker above a nested repo's git
+       root would be invisible there (marker search stops at each repo's
+       git root); the registry's path-substring match covers all of them.
+       Registry entries are per-machine — repeat on other machines.
 
-Prints one JSON line: {card, title, transport, marker}.
+Prints one JSON line: {card, title, transport, record, marker|registry}.
 """
 import argparse
 import json
@@ -103,6 +110,69 @@ def create_hb_bridge(title, tag):
     return cid, False  # bridge 無 tag 能力：回 Mac 補 tag
 
 
+def registry_path():
+    """The same projects.json resolve_card reads (config dir)."""
+    import resolve_card
+    return resolve_card._cfg_path().parent / "projects.json"
+
+
+def load_registry(reg_path):
+    """First config-dir write MIGRATES the legacy script-dir registry that
+    resolve_card would currently be reading — creating a fresh config-dir
+    file would otherwise shadow every legacy mapping."""
+    if not reg_path.is_file():
+        import resolve_card
+        legacy = resolve_card.REG
+        if legacy.is_file() and legacy.resolve() != reg_path.resolve():
+            try:
+                return json.loads(legacy.read_text())
+            except Exception as e:
+                sys.exit(f"legacy registry 讀取失敗（{legacy}）：{e}")
+        return {"projects": []}
+    try:
+        return json.loads(reg_path.read_text())
+    except Exception as e:
+        sys.exit(f"registry 讀取失敗（{reg_path}）：{e}")
+
+
+def registry_guard(reg_path, root):
+    """Fail fast (BEFORE creating a card) when match_any=[basename] would
+    collide with an existing entry under resolve_card's substring match —
+    the new name already matching this path, or vice versa. A softer case —
+    an existing entry that would also match some repo nested under root,
+    making THAT repo registry-ambiguous later — only warns: a marker in the
+    nested repo outranks the registry, so it stays recoverable."""
+    base = os.path.basename(root).lower()
+    warned = []
+    for proj in load_registry(reg_path).get("projects", []):
+        for sub in proj.get("match_any", []):
+            s = sub.lower()
+            if s in str(root).lower() or base in s:
+                sys.exit(f"registry 已有會與「{os.path.basename(root)}」互撞的條目"
+                         f"（{proj.get('title')}: match_any {sub}）——請先手動編輯 {reg_path}")
+            try:
+                nested_hit = any(
+                    s in os.path.join(str(root), d).lower()
+                    for d in os.listdir(root)
+                    if os.path.isdir(os.path.join(root, d)))
+            except OSError:
+                nested_hit = False
+            if nested_hit:
+                warned.append((proj.get("title"), sub))
+    for title, sub in warned:
+        print(f"# 注意：底下有子目錄會同時命中既有條目「{title}: {sub}」——該 repo "
+              f"將來會解析成 registry-ambiguous；屆時在該 repo 放 .heptabase-card "
+              f"marker 即可蓋過。", file=sys.stderr)
+
+
+def registry_append(reg_path, cid, title, root):
+    reg = load_registry(reg_path)
+    reg.setdefault("projects", []).append(
+        {"card": cid, "title": title, "match_any": [os.path.basename(root)]})
+    reg_path.parent.mkdir(parents=True, exist_ok=True)
+    reg_path.write_text(json.dumps(reg, ensure_ascii=False, indent=2) + "\n")
+
+
 def create_obsidian(title, tag, c):
     import backend
     be = backend.ObsidianBackend(c)
@@ -122,21 +192,30 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    root = args.marker_dir or git_root() or os.getcwd()
-    if not args.marker_dir and git_root() and os.getcwd() != git_root():
+    groot = git_root()
+    root = args.marker_dir or groot or os.getcwd()
+    record = "marker" if (args.marker_dir or groot) else "registry"
+    if not args.marker_dir and groot and os.getcwd() != groot:
         print(f"# 注意：marker 將寫到 git root（{root}）；monorepo 子專案請改用 "
               f"--marker-dir \"$(pwd)\"", file=sys.stderr)
     title = args.title or os.path.basename(root)
     c = cfg()
     tag = tag_name(c)
+    if record == "registry":  # fail fast，別先建了卡才發現 registry 撞名
+        registry_guard(registry_path(), root)
 
     if args.dry_run:
         transport = ("obsidian" if c.get("backend") == "obsidian" else
                      "heptabase" if sh(["which", "heptabase"]).returncode == 0
                      else "hb")
-        return print(json.dumps({"dry_run": True, "title": title, "tag": tag,
-                                 "transport": transport, "marker_dir": root},
-                                ensure_ascii=False))
+        out = {"dry_run": True, "title": title, "tag": tag,
+               "transport": transport, "record": record}
+        if record == "marker":
+            out["marker_dir"] = root
+        else:
+            out["registry"] = str(registry_path())
+            out["match_any"] = [os.path.basename(root)]
+        return print(json.dumps(out, ensure_ascii=False))
 
     if c.get("backend") == "obsidian":
         cid, tagged = create_obsidian(title, tag, c)
@@ -150,14 +229,21 @@ def main():
     else:
         sys.exit("找不到 heptabase CLI 或 hb bridge（config backend 也非 obsidian）")
 
-    marker = Path(root) / ".heptabase-card"
-    marker.write_text(f"card: {cid}\ntitle: {title}\n")
-    print(json.dumps({"card": cid, "title": title, "transport": transport,
-                      "tag": tag, "tagged": tagged, "marker": str(marker),
-                      "note": None if tagged else
-                      f"transport 無法上 tag——回 Mac 跑 `heptabase tag add "
-                      f"--card-id {cid} --tag-name {tag}`"},
-                     ensure_ascii=False))
+    out = {"card": cid, "title": title, "transport": transport,
+           "tag": tag, "tagged": tagged, "record": record,
+           "note": None if tagged else
+           f"transport 無法上 tag——回 Mac 跑 `heptabase tag add "
+           f"--card-id {cid} --tag-name {tag}`"}
+    if record == "marker":
+        marker = Path(root) / ".heptabase-card"
+        marker.write_text(f"card: {cid}\ntitle: {title}\n")
+        out["marker"] = str(marker)
+    else:
+        rp = registry_path()
+        registry_append(rp, cid, title, root)
+        out["registry"] = str(rp)
+        out["match_any"] = [os.path.basename(root)]
+    print(json.dumps(out, ensure_ascii=False))
 
 
 if __name__ == "__main__":

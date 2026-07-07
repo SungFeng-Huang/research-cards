@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.4 — 2026-07-07
+- **verify.py 與 sync.py 的資料夾規則完全對齊**：collection 缺
+  `obsidian.folders.<key>` 時兩者同用 capitalized key fallback，掃描
+  範圍取兩集合聯集（原本 verify 用原始 collection key、且漏掃 fallback
+  資料夾，會誤報 state_orphans／漏報 untracked）。
+
 ## 0.7.3 — 2026-07-07
 - **projects 也可成為 sync collection**：`heptabase.collections.projects`
   填上 `tag_id` 後，project 卡與 Papers/Overviews 一樣走完整三級雙向同步

@@ -19,7 +19,12 @@ import hbconfig
 
 _cfg = hbconfig.load_config()
 VAULT = _cfg["obsidian"]["vault"]
-FOLDERS = list((_cfg["obsidian"].get("folders") or {}).values()) or ["Papers"]
+# Mirror sync.py's folder rule exactly: configured folder, else the
+# capitalized collection key — and scan the union of both sets.
+_FOLDER_MAP = _cfg["obsidian"].get("folders") or {}
+_COLLECTIONS = (_cfg.get("heptabase") or {}).get("collections") or {}
+folder_of = {k: _FOLDER_MAP.get(k, k.capitalize()) for k in _COLLECTIONS}
+FOLDERS = sorted(set(_FOLDER_MAP.values()) | set(folder_of.values())) or ["Papers"]
 STATE_PATH = os.path.join(VAULT, ".hepta-sync", "state.json")
 IMG_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp',
            '.pdf', '.mp4', '.mp3', '.m4a', '.wav'}
@@ -83,7 +88,6 @@ out["duplicate_ids"] = [{"id": k, "files": v} for k, v in ids.items() if len(v) 
 
 if os.path.exists(STATE_PATH):
     state = json.load(open(STATE_PATH))
-    folder_of = dict(_cfg["obsidian"].get("folders") or {})  # collection key -> vault folder
     tracked = set()
     for cid, st in state["cards"].items():
         rel = f"{folder_of.get(st['collection'], st['collection'])}/{st['file']}.md"

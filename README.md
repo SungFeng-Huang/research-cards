@@ -398,13 +398,19 @@ python3 verify.py             # vault 完整性檢查；預期 CLEAN
    你自己的卡片庫。
 
 該 skill 不內嵌進本 plugin（它有自己的上游與 PR 流程，且 Codex 的靜態
-plugin cache 載不動巢狀 repo）。並排安裝——上游
-`voidful/hung-yi-lee-skill` 是 MIT 授權（寫在其 README 尾端）：
+plugin cache 載不動巢狀 repo）。並排安裝，**建議裝本專案作者的 fork 的
+`local/conda-env-integration` 分支**——執行期整合需要的擴充（external
+corpus、來源出處標記等）在該分支上，尚未全部進上游；本 plugin 也是對著它
+測試的：
 
 ```bash
-git clone https://github.com/voidful/hung-yi-lee-skill ~/.claude/skills/hung-yi-lee
+git clone -b local/conda-env-integration \
+  https://github.com/SungFeng-Huang/hung-yi-lee-skill ~/.claude/skills/hung-yi-lee
 pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 ```
+
+（只要教學風格、不需要匯出整合的話，裝上游
+`voidful/hung-yi-lee-skill` 也可以——MIT 授權，寫在其 README 尾端。）
 
 然後在 config 指過去：
 

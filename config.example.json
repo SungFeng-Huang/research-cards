@@ -64,7 +64,9 @@
       "hubs": {
         "my-topic": "<hub-card-uuid>"
       }
-    }
+    },
+    "backup_dir": "<~/Documents/Heptabase_export — optional>",
+    "$backup_dir_comment": "whiteboard→canvas 鏡像（overview-graph 的 whiteboard2canvas.py）的資料來源：放 Heptabase「Export all data」備份的資料夾，自動撿最新一份 All-Data.json。"
   },
   "obsidian": {
     "vault": "~/Documents/MyVault",
@@ -81,7 +83,11 @@
       "hubs": {
         "$comment": "topology.py 用：topic key -> hub 卡 vault id；設定後可用 refresh/check 自動維護 topic snapshot",
         "my-topic": "Overviews/My Topic Hub"
-      }
+      },
+      "mirror_whiteboards": {
+        "<whiteboard-uuid>": "Maps/我的地圖.canvas"
+      },
+      "$mirror_comment": "單向鏡像：每個條目把一塊 Heptabase whiteboard 覆寫成 vault 裡的 JSON Canvas（版面以 Heptabase 為準，別手排鏡像出的 canvas）。與 canvas（add-only 知識地圖）互不相干。"
     }
   },
   "integrations": {

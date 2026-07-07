@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — 2026-07-07
+- **whiteboard → Obsidian Canvas 單向鏡像（v1）**：`overview-graph` 新增
+  `whiteboard2canvas.py`——以 Heptabase「Export all data」備份
+  （All-Data.json，官方可回匯格式）為來源，把 whiteboard 版面（卡片座標／
+  顏色／摺疊高度、section→group、浮動文字 PM→md、連線→edge 含 sides）
+  覆寫成 JSON Canvas。已同步卡→`file` 節點、未同步卡→帶連結的 `text`
+  節點。config：`heptabase.backup_dir`＋`obsidian.graph.mirror_whiteboards`。
+  即時來源（app IndexedDB 直讀）留待 v2。
+
 ## 0.7.4 — 2026-07-07
 - **verify.py 與 sync.py 的資料夾規則完全對齊**：collection 缺
   `obsidian.folders.<key>` 時兩者同用 capitalized key fallback，掃描

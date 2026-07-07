@@ -189,6 +189,30 @@ REBUILD ends with a condensed `[alignment]` notice (top suggest_alignments.py
 candidates) so alignment drift surfaces as soon as new data lands — the
 merge-vs-align call stays human; edit `graph_alignment.json` and re-run.
 
+## Operation 6 — Mirror a whiteboard into an Obsidian Canvas（單向）
+
+把 Heptabase whiteboard 的實際版面（卡片座標/顏色/摺疊、section 分區、
+連線）鏡像成 vault 裡的 JSON Canvas。版面以 Heptabase 為準——每次執行
+整檔覆寫，鏡像出的 canvas 不要手排。
+
+```bash
+cd "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/research-cards}/skills/overview-graph/scripts"
+python3 whiteboard2canvas.py                 # config 登記的全部 whiteboard
+python3 whiteboard2canvas.py --dry-run       # 只出報告不寫檔
+python3 whiteboard2canvas.py --whiteboard <id> --all-data <path>
+```
+
+- 資料來源（v1）：Heptabase「Export all data」備份的 All-Data.json——
+  config `heptabase.backup_dir` 指向備份資料夾（自動撿最新），或
+  `--all-data` 直接給。備份超過 7 天會出提醒（鏡像只到備份當下）。
+- 鏡像對象：config `obsidian.graph.mirror_whiteboards`
+  `{"<whiteboard-id>": "<vault 相對路徑>.canvas"}`。
+- 已同步的卡 → `file` 節點（借 obsidian-sync 的 state 解析 vault 路徑）；
+  未同步的卡 → 帶 Heptabase 連結的 `text` 節點（報告列在
+  `unsynced_cards`）；浮動文字 → `text`（PM→md）；section → `group`；
+  連線 → edge（sides/顏色/label 對應；mindmap/媒體等不支援的物件計入
+  `skipped_unsupported`）。
+
 ## Operation 5 — Research-gap analysis for a project card (Direction A 應用)
 
 **When**: the user asks 找研究漏洞 / gap 分析 / 方向發想 for a Research-Projects

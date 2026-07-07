@@ -524,21 +524,31 @@ def select_hf_papers(papers):
     if len(kept) < len(papers):
         log(f"  [HF] 讚數門檻 {min_up}：{len(papers)} → {len(kept)}")
     field = ((cfg.get("profile") or {}).get("field") or "").strip()
-    if not field or not kept:
+    interests = [str(t) for t in
+                 ((cfg.get("email") or {}).get("topics_of_interest") or []) if t]
+    if (not field and not interests) or not kept:
         return kept
     listing = "\n".join(f"{p['id']}: {p['title'] or '(no title)'}" for p in kept)
-    prompt = (f"你是「{field}」領域研究者的論文篩選助理。以下是今天 HuggingFace "
-              f"Daily Papers 的清單（arxiv ID: 標題）。只挑出與該領域直接相關的"
-              f"論文（模型、資料、評測、應用皆算；跨領域方法僅在明顯可遷移時"
-              f"入選）。只輸出入選的 arxiv ID、每行一個；全部不相關就輸出 "
-              f"NONE。\n\n{listing}")
+    crit = []
+    if field:
+        crit.append(f"與「{field}」領域直接相關（模型、資料、評測、應用皆算；"
+                    f"跨領域方法僅在明顯可遷移時入選）")
+    if interests:
+        crit.append("屬於這些主題之一（依標題判斷，明顯落在任一主題的範圍"
+                    "就算符合，不必苛求）：" + "、".join(interests))
+    criteria = "；或 ".join(f"({chr(97 + i)}) {c}" for i, c in enumerate(crit))
+    prompt = (f"你是研究者的論文篩選助理。以下是今天 HuggingFace Daily Papers "
+              f"的清單（arxiv ID: 標題）。只挑出符合任一條件的論文：{criteria}。"
+              f"只輸出入選的 arxiv ID、每行一個；全部不符就輸出 NONE。"
+              f"\n\n{listing}")
     out = call_claude(prompt, timeout=180)
     if not (out or "").strip():
         log("  [HF] 領域篩選呼叫失敗——保守全收（靠 dedup/人工清理）")
         return kept
     chosen = set(re.findall(r"\d{4}\.\d{4,5}", out))
     sel = [p for p in kept if p["id"] in chosen]
-    log(f"  [HF] 領域篩選（{field}）：{len(kept)} → {len(sel)}")
+    label = "＋".join(filter(None, [field, "興趣主題" if interests else ""]))
+    log(f"  [HF] 選文（{label}）：{len(kept)} → {len(sel)}")
     for p in sel:
         log(f"    ✓ {p['id']} {p['title'][:60]}")
     return sel
@@ -1403,12 +1413,14 @@ def check_duplicate(arxiv_id):
     # otherwise matches unrelated cards that merely mention the model.
     bid = bare_id(arxiv_id)
     url_marker = re.compile(rf'/(?:overview|abs|html|zh/overview)/{re.escape(bid)}\b')
+    # limit 25：free-text 搜尋的前幾名常被 journal（含同 id 連結的日誌）
+    # 佔住，真正的舊卡排在後面——實際踩過 limit=5 漏掉同 id 舊卡的雷。
     if OBS:
-        for c in OBS.search_cards(bid, limit=5):
+        for c in OBS.search_cards(bid, limit=25):
             if url_marker.search(OBS.read_content_str(c["id"])):
                 return True
         return False
-    data = _hb("card", "list", "-q", bid, "--limit", "5", check=False)
+    data = _hb("card", "list", "-q", bid, "--limit", "25", check=False)
     results = data.get("results", [])
     if not results:
         return False
@@ -1420,6 +1432,27 @@ def check_duplicate(arxiv_id):
         except Exception:
             continue
     return False
+
+def _norm_title(t):
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "",
+                  re.sub(r"^\[alphaxiv\]\s*", "", (t or "").strip().lower()))
+
+
+def title_duplicate(title):
+    """Second duplicate gate, by NORMALIZED-title equality. Catches papers
+    whose two clips carry different id notations (numeric arxiv id vs a named
+    alphaxiv slug) — those are invisible to the id-based check_duplicate."""
+    q = re.sub(r"^\[alphaXiv\]\s*", "", (title or "").strip())[:60]
+    if not q:
+        return False
+    want = _norm_title(title)
+    if OBS:
+        return any(_norm_title(c.get("title")) == want
+                   for c in OBS.search_cards(q, limit=25))
+    data = _hb("card", "list", "-q", q, "--limit", "25", check=False)
+    return any(_norm_title(r.get("title")) == want
+               for r in data.get("results", []))
+
 
 def create_card(markdown):
     if OBS:
@@ -2290,6 +2323,13 @@ def process_one_email(index, processed_keys):
         translated = translate_content(content, arxiv_id, images=images or None)
         if not translated:
             log("  [ERR] Translation failed, skipping")
+            continue
+
+        # Title-level duplicate gate (id-notation mismatches slip past the
+        # id-based check; the translated H1 is the first reliable title)
+        _t = translated.splitlines()[0] if translated else ""
+        if title_duplicate(_t):
+            log(f"  [SKIP] duplicate by title: {_t[:60]}")
             continue
 
         # Create card

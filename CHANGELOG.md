@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.1 — 2026-07-08
+- **修雙重去重漏洞**（實戰踩雷）：id 級 check_duplicate 的搜尋名額被
+  journal 佔滿（limit 5→25）；新增**標題級第二道防線** `title_duplicate`
+  ——id 記法不一致（數字 arxiv id vs `alphaxiv:<slug>`）的重複剪報在建卡
+  前以正規化標題相等擋下。
+- **HF 選文放寬**：config `email.topics_of_interest`——除 `profile.field`
+  領域相關外，屬於興趣主題清單（建議對齊 Topics property 選項）的論文也
+  入選。空清單＝維持只看 field。
+
 ## 0.12.0 — 2026-07-08
 - **Topics property 進管線**：`set_topics()/current_topics()/valid_topic_options()`
   （config `props.topics`，語義同 Tasks 三件組：additive、集合外丟棄並記

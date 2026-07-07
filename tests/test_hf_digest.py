@@ -89,6 +89,32 @@ class TestHFDigest(unittest.TestCase):
         self.assertEqual(run.select_hf_papers(
             run.extract_hf_papers(BODY, SOURCE)), [])
 
+    def test_interests_only_selection(self):
+        self._write_cfg({"email": {"topics_of_interest":
+                                   ["LLM / Foundation Model", "Agentic AI"]}})
+        seen = {}
+        def fake(prompt, **k):
+            seen["prompt"] = prompt
+            return "2607.00002"
+        run.call_claude = fake
+        sel = run.select_hf_papers(run.extract_hf_papers(BODY, SOURCE))
+        self.assertEqual([p["id"] for p in sel], ["2607.00002"])
+        self.assertIn("LLM / Foundation Model", seen["prompt"])
+        self.assertNotIn("領域直接相關", seen["prompt"])  # 無 field 就不出現該條件
+
+    def test_field_plus_interests_both_in_prompt(self):
+        self._write_cfg({"profile": {"field": "語音"},
+                         "email": {"topics_of_interest": ["Agentic AI"]}})
+        seen = {}
+        def fake(prompt, **k):
+            seen["prompt"] = prompt
+            return "NONE"
+        run.call_claude = fake
+        self.assertEqual(run.select_hf_papers(
+            run.extract_hf_papers(BODY, SOURCE)), [])
+        self.assertIn("語音", seen["prompt"])
+        self.assertIn("Agentic AI", seen["prompt"])
+
     def test_field_selection_failure_keeps_all(self):
         self._write_cfg({"profile": {"field": "語音"}})
         run.call_claude = lambda *a, **k: None

@@ -20,7 +20,9 @@
     "account": "iCloud",
     "mailbox": "Scholar Inbox",
     "hf_min_upvotes": 0,
-    "$hf_comment": "HuggingFace Daily Papers 的讚數門檻（榜單非個人化，先粗篩再交給 profile.field 的領域相關性選文）。0 = 不過濾。"
+    "$hf_comment": "HuggingFace Daily Papers 的讚數門檻（榜單非個人化，先粗篩再交給 profile.field 的領域相關性選文）。0 = 不過濾。",
+    "topics_of_interest": [],
+    "$interest_comment": "HF Daily Papers 選文的放寬條件：除了 profile.field 的領域相關，屬於這些主題之一的論文也入選（建議與 Topics property 的選項一致）。空 = 只看 field。"
   },
   "heptabase": {
     "workspace_id": "<your-heptabase-workspace-uuid>",

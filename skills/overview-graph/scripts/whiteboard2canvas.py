@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """Mirror Heptabase whiteboards into Obsidian JSON Canvas files (one-way).
 
-v1 data source: a Heptabase「Export all data」backup (All-Data.json) — the
-officially re-importable format (ships its own README + schema version).
-Point config `heptabase.backup_dir` at the folder holding your backups (the
-newest `*/All-Data.json` is picked automatically), or pass --all-data.
+Data sources (freshest available wins):
+  live (default)  the desktop app's own SQLite store (`hepta.db` under
+                  ~/Library/Application Support/project-meta — override via
+                  config heptabase.app_data_dir or --live-db). A consistent
+                  snapshot is taken with SQLite's backup API; the app can
+                  stay open. UNDOCUMENTED schema — guarded by an explicit
+                  table/column check that fails loudly and points at the
+                  backup source instead.
+  backup          a Heptabase「Export all data」backup (All-Data.json, the
+                  officially re-importable format). config
+                  heptabase.backup_dir (newest is picked) or --all-data.
+--all-data / --live-db force their source; otherwise live is tried first,
+then backup.
 
 Which whiteboards: config `obsidian.graph.mirror_whiteboards` maps
 `{"<whiteboard-id>": "<vault-relative>.canvas"}`. Each target .canvas is
@@ -29,7 +38,10 @@ import glob
 import json
 import os
 import re
+import sqlite3
 import sys
+import urllib.parse
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
@@ -42,6 +54,112 @@ COLOR = {"red": "1", "orange": "2", "yellow": "3", "green": "4",
          "blue": "5", "purple": "6"}  # white/default -> omit
 SIDES = {"top": "top", "bottom": "bottom", "left": "left", "right": "right"}
 STALE_AFTER_DAYS = 7
+
+
+DEFAULT_APP_DATA = "~/Library/Application Support/project-meta"
+# live hepta.db table -> (All-Data key, snake_case -> camelCase columns)
+LIVE_TABLES = {
+    "whiteboard": ("whiteBoardList", {"id": "id", "name": "name",
+                                      "is_trashed": "isTrashed"}),
+    "card": ("cardList", {"id": "id", "title": "title",
+                          "is_trashed": "isTrashed"}),
+    "card_instance": ("cardInstances", {
+        "id": "id", "whiteboard_id": "whiteboardId", "card_id": "cardId",
+        "x": "x", "y": "y", "width": "width", "height": "height",
+        "color": "color", "is_folded": "isFolded",
+        "folded_height": "foldedHeight"}),
+    "text_element": ("textElements", {
+        "id": "id", "whiteboard_id": "whiteboardId", "content": "content",
+        "x": "x", "y": "y", "width": "width", "height": "height"}),
+    "section": ("sections", {
+        "id": "id", "whiteboard_id": "whiteboardId", "title": "title",
+        "color": "color", "x": "x", "y": "y",
+        "width": "width", "height": "height"}),
+    "connection": ("connections", {
+        "id": "id", "whiteboard_id": "whiteboardId", "begin_id": "beginId",
+        "end_id": "endId", "begin_pos": "beginPos", "end_pos": "endPos",
+        "begin_style": "beginStyle", "end_style": "endStyle",
+        "color": "color", "description": "description"}),
+}
+
+
+def find_live_db(explicit):
+    if explicit:
+        return explicit if os.path.isfile(explicit) else None
+    root = (hbconfig.load_config().get("heptabase") or {}).get("app_data_dir")         or DEFAULT_APP_DATA
+    p = os.path.join(os.path.expanduser(root), "hepta.db")
+    return p if os.path.isfile(p) else None
+
+
+class LiveSchemaError(RuntimeError):
+    """The live DB opened fine but its schema is not what we expect —
+    NEVER silently fall back to a (possibly stale) backup on this."""
+
+
+def load_live(db_path):
+    """Consistent snapshot of the app's SQLite store -> All-Data-shaped dict.
+
+    The schema is UNDOCUMENTED (observed at DB level); every table/column we
+    rely on is checked first so an app update changes this into a clear
+    error, never silently wrong output."""
+    with tempfile.TemporaryDirectory(prefix="hb-live-") as td:
+        snap = os.path.join(td, "snap.db")
+        try:
+            quoted = urllib.parse.quote(os.path.abspath(db_path))
+            src = sqlite3.connect(f"file:{quoted}?mode=ro", uri=True)
+            dst = sqlite3.connect(snap)
+            src.backup(dst)
+            src.close()
+        except sqlite3.Error as e:
+            raise RuntimeError(f"live DB 快照失敗（{db_path}）：{e}")
+        dst.row_factory = sqlite3.Row
+        have = {r[0] for r in dst.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        missing = [t for t in LIVE_TABLES if t not in have]
+        if missing:
+            raise LiveSchemaError(f"live DB 缺表 {missing}——app 版本的 "
+                                  "schema 可能變了；確認後改用備份來源（--all-data）")
+        data = {}
+        for table, (key, colmap) in LIVE_TABLES.items():
+            cols = {r[1] for r in dst.execute(f"PRAGMA table_info({table})")}
+            lack = [c for c in colmap if c not in cols]
+            if lack:
+                raise LiveSchemaError(f"live DB 表 {table} 缺欄位 {lack}——"
+                                      "schema 可能變了；確認後改用備份來源（--all-data）")
+            sel = ", ".join(colmap)
+            data[key] = [
+                {camel: row[snake] for snake, camel in colmap.items()}
+                for row in dst.execute(f"SELECT {sel} FROM {table}")]
+        # census-only tables (unsupported object types) — best effort so the
+        # skipped_unsupported report matches the backup source
+        census = {"media_element": "mediaElements",
+                  "pdf_card_instance": "pdfCardInstances",
+                  "mind_map_instance": "mindMapInstances",
+                  "web_element": "webElements",
+                  "chat_instance": "chatInstances",
+                  "journal_instance": "journalInstances",
+                  "whiteboard_instance": "whiteboardInstances",
+                  "insight_instance": "insightInstances",
+                  "highlight_element_instance": "highlightElementInstances",
+                  "media_card_instance": "mediaCardInstances"}
+        for table, key in census.items():
+            if table not in have:
+                continue
+            cols = {r[1] for r in dst.execute(f"PRAGMA table_info({table})")}
+            if "whiteboard_id" not in cols:
+                continue
+            data[key] = [{"whiteboardId": row["whiteboard_id"]}
+                         for row in dst.execute(
+                             f"SELECT whiteboard_id FROM {table}")]
+        dst.close()
+    for c in data["cardList"]:
+        c["isTrashed"] = bool(c["isTrashed"])
+    for i in data["cardInstances"]:
+        i["isFolded"] = bool(i["isFolded"])
+    # trashed whiteboards behave like the export (absent from whiteBoardList)
+    data["whiteBoardList"] = [w for w in data["whiteBoardList"]
+                              if not w.pop("isTrashed", False)]
+    return data
 
 
 def find_all_data(explicit):
@@ -195,8 +313,12 @@ def build_canvas(wb_id, data, sync_cards, folders, workspace, report):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--all-data", help="Heptabase 備份的 All-Data.json 路徑"
-                    "（預設：config heptabase.backup_dir 裡最新一份）")
+    ap.add_argument("--all-data", help="強制用備份來源：All-Data.json 路徑"
+                    "（不給路徑時的順位：live hepta.db → config "
+                    "heptabase.backup_dir 最新備份）")
+    ap.add_argument("--live-db", help="強制用 live 來源：hepta.db 路徑"
+                    "（預設 config heptabase.app_data_dir 或 "
+                    f"{DEFAULT_APP_DATA}）")
     ap.add_argument("--whiteboard", help="只鏡像這個 whiteboard id"
                     "（預設：config 裡登記的全部）")
     ap.add_argument("--dry-run", action="store_true")
@@ -217,13 +339,31 @@ def main():
         sys.exit("config obsidian.graph.mirror_whiteboards 是空的——"
                  '加 {"<whiteboard-id>": "Maps/我的地圖.canvas"} 後再跑')
 
-    src = find_all_data(args.all_data)
-    try:
-        data = json.load(open(src))
-        if not isinstance(data.get("whiteBoardList"), list):
-            raise ValueError("缺 whiteBoardList——不是 All-Data.json？")
-    except Exception as e:
-        sys.exit(f"備份檔無法解析（{src}）：{e}")
+    if args.all_data and args.live_db:
+        sys.exit("--all-data 與 --live-db 只能擇一")
+    src = data = None
+    if not args.all_data:
+        live = find_live_db(args.live_db)
+        if live:
+            try:
+                data = load_live(live)
+                src = f"live:{live}"
+            except LiveSchemaError as e:
+                sys.exit(str(e))  # 漂移必須大聲，退回舊備份會靜默出爛資料
+            except RuntimeError as e:
+                if args.live_db:
+                    sys.exit(str(e))
+                print(f"# live 來源不可用（{e}）——退回備份", file=sys.stderr)
+        elif args.live_db:
+            sys.exit(f"--live-db 檔案不存在：{args.live_db}")
+    if data is None:
+        src = find_all_data(args.all_data)
+        try:
+            data = json.load(open(src))
+            if not isinstance(data.get("whiteBoardList"), list):
+                raise ValueError("缺 whiteBoardList——不是 All-Data.json？")
+        except Exception as e:
+            sys.exit(f"備份檔無法解析（{src}）：{e}")
     known = {w["id"]: w.get("name") for w in data.get("whiteBoardList", [])}
     sync_cards = load_sync_state(vault)
     folders = obs.get("folders") or {}

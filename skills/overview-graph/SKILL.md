@@ -202,9 +202,15 @@ python3 whiteboard2canvas.py --dry-run       # 只出報告不寫檔
 python3 whiteboard2canvas.py --whiteboard <id> --all-data <path>
 ```
 
-- 資料來源（v1）：Heptabase「Export all data」備份的 All-Data.json——
-  config `heptabase.backup_dir` 指向備份資料夾（自動撿最新），或
-  `--all-data` 直接給。備份超過 7 天會出提醒（鏡像只到備份當下）。
+- 資料來源（預設順位：live → 備份）：
+  1. **live**：桌面 app 自己的 SQLite（`hepta.db`，預設
+     `~/Library/Application Support/project-meta`，可用 config
+     `heptabase.app_data_dir` 或 `--live-db` 覆蓋）——用 SQLite backup API
+     取一致性快照，app 開著也能跑，資料即時。schema 無文件：表／欄位有
+     明確檢查，app 改版對不上會直接報錯並提示改用備份。
+  2. **備份**：Heptabase「Export all data」的 All-Data.json——config
+     `heptabase.backup_dir`（自動撿最新）或 `--all-data` 直接給；備份超過
+     7 天會出提醒。live 讀不到時自動退回這裡。
 - 鏡像對象：config `obsidian.graph.mirror_whiteboards`
   `{"<whiteboard-id>": "<vault 相對路徑>.canvas"}`。
 - 已同步的卡 → `file` 節點（借 obsidian-sync 的 state 解析 vault 路徑）；

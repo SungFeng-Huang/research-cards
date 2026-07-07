@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — 2026-07-07
+- **whiteboard 鏡像 v2：live 來源**——直接讀桌面 app 的 SQLite
+  （`hepta.db`，SQLite backup API 取一致性快照；app 開著也能跑），
+  whiteboard 版面即時鏡像、不再依賴手動 Export。schema 無文件，
+  表／欄位有 fail-loudly 檢查；讀不到自動退回備份來源。等價性測試保證
+  同一份資料兩種來源輸出逐位一致。config 新增 `heptabase.app_data_dir`
+  （選填）。零第三方依賴（stdlib sqlite3）。
+
 ## 0.8.0 — 2026-07-07
 - **whiteboard → Obsidian Canvas 單向鏡像（v1）**：`overview-graph` 新增
   `whiteboard2canvas.py`——以 Heptabase「Export all data」備份

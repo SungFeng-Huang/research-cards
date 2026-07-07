@@ -1,6 +1,7 @@
 """whiteboard2canvas: All-Data backup -> JSON Canvas mirror on a temp vault."""
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -135,6 +136,137 @@ class TestWhiteboard2Canvas(unittest.TestCase):
         rep = self.run_script("--dry-run")
         self.assertTrue(rep["written"][0]["dry_run"])
         self.assertFalse(out.exists())
+
+
+def build_live_db(path, all_data, drop_column=None):
+    """Synthesize a hepta.db carrying the same fixture as ALL_DATA."""
+    ddl = {
+        "whiteboard": ("id, name, is_trashed", "whiteBoardList",
+                       lambda w: (w["id"], w["name"], 0)),
+        "card": ("id, title, is_trashed", "cardList",
+                 lambda c: (c["id"], c["title"], int(c["isTrashed"]))),
+        "card_instance": ("id, whiteboard_id, card_id, x, y, width, height,"
+                          " color, is_folded, folded_height", "cardInstances",
+                          lambda i: (i["id"], i["whiteboardId"], i["cardId"],
+                                     i["x"], i["y"], i["width"], i["height"],
+                                     i.get("color"), int(i.get("isFolded") or 0),
+                                     i.get("foldedHeight", -1))),
+        "text_element": ("id, whiteboard_id, content, x, y, width, height",
+                         "textElements",
+                         lambda t: (t["id"], t["whiteboardId"], t["content"],
+                                    t["x"], t["y"], t["width"], t["height"])),
+        "section": ("id, whiteboard_id, title, color, x, y, width, height",
+                    "sections",
+                    lambda x: (x["id"], x["whiteboardId"], x["title"],
+                               x.get("color"), x["x"], x["y"],
+                               x["width"], x["height"])),
+        "connection": ("id, whiteboard_id, begin_id, end_id, begin_pos,"
+                       " end_pos, begin_style, end_style, color, description",
+                       "connections",
+                       lambda c: (c["id"], c["whiteboardId"], c["beginId"],
+                                  c["endId"], c["beginPos"], c["endPos"],
+                                  c["beginStyle"], c["endStyle"],
+                                  c.get("color"), c.get("description"))),
+    }
+    db = sqlite3.connect(path)
+    for table, (cols, key, rowfn) in ddl.items():
+        collist = cols.split(", ")
+        if drop_column and drop_column[0] == table:
+            collist = [c for c in collist if c != drop_column[1]]
+        db.execute(f"CREATE TABLE {table} ({', '.join(collist)})")
+        if drop_column and drop_column[0] == table:
+            continue
+        for item in all_data.get(key, []):
+            db.execute(f"INSERT INTO {table} VALUES "
+                       f"({','.join('?' * len(collist))})", rowfn(item))
+    db.commit()
+    db.close()
+
+
+class TestLiveSource(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hbcards-w2c-live-"))
+        self.vault = self.tmp / "Vault"
+        (self.vault / ".hepta-sync").mkdir(parents=True)
+        (self.vault / ".hepta-sync" / "state.json").write_text(json.dumps(
+            {"cards": {"card-synced": {"file": "My Paper",
+                                       "collection": "papers"}}}))
+        (self.tmp / "All-Data.json").write_text(
+            json.dumps(ALL_DATA, ensure_ascii=False))
+        build_live_db(self.tmp / "hepta.db", ALL_DATA)
+        cfg = {"backend": "obsidian",
+               "heptabase": {"workspace_id": "ws-123", "collections": {}},
+               "obsidian": {"vault": str(self.vault),
+                            "folders": {"papers": "Study/Papers"},
+                            "graph": {"mirror_whiteboards":
+                                      {WB: "Maps/測試板.canvas"}}}}
+        self.cfg = self.tmp / "config.json"
+        self.cfg.write_text(json.dumps(cfg, ensure_ascii=False))
+
+    def run_script(self, *extra, expect_ok=True):
+        env = dict(os.environ, HEPTABASE_CARDS_CONFIG=str(self.cfg))
+        env.pop("RESEARCH_CARDS_CONFIG", None)
+        r = subprocess.run([sys.executable, SCRIPT, *extra], env=env,
+                           capture_output=True, text=True)
+        if expect_ok:
+            self.assertEqual(r.returncode, 0, r.stderr[-500:])
+        return r
+
+    def test_live_equals_backup(self):
+        self.run_script("--live-db", str(self.tmp / "hepta.db"))
+        live = (self.vault / "Maps/測試板.canvas").read_bytes()
+        self.run_script("--all-data", str(self.tmp / "All-Data.json"))
+        self.assertEqual(live, (self.vault / "Maps/測試板.canvas").read_bytes())
+
+    def test_schema_drift_fails_loudly_when_forced(self):
+        build_live_db(self.tmp / "drift.db", ALL_DATA,
+                      drop_column=("card_instance", "folded_height"))
+        r = self.run_script("--live-db", str(self.tmp / "drift.db"),
+                            expect_ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("schema", r.stderr)
+
+    def _wire_default_sources(self, app_dir):
+        cfg = json.loads(self.cfg.read_text())
+        cfg["heptabase"]["app_data_dir"] = str(app_dir)
+        cfg["heptabase"]["backup_dir"] = str(self.tmp)
+        self.cfg.write_text(json.dumps(cfg, ensure_ascii=False))
+
+    def test_wal_mode_with_open_writer(self):
+        app = self.tmp / "app-wal"
+        app.mkdir()
+        build_live_db(app / "hepta.db", ALL_DATA)
+        writer = sqlite3.connect(app / "hepta.db")
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("BEGIN")
+        writer.execute(
+            "INSERT INTO card VALUES ('uncommitted', 'x', 0)")
+        try:
+            self._wire_default_sources(app)
+            r = self.run_script()
+            rep = json.loads(r.stdout.splitlines()[-1])
+            self.assertTrue(rep["source"].startswith("live:"))
+            self.assertEqual(rep["written"][0]["nodes"], 4)
+        finally:
+            writer.rollback()
+            writer.close()
+
+    def test_default_mode_schema_drift_exits_nonzero(self):
+        app = self.tmp / "app-drift"
+        app.mkdir()
+        build_live_db(app / "hepta.db", ALL_DATA,
+                      drop_column=("section", "color"))
+        self._wire_default_sources(app)  # 備份同時可用——仍必須大聲失敗
+        r = self.run_script(expect_ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("schema", r.stderr)
+
+    def test_default_mode_falls_back_when_live_absent(self):
+        self._wire_default_sources(self.tmp / "no-such-dir")
+        r = self.run_script()
+        rep = json.loads(r.stdout.splitlines()[-1])
+        self.assertTrue(rep["source"].endswith("All-Data.json"))
+        self.assertEqual(rep["written"][0]["nodes"], 4)
 
 
 class TestEdgeCases(unittest.TestCase):

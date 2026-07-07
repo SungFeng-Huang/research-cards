@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.2 — 2026-07-08
+- **修批次 retrofit 的兩個結構性盲區**（實案：11 張 2023 老卡漏掃近三年）：
+  `list_todo()` 回傳新增 `excluded_by_filter` 並在 stderr 明示「因 Source
+  Type 過濾未列入」的張數（過濾照舊、沉默排除變可見）；SKILL.md 批次收工
+  加入硬性完成驗證（重掃至 todo=[]＋檢查排除數）。
+
 ## 0.12.1 — 2026-07-08
 - **修雙重去重漏洞**（實戰踩雷）：id 級 check_duplicate 的搜尋名額被
   journal 佔滿（limit 5→25）；新增**標題級第二道防線** `title_duplicate`

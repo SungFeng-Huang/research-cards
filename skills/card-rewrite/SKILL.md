@@ -153,6 +153,14 @@ Candidate selection: cards whose subfield is likely unfamiliar / jargon-dense
 benefit most. Avoid re-running on already-teaching-style cards (those with a
 `先備知識` section).
 
+⚠️ **完成驗證（批次收工的硬條件）**——2026-07 實案：一次批次中途停掉留下
+11 張尾巴，近三年沒人發現。收工前必須：
+1. 重跑 `L.list_todo()` 直到 `todo == []`；
+2. 檢查回傳的 `excluded_by_filter`（Source Type 過濾的沉默排除數）——非零
+   時用 `list_todo(source_type=None)` 全掃一次，人工判定被排除者是否為
+   合法例外（hub 卡、手寫筆記）並回報使用者；
+3. 兩者都乾淨才算批次完成。
+
 ---
 
 ## Notes for the referencing skills

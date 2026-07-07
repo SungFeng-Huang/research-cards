@@ -76,6 +76,35 @@ class TestObsidianBackend(unittest.TestCase):
         self.assertIn("第一筆", open(os.path.join(self.tmp, "2026-01-01.md")).read())
 
 
+class TestListTodoExclusionVisibility(unittest.TestCase):
+    def test_excluded_by_filter_counted(self):
+        import tempfile, subprocess, sys as _sys
+        tmp = tempfile.mkdtemp(prefix="hbcards-listtodo-")
+        cfg = {"backend": "obsidian",
+               "obsidian": {"vault": tmp, "folders": {"papers": "Papers"}}}
+        cp = os.path.join(tmp, "config.json")
+        json.dump(cfg, open(cp, "w"))
+        env = dict(os.environ, HEPTABASE_CARDS_CONFIG=cp)
+        env.pop("RESEARCH_CARDS_CONFIG", None)
+        code = """
+import sys, os, json
+sys.path.insert(0, %r); sys.path.insert(0, %r)
+import backend, rewrite_lib as L
+be = backend.get_backend()
+be.create_card("papers", "AX Paper", "內文", {"Source Type": "alphaXiv"})
+be.create_card("papers", "Hand Note", "內文", {"Source Type": "Note"})
+r = L.list_todo()
+print(json.dumps({"todo": len(r["todo"]), "excluded": r["excluded_by_filter"]}))
+""" % (os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "skills", "card-rewrite"),
+       os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "skills", "_shared"))
+        r = subprocess.run([_sys.executable, "-c", code], env=env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-500:])
+        out = json.loads(r.stdout.splitlines()[-1])
+        self.assertEqual(out, {"todo": 1, "excluded": 1})
+        self.assertIn("未列入本清單", r.stderr)
+
+
 class TestSyncCollectionsGuard(unittest.TestCase):
     """sync.py must skip collection entries without a usable tag_id (e.g. the
     example's projects entry, which exists as project-direction metadata) —

@@ -144,9 +144,10 @@ def list_todo(source_type="alphaXiv"):
     except ImportError:
         pass
     if OBS:
-        todo, done = [], []
+        todo, done, excluded = [], [], 0
         for c in OBS.list_cards("papers"):
             if source_type is not None and c["props"].get("source_type") != source_type:
+                excluded += 1
                 continue
             try:
                 _, doc = read_card(c["id"])
@@ -155,13 +156,13 @@ def list_todo(source_type="alphaXiv"):
             rec = {"card_id": c["id"], "title": c["title"],
                    "arxiv": c["props"].get("arxiv_id")}
             (done if is_upgraded(doc) else todo).append(rec)
-        return {"todo": todo, "done": done}
+        return _with_exclusion_note({"todo": todo, "done": done}, excluded, source_type)
     if not (STUDY_PAPER_TAG and SOURCE_TYPE_PROP and ARXIV_PROP):
         raise SystemExit("config 缺少 heptabase.collections.papers.tag_id / props.*（heptabase 模式必填）")
     r = subprocess.run(["heptabase", "tag", "cards", STUDY_PAPER_TAG,
                         "--include-properties"], capture_output=True, text=True)
     cards = json.loads(r.stdout).get("cards", [])
-    todo, done = [], []
+    todo, done, excluded = [], [], 0
     for c in cards:
         src = aid = None
         for p in c.get("properties", []):
@@ -170,6 +171,7 @@ def list_todo(source_type="alphaXiv"):
         if src == "Overview":
             continue
         if source_type is not None and src != source_type:
+            excluded += 1
             continue
         try:
             _, doc = read_card(c["id"])
@@ -177,7 +179,19 @@ def list_todo(source_type="alphaXiv"):
             continue
         rec = {"card_id": c["id"], "title": c.get("title", ""), "arxiv": aid}
         (done if is_upgraded(doc) else todo).append(rec)
-    return {"todo": todo, "done": done}
+    return _with_exclusion_note({"todo": todo, "done": done}, excluded, source_type)
+
+
+def _with_exclusion_note(result, excluded, source_type):
+    """The silent blind spot that hid 11 legacy cards for years: cards without
+    (or with a different) Source Type never even ENTER the todo list. Keep the
+    filter, but make the exclusion a visible number."""
+    result["excluded_by_filter"] = excluded
+    if excluded:
+        print(f"[list_todo] 注意：另有 {excluded} 張 study/paper 卡因 "
+              f"Source Type != {source_type!r} 未列入本清單"
+              f"（list_todo(source_type=None) 可全掃）", file=sys.stderr)
+    return result
 
 # ── ProseMirror builders ──────────────────────────────────────────────────────
 def h(level, text):

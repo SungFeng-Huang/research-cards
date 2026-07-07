@@ -12,6 +12,12 @@ origin_id / links). Card mentions are resolved to plain card TITLES in the
 body (paper names feed concept extraction); mentions whose target is ALSO an
 exported member additionally land in the `links:` field (comma-separated
 origin_ids) — the graph builder turns those into EXTRACTED links_to edges.
+Papers additionally carry `model_names:` (curated short names from the
+topology MATCH/ALIASES tables — overview section headings ARE the user's
+canonical names, so this covers papers whose titles omit the model name);
+the graph builder turns those into `describes` edges to concept nodes. A
+MATCH-table change is detected via a stamp digest and forces a full
+re-export.
 
 The member lists are enumerated LIVE on every run — nothing about card
 counts is hardcoded (per-collection floor guards only protect the prune step
@@ -72,7 +78,7 @@ TITLE_TAGS = [STUDY_OVERVIEW_TAG] + [t for t in _scan if t != STUDY_OVERVIEW_TAG
 COLLECTIONS = [
     {"key": "overviews", "dirname": "heptabase-overview", "collection": "overview",
      "source_type": "heptabase_overview_card", "default_tag": STUDY_OVERVIEW_TAG,
-     "floor": 10},
+     "floor": 10, "aggregator": True},
     {"key": "papers", "dirname": "heptabase-papers", "collection": "papers",
      "source_type": "heptabase_paper_card", "default_tag": STUDY_PAPER_TAG,
      "floor": 50},
@@ -104,8 +110,47 @@ def cli(*args, fatal=True):
         sys.exit(f"ERROR: heptabase {' '.join(args[:2])} returned non-JSON: {e}")
 
 
-def tag_cards(tag_id):
-    return cli("tag", "cards", tag_id).get("cards", [])
+def tag_cards(tag_id, include_properties=False):
+    args = ["tag", "cards", tag_id]
+    if include_properties:
+        args.append("--include-properties")
+    return cli(*args).get("cards", [])
+
+
+# ── model_names: curated short names per arxiv id (describes-edge signal 1) ─────
+def model_names_map():
+    """arxiv_id -> [cleaned short names], from every topic snapshot's
+    graph-derived `match` table (overview section-heading short names +
+    ALIASES — the user-curated canonical names). Titles often omit the model
+    name ("Language Models are Few-Shot Learners" = GPT-3), so this personal
+    signal outranks any title parsing on the consumer side. Best-effort: no
+    snapshots -> empty map (the graph builder falls back to self-mention)."""
+    mapping = {}
+    try:
+        import topology as T
+    except (Exception, SystemExit):
+        # topology sys.exit()s on config gaps (e.g. obsidian mode without
+        # graph.hubs) — best-effort means the EXPORT must survive that.
+        return mapping
+    for key in getattr(T, "TOPICS", {}):
+        try:
+            snap = json.load(open(T.snapshot_path(key), encoding="utf-8"))
+        except Exception:
+            continue
+        for name, aid in snap.get("match") or []:
+            short = re.split(r"[：（(]", name)[0].strip()
+            if len(short) < 2:
+                continue
+            names = mapping.setdefault(aid, [])
+            if short not in names:
+                names.append(short)
+    return mapping
+
+
+def _match_digest(mapping):
+    return hashlib.md5(json.dumps(
+        {k: sorted(v) for k, v in mapping.items()},
+        sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 # ── Backend member/body access ──────────────────────────────────────────────────
@@ -135,13 +180,32 @@ def collection_tag(spec):
     return spec["default_tag"]
 
 
+def _arxiv_prop_id():
+    try:
+        return hbconfig.hb_id("props", "arxiv") if hbconfig else None
+    except Exception:
+        return None
+
+
 def hb_members(spec):
-    """[{id, origin_id, title, ts}] for one collection (heptabase CLI).
+    """[{id, origin_id, title, ts, arxiv}] for one collection (heptabase CLI).
     NOTE: the full tag, unfiltered — the corpus wants every study/paper card,
-    not just the alphaXiv subset the obsidian sync mirrors."""
-    return [{"id": c["id"], "origin_id": c["id"], "title": c.get("title") or c["id"],
-             "ts": c.get("lastEditedTime") or ""}
-            for c in tag_cards(collection_tag(spec))]
+    not just the alphaXiv subset the obsidian sync mirrors. `arxiv` (papers
+    only) keys the model_names lookup; one --include-properties scan, no
+    per-card calls."""
+    want_arxiv = spec["key"] == "papers" and _arxiv_prop_id()
+    out = []
+    for c in tag_cards(collection_tag(spec), include_properties=bool(want_arxiv)):
+        aid = None
+        if want_arxiv:
+            for p in c.get("properties", []):
+                if p.get("id") == want_arxiv and p.get("value"):
+                    aid = p["value"]
+                    break
+        out.append({"id": c["id"], "origin_id": c["id"],
+                    "title": c.get("title") or c["id"],
+                    "ts": c.get("lastEditedTime") or "", "arxiv": aid})
+    return out
 
 
 def obs_backend():
@@ -163,7 +227,8 @@ def obs_members(ob, spec):
         seen[oid] = c["id"]
         out.append({"id": c["id"], "origin_id": oid,
                     "title": c.get("title") or c["id"],
-                    "ts": str(props.get("modified") or c.get("modified") or "")})
+                    "ts": str(props.get("modified") or c.get("modified") or ""),
+                    "arxiv": props.get("arxiv_id")})
     return out
 
 
@@ -305,18 +370,26 @@ def obs_render(ob, member, name_map, links):
     return WIKILINK.sub(_resolve, body)
 
 
-def write_doc(cdir, spec, member, body, links, used_names):
+def write_doc(cdir, spec, member, body, links, used_names, model_names=None):
     # Heptabase titles have no newlines; full-width quotes keep the naive
     # frontmatter parser on the consumer side safe.
     title = member["title"]
     fm_title = title.replace('"', "”").replace("\n", " ")
     links_line = f'links: "{",".join(links)}"\n' if links else ""
+    # curated short names (describes-edge signal 1); same quote-safety as title
+    mn = [n.replace('"', "”").replace(",", "，") for n in (model_names or [])]
+    mn_line = f'model_names: "{",".join(mn)}"\n' if mn else ""
+    # aggregator docs curate MANY subjects — consumers must not infer a
+    # single model identity from mention frequency (see graph builder).
+    agg_line = "aggregator: true\n" if spec.get("aggregator") else ""
     md = (f"---\n"
           f'title: "{fm_title}"\n'
           f"source_type: {spec['source_type']}\n"
           f"collection: {spec['collection']}\n"
           f"origin_id: {member['origin_id']}\n"
           f"{links_line}"
+          f"{mn_line}"
+          f"{agg_line}"
           f"---\n\n# {title}\n\n{body}\n")
     # md5 of the FULL origin_id: uniform uniqueness for both backends (raw
     # obsidian ids share the "Papers/..." prefix, so a raw prefix would
@@ -370,6 +443,8 @@ def main():
     #    full         — membership/title changed, stamp missing/old-format
     #    (titles + links resolve ACROSS docs, so membership/titles are global
     #    state: any change there forces a full re-export of everything.)
+    mn_map = model_names_map()
+    mn_digest = _match_digest(mn_map)
     stamps, mode = {}, "incremental"
     fresh = True
     for spec in COLLECTIONS:
@@ -380,6 +455,11 @@ def main():
         if prev is not None and prev.get("backend") != backend:
             # different backend = different id/ts scheme and body renderer —
             # its stamp must not be trusted for freshness or incrementality.
+            prev = None
+        if prev is not None and prev.get("match_digest") != mn_digest:
+            # model_names come from the topology MATCH tables, not from the
+            # members' lastEditedTime — a refreshed snapshot must re-emit the
+            # frontmatter even though no card changed. Conservative: full.
             prev = None
         stamps[spec["collection"]] = (cdir, cur, prev)
         if prev is None:
@@ -478,7 +558,10 @@ def main():
                     files[oid] = old
                     used_names.add(old)
                 continue
-            files[oid] = write_doc(cdir, spec, m, body, links, used_names)
+            mn = (mn_map.get(m.get("arxiv")) if spec["key"] == "papers"
+                  and m.get("arxiv") else None)
+            files[oid] = write_doc(cdir, spec, m, body, links, used_names,
+                                   model_names=mn)
             grand["rewrote"] += 1
         # Prune: our-marker files not in the expected manifest (card left the
         # tag, or was retitled — the fresh filename is already in `files`).
@@ -493,7 +576,8 @@ def main():
             grand["pruned"] += 1
         with open(_stamp_path(cdir), "w", encoding="utf-8") as f:
             json.dump({"version": 2, "backend": backend, "members": cur,
-                       "files": files, "unreadable": sorted(unreadable)},
+                       "files": files, "unreadable": sorted(unreadable),
+                       "match_digest": mn_digest},
                       f, ensure_ascii=False)
         print(f"  {cname}: {len(members_by[cname])} members "
               f"({len(todo)} rewritten"

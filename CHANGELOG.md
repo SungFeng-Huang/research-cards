@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 — 2026-07-07
+- **whiteboard 鏡像重現 mention 線**：Heptabase 在板上自動畫的「卡片互相
+  mention」連線，鏡像時從卡片內文的 mention 節點推導成 canvas edge——
+  互相 mention 收斂為單一雙箭頭邊、與 explicit connection 重複的 pair
+  不重畫、板外 mention 忽略。開關：`obsidian.graph.mirror_mention_edges`
+  （預設開）。實測知識地圖 47 條（17 雙向）。
+
 ## 0.9.0 — 2026-07-07
 - **whiteboard 鏡像 v2：live 來源**——直接讀桌面 app 的 SQLite
   （`hepta.db`，SQLite backup API 取一致性快照；app 開著也能跑），

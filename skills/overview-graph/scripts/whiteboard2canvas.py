@@ -96,7 +96,7 @@ class LiveSchemaError(RuntimeError):
     NEVER silently fall back to a (possibly stale) backup on this."""
 
 
-def load_live(db_path):
+def load_live(db_path, wb_ids=None):
     """Consistent snapshot of the app's SQLite store -> All-Data-shaped dict.
 
     The schema is UNDOCUMENTED (observed at DB level); every table/column we
@@ -130,6 +130,21 @@ def load_live(db_path):
             data[key] = [
                 {camel: row[snake] for snake, camel in colmap.items()}
                 for row in dst.execute(f"SELECT {sel} FROM {table}")]
+        # card content is only needed for mention-line derivation on the
+        # mirrored boards — fetch just those cards, not the whole workspace
+        need = {i["cardId"] for i in data["cardInstances"]
+                if wb_ids is None or i["whiteboardId"] in wb_ids}
+        contents = {}
+        need_list = sorted(c for c in need if c)
+        for i in range(0, len(need_list), 500):
+            chunk = need_list[i:i + 500]
+            q = ",".join("?" * len(chunk))
+            for row in dst.execute(
+                    f"SELECT id, content FROM card WHERE id IN ({q})", chunk):
+                contents[row["id"]] = row["content"]
+        for c in data["cardList"]:
+            if c["id"] in contents:
+                c["content"] = contents[c["id"]]
         # census-only tables (unsupported object types) — best effort so the
         # skipped_unsupported report matches the backup source
         census = {"media_element": "mediaElements",
@@ -220,10 +235,57 @@ def pm_to_text(content_json, report):
     return md
 
 
-def build_canvas(wb_id, data, sync_cards, folders, workspace, report):
+def mention_ids(content_json):
+    """Card ids mentioned in a card's ProseMirror content (mention nodes:
+    {"type": "card", "attrs": {"cardId": ...}} — what Heptabase draws its
+    automatic mention lines from)."""
+    try:
+        doc = json.loads(content_json or "{}")
+    except Exception:
+        return set()
+    out = set()
+    stack = [doc]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict):
+            if n.get("type") == "card" and (n.get("attrs") or {}).get("cardId"):
+                out.add(n["attrs"]["cardId"])
+            stack.extend(n.values())
+        elif isinstance(n, list):
+            stack.extend(n)
+    return out
+
+
+def mention_edges(instances, contents, connected_pairs):
+    """Canvas edges for card-mention links between instances on the board.
+    Mutual mentions collapse into one double-arrow edge; pairs already tied
+    by an explicit connection are skipped."""
+    directed = set()
+    for a_card, a_insts in instances.items():
+        for target in mention_ids(contents.get(a_card)) & set(instances):
+            if target != a_card:
+                directed.add((a_card, target))
+    edges = []
+    for a_card, b_card in sorted(directed):
+        mutual = (b_card, a_card) in directed
+        if mutual and a_card > b_card:
+            continue  # 由 id 小的那一方代表雙向邊
+        for a in instances[a_card]:
+            for b in instances[b_card]:
+                if frozenset((a, b)) in connected_pairs:
+                    continue
+                e = {"id": f"mention:{a}:{b}", "fromNode": a, "toNode": b}
+                if mutual:
+                    e["fromEnd"] = "arrow"
+                edges.append(e)
+    return edges
+
+
+def build_canvas(wb_id, data, sync_cards, folders, workspace, report,
+                 want_mentions=True):
     titles = {c["id"]: c.get("title") or "(untitled)" for c in data.get("cardList", [])}
     trashed = {c["id"] for c in data.get("cardList", []) if c.get("isTrashed")}
-    nodes, node_ids = [], set()
+    nodes, node_ids, inst_card = [], set(), {}
 
     for s in data.get("sections", []):
         if s.get("whiteboardId") != wb_id:
@@ -259,6 +321,7 @@ def build_canvas(wb_id, data, sync_cards, folders, workspace, report):
             n["text"] = (f"**{title}**\n\n[在 Heptabase 開啟]"
                          f"(https://app.heptabase.com/{workspace}/card/{i.get('cardId')})")
             report["unsynced_cards"].append(title)
+        inst_card[i["id"]] = i.get("cardId")
         nodes.append(n)
 
     for t in data.get("textElements", []):
@@ -306,6 +369,20 @@ def build_canvas(wb_id, data, sync_cards, folders, workspace, report):
 
     # JSON Canvas array order IS z-order (earlier = below): groups first so
     # sections never cover their cards; deterministic id order within layers.
+    if want_mentions:
+        instances = {}
+        for n in nodes:
+            cid = inst_card.get(n["id"])
+            if cid:
+                instances.setdefault(cid, []).append(n["id"])
+        contents = {c["id"]: c.get("content") for c in data.get("cardList", [])
+                    if c["id"] in instances}
+        connected_pairs = {frozenset((e["fromNode"], e["toNode"]))
+                           for e in edges}
+        m = mention_edges(instances, contents, connected_pairs)
+        report["mention_edges"] += len(m)
+        edges.extend(m)
+
     nodes.sort(key=lambda n: (0 if n["type"] == "group" else 1, n["id"]))
     edges.sort(key=lambda e: e["id"])
     return {"nodes": nodes, "edges": edges}
@@ -346,7 +423,7 @@ def main():
         live = find_live_db(args.live_db)
         if live:
             try:
-                data = load_live(live)
+                data = load_live(live, wb_ids=set(mirrors))
                 src = f"live:{live}"
             except LiveSchemaError as e:
                 sys.exit(str(e))  # 漂移必須大聲，退回舊備份會靜默出爛資料
@@ -369,16 +446,20 @@ def main():
     folders = obs.get("folders") or {}
     workspace = (cfg.get("heptabase") or {}).get("workspace_id") or "app"
 
+    want_mentions = bool(((obs.get("graph") or {})
+                          .get("mirror_mention_edges", True)))
     report = {"source": src, "written": [], "not_in_backup": [],
               "unsynced_cards": [], "skipped_trashed": 0,
               "skipped_unsupported": 0, "skipped_dangling_edges": 0,
+              "mention_edges": 0,
               "text_convert_errors": 0, "text_placeholders_stripped": 0}
     staged = []  # build EVERYTHING first — a crash mid-way must not leave a partial mirror set
     for wb_id, rel in mirrors.items():
         if wb_id not in known:
             report["not_in_backup"].append(wb_id)
             continue
-        canvas = build_canvas(wb_id, data, sync_cards, folders, workspace, report)
+        canvas = build_canvas(wb_id, data, sync_cards, folders, workspace,
+                              report, want_mentions=want_mentions)
         out = os.path.join(vault, rel)
         if not os.path.realpath(out).startswith(os.path.realpath(vault) + os.sep):
             sys.exit(f"輸出路徑逸出 vault：{rel!r}")

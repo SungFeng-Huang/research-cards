@@ -218,6 +218,10 @@ python3 whiteboard2canvas.py --whiteboard <id> --all-data <path>
   `unsynced_cards`）；浮動文字 → `text`（PM→md）；section → `group`；
   連線 → edge（sides/顏色/label 對應；mindmap/媒體等不支援的物件計入
   `skipped_unsupported`）。
+- **Mention 線**（Heptabase 自動畫的卡片互相 mention 連線）也會重現：
+  掃板上每張卡的內文 mention（`{"type":"card"}` 節點），兩端都在板上就
+  畫 edge——互相 mention 收斂成一條雙箭頭、與 explicit connection 重複的
+  pair 不重畫。關閉：config `obsidian.graph.mirror_mention_edges: false`。
 
 ## Operation 5 — Research-gap analysis for a project card (Direction A 應用)
 

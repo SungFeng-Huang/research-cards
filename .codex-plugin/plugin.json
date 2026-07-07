@@ -1,6 +1,6 @@
 {
   "name": "research-cards",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Research-card automation with selectable backend (Heptabase, Obsidian vault, or both with bidirectional sync) and selectable agent (Claude Code or Codex): clip papers from digests into teaching-style cards, maintain Tasks-based comparison overviews and a knowledge graph, log and consolidate research-project cards. Configure via ~/.config/research-cards/config.json (see config.example.json).",
   "interface": {
     "displayName": "Research Cards",

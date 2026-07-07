@@ -83,7 +83,7 @@ out["duplicate_ids"] = [{"id": k, "files": v} for k, v in ids.items() if len(v) 
 
 if os.path.exists(STATE_PATH):
     state = json.load(open(STATE_PATH))
-    folder_of = {"papers": "Papers", "overviews": "Overviews"}
+    folder_of = dict(_cfg["obsidian"].get("folders") or {})  # collection key -> vault folder
     tracked = set()
     for cid, st in state["cards"].items():
         rel = f"{folder_of.get(st['collection'], st['collection'])}/{st['file']}.md"

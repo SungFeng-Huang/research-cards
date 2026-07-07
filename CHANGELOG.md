@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.2 — 2026-07-07
+- **verify.py 資料夾對照設定化**：collection → vault 資料夾改讀 config
+  `obsidian.folders`（原殘留硬編 `Papers`/`Overviews`，folders 自訂或搬移
+  後會誤報整批 state_orphans）。
+
 ## 0.7.1 — 2026-07-07
 - **project-card-log 建卡 pin 位置自動分流**：`create_project_card.py` 在 git
   repo 內照舊寫 `.heptabase-card` marker；cwd 不在 git repo（project root 是

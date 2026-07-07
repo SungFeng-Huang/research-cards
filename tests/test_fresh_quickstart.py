@@ -56,6 +56,8 @@ cid = run.create_card("# [alphaXiv] Fresh QS Paper\\n\\n## 1. 背景\\n\\n內文
 run.set_arxiv_property(cid, "2599.00001"); run.set_source_type(cid)
 run.set_tasks(cid, ["MyTask"])
 assert run.current_tasks(cid) == ["MyTask"], run.current_tasks(cid)
+run.set_topics(cid, ["LLM / Foundation Model"])
+assert run.current_topics(cid) == ["LLM / Foundation Model"]
 assert "/.config/research-cards/" in run.STATE_FILE
 print(cid)
 """)

@@ -51,7 +51,8 @@
       "tasks": "<multiSelect-prop-uuid>",
       "source_type": "<select-prop-uuid>",
       "arxiv": "<text-prop-uuid>",
-      "level": "<select-prop-uuid>"
+      "level": "<select-prop-uuid>",
+      "topics": "<property-uuid — Topics multiSelect（非語音主軸分類；off-topic 卡 Tasks 留空但 Topics 有家）>"
     },
     "scan_tags": [
       "<papers-tag-uuid>"

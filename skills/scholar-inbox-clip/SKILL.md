@@ -106,8 +106,9 @@ For each listed card, read it (`heptabase note read <id>`) and apply the Step
 6.5a rubric: pick a primary task + any clear cross-cutting axis from the
 **existing** options, union via `set_tasks()` (never removes). **Many clipped cards
 are off-topic** (LLM/vision/agent papers like *Qwen3*, *DeepSeek-V4*, *Seedance*,
-*World Action Models*) — those get **no speech/audio Task; leave them empty** and
-move on. Only the genuinely speech/audio ones get tagged.
+*World Action Models*) — those get **no speech/audio Task**, but DO get
+`Topics`（`set_topics()`：LLM / Foundation Model、Agentic AI 等主軸分類，
+0–2 個）。Only the genuinely speech/audio ones get **Tasks**.
 
 For scale (dozens of cards), fan out with parallel subagents: each reads a batch
 and returns `{card_id, tasks:[…]}` decisions; then apply `set_tasks()` for each
@@ -944,12 +945,19 @@ Rules:
   values. If a paper genuinely needs a brand-new task type, tell the user to
   create it in the Heptabase UI first, then re-run.
 - A paper with no speech/audio task (off-topic) gets **no** Tasks — leave empty.
+- **Every card also gets `Topics`**（`set_topics()`，config `props.topics`）——
+  非語音的主軸分類（如 `LLM / Foundation Model`、`Agentic AI`、
+  `Diffusion / Flow Matching`）。off-topic 卡 Tasks 留空但 **Topics 必挑**
+  （0–2 個、只從既有選項；真的無一適用才留空並回報）；語音卡也可掛交叉軸
+  （例：diffusion TTS → Topics 加 `Diffusion / Flow Matching`）。Topics
+  **不**參與總覽路由——那是 Tasks 的職責。
 
 ```python
 import sys, os; sys.path.insert(0, os.environ.get("CLAUDE_PLUGIN_ROOT", os.path.expanduser("~/.claude/skills/research-cards")) + "/skills/scholar-inbox-clip")
 import run as R
-# print(sorted(R.valid_task_options()))   # the 26 current options, for reference
+# print(sorted(R.valid_task_options()))   # the current options, for reference
 applied = R.set_tasks(CARD_ID, ["Tokenizer/Codec/Representation", "Discrete Tokens"])  # additive
+R.set_topics(CARD_ID, ["Diffusion / Flow Matching"])   # 主軸分類（additive，同語義）
 overviews = R.overviews_to_sync(applied)   # → ['tokenizer-codec-overview'] (or [] / both)
 ```
 

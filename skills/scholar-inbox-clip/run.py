@@ -115,10 +115,11 @@ try:
     ARXIV_PROP_ID = _hbconfig.hb_id("props", "arxiv")
     SOURCE_TYPE_PROP_ID = _hbconfig.hb_id("props", "source_type")
     TASKS_PROP_ID = _hbconfig.hb_id("props", "tasks")
+    TOPICS_PROP_ID = _hbconfig.hb_id("props", "topics")
     STUDY_PAPER_TAG_ID = _hbconfig.hb_id("collections", "papers", "tag_id")
     OVERVIEW_TAG_ID = _hbconfig.hb_id("collections", "overviews", "tag_id")
 except Exception:
-    ARXIV_PROP_ID = SOURCE_TYPE_PROP_ID = TASKS_PROP_ID = None
+    ARXIV_PROP_ID = SOURCE_TYPE_PROP_ID = TASKS_PROP_ID = TOPICS_PROP_ID = None
     STUDY_PAPER_TAG_ID = OVERVIEW_TAG_ID = None
 
 
@@ -1792,6 +1793,71 @@ def current_tasks(card_id):
             if p["id"] == TASKS_PROP_ID:
                 return list(p.get("value") or [])
     return []
+
+def valid_topic_options():
+    """Topics multiSelect 的現有選項（config props.topics）。語意同
+    valid_task_options：obsidian 模式回 None（frontmatter 無選項註冊表、
+    照單全收）；heptabase 模式回集合，set-property 拒絕集合外的值。"""
+    if OBS:
+        return None
+    _need(STUDY_PAPER_TAG_ID, "collections.papers.tag_id")
+    _need(TOPICS_PROP_ID, "props.topics")
+    r = subprocess.run(["heptabase", "tag", "properties", STUDY_PAPER_TAG_ID],
+                       capture_output=True, text=True)
+    try:
+        data = json.loads(r.stdout)
+    except Exception:
+        return set()
+    for p in data.get("properties", []):
+        if p["id"] == TOPICS_PROP_ID:
+            return {o.get("value") or o.get("name") or o.get("label")
+                    for o in p.get("options", [])}
+    return set()
+
+
+def current_topics(card_id):
+    if OBS:
+        return list(OBS.read_card(card_id).props.get("topics") or [])
+    _need(TOPICS_PROP_ID, "props.topics")
+    r = subprocess.run(["heptabase", "card", "properties", card_id],
+                       capture_output=True, text=True)
+    try:
+        data = json.loads(r.stdout)
+    except Exception:
+        return []
+    for tag in data.get("tags", []):
+        for p in tag.get("properties", []):
+            if p["id"] == TOPICS_PROP_ID:
+                return list(p.get("value") or [])
+    return []
+
+
+def set_topics(card_id, values):
+    """ADDITIVELY annotate a card's Topics（非語音的主軸分類——LLM/FM、
+    Agentic、Diffusion 等）。與 set_tasks 同語義：union、不移除、集合外的
+    值丟棄並記錄。Tasks 管「路由到哪張總覽卡」，Topics 管「這張卡屬於什麼
+    主題」——off-topic 卡 Tasks 留空但 Topics 應該有家。"""
+    valid = valid_topic_options()
+    existing = current_topics(card_id)
+    requested = [v for v in values if v]
+    dropped = [] if valid is None else [v for v in requested if v not in valid]
+    if dropped:
+        log(f"  [TOPICS] skipped unknown options (create in UI first): {dropped}")
+    keep_new = [v for v in requested if v not in dropped]
+    merged = list(dict.fromkeys(existing + keep_new))
+    if merged == existing:
+        log(f"  [TOPICS] no change ({existing})")
+        return merged
+    if OBS:
+        OBS.set_props(card_id, {"Topics": merged})
+    else:
+        subprocess.run(["heptabase", "card", "set-property", card_id,
+                        "--property-id", TOPICS_PROP_ID,
+                        "--json-value", json.dumps(merged, ensure_ascii=False)],
+                       capture_output=True)
+    log(f"  [TOPICS] {existing} + {keep_new} -> {merged}")
+    return merged
+
 
 def set_tasks(card_id, values):
     """ADDITIVELY annotate a card's Tasks. Unions `values` with whatever is

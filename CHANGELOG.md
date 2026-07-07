@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 — 2026-07-08
+- **Topics property 進管線**：`set_topics()/current_topics()/valid_topic_options()`
+  （config `props.topics`，語義同 Tasks 三件組：additive、集合外丟棄並記
+  錄、obsidian 模式照單全收）。分工明確化：**Tasks＝總覽路由**（僅語音／
+  音訊卡）、**Topics＝主軸分類**（所有卡，off-topic 的 LLM／vision／agent
+  論文從此有家——`LLM / Foundation Model` 等）。6.5a rubric 與 backfill
+  合約同步更新。
+
 ## 0.11.0 — 2026-07-07
 - **多來源 digest：HuggingFace Daily Papers**——與 Scholar Inbox 共用同一
   信箱資料夾、逐封自動分流。HF 信的 arxiv ID 直取自 papers 連結（QP 軟斷

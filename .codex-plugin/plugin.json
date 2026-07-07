@@ -1,7 +1,7 @@
 {
   "name": "research-cards",
   "version": "0.7.3",
-  "description": "Research-card automation with selectable backend (Heptabase, Obsidian vault, or both with bidirectional sync) and selectable agent (Claude Code or Codex): clip papers from digests into teaching-style cards, maintain Tasks-based comparison overviews and a knowledge graph, log and consolidate research-project cards. Configure via ~/.config/research-cards/config.json (see config.example.json).",
+  "description": "宏毅老師教你做研究——教學風格的研究卡片自動化：digest 剪報成教學卡、主題比較總覽與知識地圖、研究專案日誌、官方 BibTeX 匯出。支援 Heptabase／Obsidian（可雙向同步）與 Claude Code／Codex。",
   "interface": {
     "displayName": "Research Cards",
     "shortDescription": "Research-card automation for Heptabase / Obsidian",

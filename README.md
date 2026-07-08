@@ -91,6 +91,7 @@
 | 信件剪報（`scholar-inbox-clip`） | macOS **Mail.app**＋專用信箱資料夾（用 Mail 規則把 digest 導進去）＋`osascript` 自動化權限 |
 | 卡片圖片 | `pip install pymupdf`（PDF 頁面）＋`brew install librsvg`（SVG） |
 | Claude Code 加分項 | **alphaXiv MCP**（剪報／改寫的內容依據）與 **heptabase MCP**（同步時解析 highlight 嵌入）。選用——Codex 走內建 HTTP 抓取、highlight 改列給你手動補 |
+| 選用整合 skills | **hung-yi-lee**（教學風格的執行期整合）與 **alchemist-playbook**（campaign 的超參引用紀律）——安裝法與缺席語義見[整合](#整合選用) |
 
 ### Claude Code
 
@@ -420,7 +421,8 @@ MISSION 說了算；skill 管格式、記帳、與知識庫的接口。
 - **量測紀律（違反任一條結果無效）**：分層抽樣的代表性 eval 切片；corpus
   級指標；**任何「贏」須 paired-delta 95% CI 排除 0**（基線重評 ≥3 次記
   eval 非確定性、delta 小於 CI 寬度不 promote）；一次改一件事；架構級
-  變更必 from-scratch；超參引用 alchemist-playbook 式有出處的建議。
+  變更必 from-scratch；超參引用 [alchemist-playbook](#整合選用) 式有出處
+  的建議。
 - **記帳**：每個評測一行 ledger（工具把關 schema——五個必要欄位、
   `significant` 必為布林、缺 playbook 引用出警告）：
 

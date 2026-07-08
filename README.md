@@ -445,20 +445,26 @@ python3 …/campaign.py status --dir runs/auto_research
 提示。問「campaign 進度如何」agent 會跑這個並講清楚「距離 success gate
 還差什麼」。
 
-### 4. Showcase — 對外展示層（選配）
+### 4. Showcase — 自動更新的對外展示層（選配）
+
+一次性安裝，依 git remote 自動選 GitHub 或 GitLab Pages：
 
 ```bash
-python3 …/campaign.py report --dir runs/auto_research \
-  --out docs/campaign-report.html
-cp skills/research-campaign/assets/pages-workflow.yml \
-  <project>/.github/workflows/pages.yml
-# repo Settings → Pages → Source 選 "GitHub Actions"；push docs/ 即發佈
+python3 …/campaign.py pages-setup --repo <project>   # --host github|gitlab 可覆寫
+# github remote → .github/workflows/pages.yml，報告輸出 docs/
+#   （repo Settings → Pages → Source 選 "GitHub Actions"）
+# gitlab remote → .gitlab-ci.yml 的 pages job，報告輸出 public/
+python3 …/campaign.py report --dir runs/auto_research   # 落對的目錄，不用 --out
 ```
 
-報告頁含 ladder 狀態徽章、ledger 全表（顯著性徽章＋playbook 引用）、
-BLOCKED 橫幅；輸出無時間戳（確定性，發佈時間交給 git 歷史）。領域特定
-demo 頁（音檔 A/B 對聽等）自行加在 `docs/`，同一條 workflow 一起發佈。
-**紀律**：對外展示的結果只在通過顯著性 gate 後更新。
+之後頁面**自動跟著 campaign 演進**：每個 job 收尾（per-job step 7）regen
+report、連同 ledger 一起 commit＋push 到部署分支，CI 的 paths 過濾就觸發
+Pages 重新部署——不需要另外的排程器（實驗分支的 push 刻意不觸發）。報告頁含 ladder 狀態徽章、ledger 全表（顯著性
+徽章＋playbook 引用）、BLOCKED 橫幅；輸出無時間戳（確定性，發佈時間交給
+git 歷史）。領域特定 demo 頁（音檔 A/B 對聽、訓練曲線儀表等）自行加在
+發佈目錄，同一條 CI 一起發佈。
+**紀律**：進度頁每 job 誠實刷新（含 not-significant rows、有徽章標示）；
+受顯著性 gate 管的是對外的「勝出宣稱」與 demo checkpoint。
 
 ## 無人值守排程（剪報管線）
 

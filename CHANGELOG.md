@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.14.0 — 2026-07-08
+- **campaign 展示層自動更新＋GitHub/GitLab 雙軌**（收編 vocodec 的
+  auto-refresh Pages 模式）：`campaign.py pages-setup`——讀 `git remote
+  get-url` 自動判斷 host（`--host github|gitlab` 可覆寫，self-hosted
+  GitLab 網域含 "gitlab" 即中）：github → 裝 `.github/workflows/pages.yml`
+  （報告輸出 docs/）；gitlab → 裝 `.gitlab-ci.yml` 的 `pages` job（新模板
+  `assets/gitlab-pages.yml`，發佈 public/——GitLab Pages 慣例）。既有
+  `.gitlab-ci.yml` 不覆蓋，改印片段手動合併。選擇記進
+  `runs/auto_research/pages.json`，`report` 未指定 `--out` 時據此自動落
+  對的目錄。
+- **自動更新契約進 per-job step 7**（SKILL Mode 4＋MISSION 模板）：job
+  收尾 regen report 連同 ledger 一起 commit＋push，CI paths 過濾即觸發
+  Pages 重新部署——頁面跟著 campaign 演進，無需排程器。
+- Review 修復（Codex，5 Medium）：host 判定只看 URL host（repo 名含
+  github/gitlab 不誤判）且以 push URL 為準；pages.json 記 `ci_ready`
+  （CI 檔待手動合併時可判別「setup 跑過 ≠ 部署就緒」）；report 對
+  `output_dir` 白名單校驗、壞 pages.json 明確失敗不靜默回退；github
+  workflow 觸發分支自動改寫成安裝當下分支；顯著性 gate 措辭統一——
+  進度頁每 job 誠實刷新（含 not-significant rows），gate 管的是對外
+  勝出宣稱與 demo checkpoint。
+
 ## 0.13.2 — 2026-07-08
 - **campaign 展示層（選配，取經 voidful/vocodec 的 Pages 模式）**：
   `campaign.py report`——ledger/queue → 單頁靜態 HTML 報告（ladder 狀態

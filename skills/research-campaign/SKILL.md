@@ -31,9 +31,10 @@ description: >-
   manifest 建構器…）campaign 才跑得動；intake 第一步就是對照它。
 - `scripts/campaign.py` — 記帳工具（stdlib）：`init`（scaffold）、
   `status`（佇列＋帳本摘要）、`ledger-append`（schema 校驗寫入）、
-  `report`（ledger/queue → 靜態 HTML campaign 報告）。
-- `assets/pages-workflow.yml` — GitHub Pages 部署 workflow 模板（配 report
-  即成對外展示層）。
+  `report`（ledger/queue → 靜態 HTML campaign 報告）、`pages-setup`
+  （依 git remote 裝 GitHub 或 GitLab Pages 部署設定）。
+- `assets/pages-workflow.yml` — GitHub Pages 部署 workflow 模板。
+- `assets/gitlab-pages.yml` — GitLab CI Pages job 模板（發佈 `public/`）。
 
 ## Mode 1 — Setup（互動式 intake → MISSION.md）
 
@@ -94,10 +95,12 @@ description: >-
               "significant":false,"decision":"…","playbook_rules_cited":[…]}'
    ```
    更新 queue.json 狀態（pending|running|done|failed）。
-5. **Step-7 掛鉤（job 收尾）**：code/config/ledger push 之後，把本 job 的
-   ledger row＋決策＋下一步，經 `project-card-log` append 到專案卡
-   （cluster 走 hb bridge、append-only）。整併（project-card-merge）與
-   `🔍` 折疊留在 Mac 端，不是 job 的事。
+5. **Step-7 掛鉤（job 收尾）**：code/config/ledger push 之前，若有裝
+   showcase 層（Mode 4）先 regen report 一起 commit（觸發 Pages 自動
+   重新部署）；push 之後把本 job 的 ledger row＋決策＋下一步，經
+   `project-card-log` append 到專案卡（cluster 走 hb bridge、
+   append-only）。整併（project-card-merge）與 `🔍` 折疊留在 Mac 端，
+   不是 job 的事。
 6. 卡住需要人類決策 → 寫 `runs/auto_research/BLOCKED.md` 並停。
 
 ## Mode 3 — Status
@@ -108,20 +111,43 @@ python3 scripts/campaign.py status --dir <repo>/runs/auto_research
 出佇列各狀態計數、最近 ledger 摘要（experiment/significant/decision）、
 BLOCKED 提示。回報時把「距離 campaign success gate 還差什麼」講清楚。
 
-## Mode 4 — Showcase（選配，GitHub Pages 展示層）
+## Mode 4 — Showcase（選配，GitHub／GitLab Pages 自動更新展示層）
+
+一次性安裝（依 git remote 自動選軌）：
 
 ```bash
-python3 scripts/campaign.py report --dir <repo>/runs/auto_research \
-  --out <repo>/docs/campaign-report.html          # ledger/queue → 單頁報告
-cp assets/pages-workflow.yml <repo>/.github/workflows/pages.yml
-# repo Settings → Pages → Source 選 "GitHub Actions"；push docs/ 即發佈
+python3 scripts/campaign.py pages-setup --repo <repo>   # --host github|gitlab 可覆寫
+# github remote → 裝 .github/workflows/pages.yml，報告輸出 docs/
+#   （repo Settings → Pages → Source 選 "GitHub Actions"）
+# gitlab remote → 裝 .gitlab-ci.yml 的 `pages` job，報告輸出 public/
+#   （GitLab Pages 慣例：job 名 pages、artifact 目錄 public/）
+# 選擇（host/output_dir/ci_ready）記進 runs/auto_research/pages.json；
+# .gitlab-ci.yml 已存在時不覆蓋（印片段請你手動合併，合併完把 pages.json
+# 的 ci_ready 改 true）；github workflow 的觸發分支自動改寫成安裝當下分支
 ```
+
+之後產報告不用再指定 --out（依 pages.json 自動落對的目錄）：
+
+```bash
+python3 scripts/campaign.py report --dir <repo>/runs/auto_research
+```
+
+**自動更新契約（per-job step 7 的一部分）**：每個 campaign job 收尾時
+regen report → 連同 ledger/queue 一起 commit＋push——push 到部署分支
+（github＝安裝時寫定的分支、gitlab＝default branch；實驗分支刻意不觸發）
+時 CI 的 paths 過濾即重新部署 Pages，頁面跟著 campaign 自動演進，
+不需要另外的排程器。ci_ready=false（CI 檔待手動合併）期間 report 照產，
+但不會部署——合併完記得把 pages.json 的 ci_ready 改 true。commit message 慣例：
+`Auto-update campaign progress page (session refresh)`。
 
 報告頁自動含：ladder 狀態表、ledger 全表（metrics／significant 徽章／
 decision／playbook 引用）、BLOCKED 橫幅；無時間戳（輸出確定性，發佈時間
-交給 git 歷史）。領域特定的 demo 頁（音檔 A/B 對聽、樣本展示等）自行加在
-docs/ 下，同一條 workflow 一起發佈。**紀律**：對外展示的結果只在通過顯著
-性 gate 後更新（GUARDRAILS 同款條文）。
+交給 git 歷史）。領域特定的 demo 頁（音檔 A/B 對聽、訓練曲線儀表——參考
+vocodec 的 `scripts/gen_progress_page.py` 解析訓練 log 畫 SVG 曲線）屬各
+repo 的 MISSION 資產，自行加在同一發佈目錄，一條 CI 一起發佈。**紀律**：
+進度頁（ladder＋ledger 全表）每 job 誠實刷新，not-significant rows 照登、
+有徽章標示；受顯著性 gate 管的是對外的「勝出宣稱」與 demo checkpoint
+（GUARDRAILS 同款條文）。
 
 ## 分工界線（防止本 skill 膨脹）
 

@@ -70,9 +70,12 @@ chain; optimize the campaign, not this single job.
      6. 決策：過 gate 進下一 rung／有望就排 bounded 追跑／窮盡就記負結果；
         絕不重複已產生噪音級 delta 的配方；
      7. commit+push（拆分式：只 push core repo 的程式碼變更；campaign
-        狀態不在版控時，專案卡 append 就是它的異地備份）；把本 job 結果經
-        project-card-log append 到專案卡；續投下一個 job，或寫
-        BLOCKED.md 停下等人。 -->
+        狀態不在版控時，專案卡 append 就是它的異地備份）。有裝 showcase
+        層（campaign.py pages-setup）時，push 前先 `campaign.py report`
+        重生進度頁一起 commit——CI 對發佈目錄的 paths 過濾會自動重新
+        部署 Pages（commit message：`Auto-update campaign progress page
+        (session refresh)`）。把本 job 結果經 project-card-log append
+        到專案卡；續投下一個 job，或寫 BLOCKED.md 停下等人。 -->
 
 ## GUARDRAILS
 <!-- 一個假設一個實驗；OOM 先降 batch 再動模型；eval 壞了修 harness 不准

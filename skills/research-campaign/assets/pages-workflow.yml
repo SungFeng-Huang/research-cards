@@ -2,8 +2,12 @@
 # 裝法：
 #   1. 複製本檔到目標 repo 的 .github/workflows/pages.yml
 #   2. repo Settings → Pages → Source 選 "GitHub Actions"
-#   3. campaign.py report 產出 docs/campaign-report.html；push 即發佈
-# 紀律（呼應 MISSION GUARDRAILS）：對外展示的結果只在通過顯著性 gate 後更新。
+#   3. campaign.py report 產出 docs/campaign-report.html；push 到下方
+#      branches 列的分支即發佈（pages-setup 會自動改寫成安裝當下的分支；
+#      實驗分支的 push 刻意不觸發部署）
+# 紀律（呼應 MISSION GUARDRAILS）：進度頁每 job 誠實刷新（ledger 全表含
+# not-significant rows、有徽章標示）；對外的「勝出宣稱」與 demo checkpoint
+# 只在通過顯著性 gate 後更新。
 name: Deploy GitHub Pages
 
 on:

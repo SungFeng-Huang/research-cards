@@ -190,6 +190,117 @@ def cmd_ledger_append(args):
     print(json.dumps({"appended": row["experiment"]}, ensure_ascii=False))
 
 
+def _url_host(url):
+    """抽出 remote URL 的 host（支援 https://、ssh://、scp-like git@host:path、
+    含 port 與 user@）。host 以外的 path 不參與判斷——repo 名裡出現
+    github/gitlab 字樣不能影響 host 偵測。"""
+    u = url.strip()
+    if "://" in u:
+        u = u.split("://", 1)[1]
+    u = u.split("/", 1)[0]
+    return u.rsplit("@", 1)[-1].split(":", 1)[0].lower()
+
+
+def _detect_pages_host(repo, remote):
+    import subprocess
+    # --push：部署跟著 push 走；沒設 pushurl 時 git 自動回傳 fetch URL
+    url = subprocess.run(["git", "-C", repo, "remote", "get-url", "--push",
+                          remote], capture_output=True, text=True).stdout.strip()
+    if not url:
+        return None, url
+    host = _url_host(url)
+    if "github" in host:
+        return "github", url
+    if "gitlab" in host:
+        return "gitlab", url
+    return None, url
+
+
+def _deploy_branch(proj):
+    """github workflow 的觸發分支：優先 default branch（origin/HEAD），
+    沒有（剛 init 的 repo）才用當下分支；detached HEAD 或分支名含 YAML
+    危險字元時保留 main 並警告。"""
+    import re
+    import subprocess
+
+    def _sref(ref):
+        return subprocess.run(["git", "-C", proj, "symbolic-ref", "--short",
+                               ref], capture_output=True, text=True).stdout.strip()
+
+    origin_head = _sref("refs/remotes/origin/HEAD")     # 如 origin/main
+    branch = origin_head.split("/", 1)[1] if "/" in origin_head else ""
+    if not branch:
+        branch = _sref("HEAD")
+    if not branch:
+        print("[warn] detached HEAD 且無 origin/HEAD——workflow 觸發分支保留 "
+              "main，如非 default branch 請手動改", file=sys.stderr)
+        return "main"
+    if not re.fullmatch(r"[A-Za-z0-9._/-]+", branch):
+        print(f"[warn] 分支名 {branch!r} 含特殊字元——workflow 觸發分支保留 "
+              "main，請手動改", file=sys.stderr)
+        return "main"
+    return branch
+
+
+def cmd_pages_setup(args):
+    """依 git remote 自動選 GitHub Pages（workflow → docs/）或 GitLab
+    Pages（.gitlab-ci.yml `pages` job → public/），把選擇記進
+    runs/auto_research/pages.json——之後 `report` 未指定 --out 時據此決定
+    輸出目錄。--host 可覆寫自動偵測（self-hosted 網域偵測不到時用）。"""
+    import shutil
+    proj = os.path.abspath(args.repo)
+    root = os.path.join(proj, "runs", "auto_research")
+    if not os.path.isdir(root):
+        sys.exit(f"找不到 {root}——先跑 init")
+    host = args.host
+    url = ""
+    if host == "auto":
+        host, url = _detect_pages_host(proj, args.remote)
+        if host is None:
+            sys.exit(f"remote {args.remote!r} 的 URL（{url or '未設定'}）看不出 "
+                     "github/gitlab——用 --host github|gitlab 明講")
+    assets = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "assets")
+    if host == "github":
+        out_dir, ci_dst = "docs", os.path.join(proj, ".github", "workflows", "pages.yml")
+        ci_src = os.path.join(assets, "pages-workflow.yml")
+        note = "repo Settings → Pages → Source 選 GitHub Actions"
+    else:
+        out_dir, ci_dst = "public", os.path.join(proj, ".gitlab-ci.yml")
+        ci_src = os.path.join(assets, "gitlab-pages.yml")
+        note = "GitLab Pages 由 `pages` job 發佈 public/（Settings → Pages 查網址）"
+    branch = _deploy_branch(proj)
+    ci_body = open(ci_src).read()
+    if host == "github" and branch != "main":
+        ci_body = ci_body.replace('branches: ["main"]',
+                                  f'branches: ["{branch}"]')
+    prev_ready = False                            # 重跑不降級手動合併後的標記
+    try:
+        prev = json.load(open(os.path.join(root, "pages.json")))
+        prev_ready = prev.get("host") == host and prev.get("ci_ready") is True
+    except (OSError, ValueError):
+        pass
+    installed = False
+    if os.path.exists(ci_dst):
+        if open(ci_dst).read() == ci_body:
+            installed = True                      # 同內容＝已裝好，冪等
+        elif not prev_ready:
+            print(f"[note] {ci_dst} 已存在——不覆蓋。請手動合併以下模板，"
+                  "完成後把 pages.json 的 ci_ready 改成 true：\n" + ci_body,
+                  file=sys.stderr)
+    else:
+        os.makedirs(os.path.dirname(ci_dst) or ".", exist_ok=True)
+        with open(ci_dst, "w") as f:
+            f.write(ci_body)
+        installed = True
+    ci_ready = installed or prev_ready
+    with open(os.path.join(root, "pages.json"), "w") as f:
+        json.dump({"host": host, "output_dir": out_dir,
+                   "ci_ready": ci_ready}, f, ensure_ascii=False)
+    print(json.dumps({"host": host, "remote_url": url, "ci_file": ci_dst,
+                      "ci_installed": installed, "output_dir": out_dir,
+                      "next": note}, ensure_ascii=False))
+
+
 _REPORT_CSS = """
 :root { --bg:#f7f7f4; --ink:#1d2528; --muted:#586368; --line:#d9dedb;
         --ok:#126c73; --warn:#a15c07; --bad:#8c2f39; --panel:#ffffff; }
@@ -267,7 +378,23 @@ def cmd_report(args):
     else:
         parts.append("<p class=\"muted\">（尚無評測紀錄）</p>")
     parts.append("</main></body></html>")
-    out = os.path.abspath(args.out)
+    out = args.out
+    if out is None:
+        out_dir = "docs"
+        pj = os.path.join(root, "pages.json")
+        if os.path.exists(pj):
+            try:
+                out_dir = json.load(open(pj)).get("output_dir")
+            except (ValueError, OSError) as e:
+                sys.exit(f"pages.json 壞了（{e}）——修好或刪掉再跑，"
+                         "不靜默回退以免 Pages 無聲停更")
+            if out_dir not in ("docs", "public"):
+                sys.exit(f"pages.json 的 output_dir={out_dir!r} 不合法"
+                         "（只允許 docs|public）——重跑 pages-setup")
+        # root = <project>/runs/auto_research → 上兩層是 project root
+        out = os.path.normpath(os.path.join(root, "..", "..",
+                                            out_dir, "campaign-report.html"))
+    out = os.path.abspath(out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
         f.write("\n".join(parts) + "\n")
@@ -297,8 +424,16 @@ def main():
     p.set_defaults(fn=cmd_ledger_append)
     p = sub.add_parser("report", help="ledger/queue -> 靜態 HTML campaign 報告")
     p.add_argument("--dir", default="runs/auto_research")
-    p.add_argument("--out", default="docs/campaign-report.html")
+    p.add_argument("--out", default=None,
+                   help="輸出路徑（預設依 pages.json 的 output_dir：github→docs/、"
+                        "gitlab→public/，未 setup 則 docs/）")
     p.set_defaults(fn=cmd_report)
+    p = sub.add_parser("pages-setup",
+                       help="依 git remote 安裝 GitHub/GitLab Pages 部署設定")
+    p.add_argument("--repo", default=".")
+    p.add_argument("--remote", default="origin")
+    p.add_argument("--host", choices=["auto", "github", "gitlab"], default="auto")
+    p.set_defaults(fn=cmd_pages_setup)
     args = ap.parse_args()
     args.fn(args)
 

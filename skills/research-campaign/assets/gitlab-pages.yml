@@ -1,0 +1,21 @@
+# GitLab Pages 部署（campaign 展示層，選配）
+# 裝法：campaign.py pages-setup 會在偵測到 gitlab remote 時安裝本檔為
+# .gitlab-ci.yml（已有 .gitlab-ci.yml 時改為印出片段請你手動合併）。
+# GitLab Pages 慣例：job 必須叫 `pages`、發佈目錄必須是 `public/`——
+# 所以 gitlab 模式下 campaign.py report 的預設輸出是 public/campaign-report.html。
+# 分支契約：只有 default branch 的 push 觸發部署（CI_DEFAULT_BRANCH），
+# 實驗分支的 push 刻意不觸發。
+# 紀律（呼應 MISSION GUARDRAILS）：進度頁每 job 誠實刷新（ledger 全表含
+# not-significant rows）；對外的「勝出宣稱」與 demo checkpoint 只在通過
+# 顯著性 gate 後更新。
+pages:
+  stage: deploy
+  script:
+    - echo "Publishing committed public/ to GitLab Pages"
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - public/**/*

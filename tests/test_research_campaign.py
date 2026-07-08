@@ -107,6 +107,129 @@ class TestCampaign(unittest.TestCase):
         self.assertIn("GPU", out["BLOCKED"])
 
 
+class TestPagesSetup(unittest.TestCase):
+    def setUp(self):
+        self.repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-pg-"))
+        self.root = self.repo / "runs" / "auto_research"
+        run(["init", "--repo", str(self.repo)])
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+
+    def _remote(self, url):
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add",
+                        "origin", url], check=True)
+
+    def test_github_remote_installs_workflow(self):
+        self._remote("git@github.com:user/proj.git")
+        out = json.loads(run(["pages-setup", "--repo", str(self.repo)]).stdout)
+        self.assertEqual(out["host"], "github")
+        self.assertEqual(out["output_dir"], "docs")
+        self.assertTrue(out["ci_installed"])
+        wf = self.repo / ".github" / "workflows" / "pages.yml"
+        self.assertIn("actions/deploy-pages", wf.read_text())
+        pj = json.loads((self.root / "pages.json").read_text())
+        self.assertEqual(pj, {"host": "github", "output_dir": "docs",
+                              "ci_ready": True})
+        # report 未指定 --out → 依 pages.json 落 docs/
+        run(["report", "--dir", str(self.root)])
+        self.assertTrue((self.repo / "docs" / "campaign-report.html").is_file())
+
+    def test_gitlab_remote_installs_ci_and_report_targets_public(self):
+        self._remote("https://gitlab-master.example.com/team/proj.git")
+        out = json.loads(run(["pages-setup", "--repo", str(self.repo)]).stdout)
+        self.assertEqual(out["host"], "gitlab")
+        self.assertEqual(out["output_dir"], "public")
+        ci = (self.repo / ".gitlab-ci.yml").read_text()
+        self.assertIn("pages:", ci)
+        self.assertIn("- public", ci)
+        run(["report", "--dir", str(self.root)])
+        self.assertTrue((self.repo / "public" / "campaign-report.html").is_file())
+        self.assertFalse((self.repo / "docs").exists())
+
+    def test_existing_ci_file_not_overwritten(self):
+        self._remote("https://gitlab.com/team/proj.git")
+        (self.repo / ".gitlab-ci.yml").write_text("stages: [test]\n")
+        r = run(["pages-setup", "--repo", str(self.repo)])
+        out = json.loads(r.stdout)
+        self.assertFalse(out["ci_installed"])
+        self.assertIn("手動合併", r.stderr)
+        self.assertEqual((self.repo / ".gitlab-ci.yml").read_text(),
+                         "stages: [test]\n")          # 原檔不動
+        # pages.json 照寫但 ci_ready=false——「跑過 setup ≠ 部署就緒」可判別
+        pj = json.loads((self.root / "pages.json").read_text())
+        self.assertEqual(pj["output_dir"], "public")
+        self.assertFalse(pj["ci_ready"])
+
+    def test_ci_ready_survives_rerun_after_manual_merge(self):
+        self._remote("https://gitlab.com/team/proj.git")
+        (self.repo / ".gitlab-ci.yml").write_text("stages: [test]\n")
+        run(["pages-setup", "--repo", str(self.repo)])
+        pj = self.root / "pages.json"
+        d = json.loads(pj.read_text())
+        d["ci_ready"] = True                       # 使用者手動合併完標好
+        pj.write_text(json.dumps(d))
+        r = run(["pages-setup", "--repo", str(self.repo)])   # 重跑
+        self.assertTrue(json.loads(pj.read_text())["ci_ready"])  # 不降級
+        self.assertNotIn("手動合併", r.stderr)     # 也不再嘮叨
+
+    def test_host_detection_uses_url_host_not_path(self):
+        # repo 名含 "github" 的 gitlab remote 不可誤判成 GitHub
+        self._remote("https://gitlab.com/team/github-mirror.git")
+        out = json.loads(run(["pages-setup", "--repo", str(self.repo)]).stdout)
+        self.assertEqual(out["host"], "gitlab")
+        # scp-like 形式同樣只看 host
+        subprocess.run(["git", "-C", str(self.repo), "remote", "set-url",
+                        "origin", "git@github.com:team/gitlab-tools.git"],
+                       check=True)
+        (self.root / "pages.json").unlink()
+        out = json.loads(run(["pages-setup", "--repo", str(self.repo)]).stdout)
+        self.assertEqual(out["host"], "github")
+
+    def test_host_detection_follows_push_url(self):
+        # 部署跟著 push 走：fetch=github、pushurl=gitlab → gitlab
+        self._remote("https://github.com/team/proj.git")
+        subprocess.run(["git", "-C", str(self.repo), "remote", "set-url",
+                        "--push", "origin",
+                        "https://gitlab-master.example.com/team/proj.git"],
+                       check=True)
+        out = json.loads(run(["pages-setup", "--repo", str(self.repo)]).stdout)
+        self.assertEqual(out["host"], "gitlab")
+
+    def test_github_workflow_branch_rewritten_to_current(self):
+        subprocess.run(["git", "-C", str(self.repo), "checkout", "-q",
+                        "-b", "trunk"], check=True)
+        self._remote("https://github.com/team/proj.git")
+        run(["pages-setup", "--repo", str(self.repo)])
+        wf = (self.repo / ".github" / "workflows" / "pages.yml").read_text()
+        self.assertIn('branches: ["trunk"]', wf)
+        self.assertNotIn('branches: ["main"]', wf)
+
+    def test_report_rejects_invalid_output_dir(self):
+        self._remote("https://github.com/team/proj.git")
+        run(["pages-setup", "--repo", str(self.repo)])
+        pj = self.root / "pages.json"
+        pj.write_text(json.dumps({"host": "github",
+                                  "output_dir": "../outside"}))
+        r = run(["report", "--dir", str(self.root)], ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("不合法", r.stderr)
+        pj.write_text("{broken")
+        r = run(["report", "--dir", str(self.root)], ok=False)
+        self.assertNotEqual(r.returncode, 0)          # 壞檔明確失敗，不靜默回退
+        # 明給 --out 不受 pages.json 影響
+        out = self.repo / "x.html"
+        run(["report", "--dir", str(self.root), "--out", str(out)])
+        self.assertTrue(out.is_file())
+
+    def test_unknown_remote_requires_host_flag(self):
+        self._remote("https://git.example.com/team/proj.git")
+        r = run(["pages-setup", "--repo", str(self.repo)], ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--host", r.stderr)
+        out = json.loads(run(["pages-setup", "--repo", str(self.repo),
+                              "--host", "github"]).stdout)
+        self.assertEqual(out["host"], "github")
+
+
 class TestReport(unittest.TestCase):
     def test_report_renders_and_is_deterministic(self):
         repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-rep-"))

@@ -32,6 +32,7 @@
 [快速上手（Heptabase）](#快速上手-b--heptabase--both) ·
 [日常使用](#日常使用) ·
 [Heptabase ↔ Obsidian 同步](#heptabase--obsidian-同步) ·
+[研究實驗 Campaign](#研究實驗-campaign) ·
 [無人值守排程](#無人值守排程剪報管線) ·
 [整合](#整合選用) ·
 [疑難排解](#疑難排解) ·
@@ -350,6 +351,112 @@ python3 verify.py             # vault 完整性檢查；預期 CLEAN
 點擊的東西能弄壞標記）、同卡錨點用 Obsidian block reference
 （`[[#^id]]`）、卡片連結用 `[[wikilinks]]`。細節見
 `skills/obsidian-sync/SKILL.md`。
+
+## 研究實驗 Campaign
+
+`research-campaign` 把「一個 project 的長期自主實驗戰役」標準化：任務書
+（MISSION.md）住進 project、實驗階梯與結果帳本可斷點續跑、量測紀律硬性
+把關、進度自動回流專案卡。它**不是訓練執行器**——訓練怎麼跑由你的
+MISSION 說了算；skill 管格式、記帳、與知識庫的接口。
+
+完整閉環（這是本 plugin 獨有的敘事）：
+
+```
+知識庫  ──Op5 gap 分析──▶  MISSION 實驗設計
+   ▲                              │
+   │                       （campaign 執行）
+   └──project-card-log 回卡──  ledger 結果
+        （merge 整併 → bib-export 收參考文獻 → paper）
+```
+
+### 1. Setup — 開一個 campaign
+
+在 project 目錄的 session 說「幫這個 repo 開一個研究實驗 campaign」
+（或 `/research-cards:research-campaign init`），agent 會走四步：
+
+1. **就緒度檢查**（`assets/repo-checklist.md`）——campaign 假設 project
+   已有七個必備件：
+
+   | 必備件 | 要求 |
+   |---|---|
+   | train 入口 | 吃 `--config`／`--resume <ckpt>`、checkpoint 頻率可調 |
+   | eval 入口 | 吃 manifest、分層抽樣、輸出 **per-utterance CSV** |
+   | 顯著性工具 | paired-delta 95% CI（沒有→列為 E0 前置） |
+   | manifest 建構器 | 能建 balanced 切片（固定 seed） |
+   | configs/ | 一個實驗 rung 一份 recipe |
+   | 測試入口 | E0 合約＝測試不過不准訓練 |
+   | reports/ | post-mortem 與每 rung 摘要的家 |
+
+   缺件由你選：先補齊，或列為 E0 前置子項。
+2. **佈局選擇**——兩種都支援：
+   - *單一 repo*：campaign 狀態（`runs/auto_research/`）在版控內，per-job
+     的 git pull/push 蓋全部。
+   - *拆分式*（project root 是普通目錄、核心 code 才是 repo）：git 動作只
+     作用於 core repos；**ledger 是工作簿（共享檔案系統續命）、專案卡是
+     帳本正本（跨機器恆久層）**。想升級成 repo：`init --git` 會 git init
+     ＋依實際目錄生成起手 .gitignore（大 artifact 與巢狀 core repo 自動
+     排除），首 commit 留給你核可。
+3. **勘查＋一次批量問答**——README/configs/reports 能推斷的不問；必問：
+   目標與非目標、基線數字與主副指標、執行環境（牆鐘上限/搶佔）、ladder
+   草案、**過去的失敗模式**（寫進 banned practices，最有價值的一欄）。
+4. **MISSION 草稿給你核可**（標明哪些是推斷）→ 落檔：
+
+   ```bash
+   python3 skills/research-campaign/scripts/campaign.py init \
+     --repo <project-root> [--git] [--rungs E0 E1 E2]
+   # 產生 runs/auto_research/{MISSION.md, queue.json, ledger.jsonl}
+   ```
+
+   模板八段各有行內填寫指引；完整範例見
+   `skills/research-campaign/assets/examples/example-mission.md`。
+
+### 2. Run — 接續一個 campaign job
+
+在 project session（本機或 cluster job）說「接續 campaign」。agent 讀
+`runs/auto_research/MISSION.md` 照做，並疊加通用紀律：
+
+- **Step 0（每個 fresh job）**：解析專案卡；卡上有近期 `🔍` gap 分析先讀
+  ——知識庫已覆蓋的 prior art 不重新發現。
+- **量測紀律（違反任一條結果無效）**：分層抽樣的代表性 eval 切片；corpus
+  級指標；**任何「贏」須 paired-delta 95% CI 排除 0**（基線重評 ≥3 次記
+  eval 非確定性、delta 小於 CI 寬度不 promote）；一次改一件事；架構級
+  變更必 from-scratch；超參引用 alchemist-playbook 式有出處的建議。
+- **記帳**：每個評測一行 ledger（工具把關 schema——五個必要欄位、
+  `significant` 必為布林、缺 playbook 引用出警告）：
+
+  ```bash
+  python3 …/campaign.py ledger-append --dir runs/auto_research \
+    --json '{"experiment":"E1","config_hash":"…","metrics":{"wer":0.31},
+             "significant":true,"decision":"advance",
+             "playbook_rules_cited":["speech.whisper.lr"]}'
+  ```
+- **收尾**：push 程式碼後把本 job 結果經 `project-card-log` append 到
+  專案卡；卡住寫 `BLOCKED.md` 停下等人。
+
+### 3. Status — 看進度
+
+```bash
+python3 …/campaign.py status --dir runs/auto_research
+```
+
+出佇列各狀態計數、running/下一個 pending、最近 ledger 摘要、BLOCKED
+提示。問「campaign 進度如何」agent 會跑這個並講清楚「距離 success gate
+還差什麼」。
+
+### 4. Showcase — 對外展示層（選配）
+
+```bash
+python3 …/campaign.py report --dir runs/auto_research \
+  --out docs/campaign-report.html
+cp skills/research-campaign/assets/pages-workflow.yml \
+  <project>/.github/workflows/pages.yml
+# repo Settings → Pages → Source 選 "GitHub Actions"；push docs/ 即發佈
+```
+
+報告頁含 ladder 狀態徽章、ledger 全表（顯著性徽章＋playbook 引用）、
+BLOCKED 橫幅；輸出無時間戳（確定性，發佈時間交給 git 歷史）。領域特定
+demo 頁（音檔 A/B 對聽等）自行加在 `docs/`，同一條 workflow 一起發佈。
+**紀律**：對外展示的結果只在通過顯著性 gate 後更新。
 
 ## 無人值守排程（剪報管線）
 

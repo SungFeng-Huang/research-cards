@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0 — 2026-07-08
+- **新 skill `research-campaign`**（project 方向第三塊）：自主實驗戰役的
+  任務書格式＋記帳慣例——MISSION.md 住在目標 repo 的 `runs/auto_research/`
+  （八段模板含逐段指引＋中性完整範例＋campaign-ready repo 檢查清單）；
+  `campaign.py`（stdlib）scaffold／status／schema 校驗的 ledger append；
+  量測紀律硬性把關（顯著性 CI gate、代表性切片、一次改一件事）；與
+  project-card-log（每 job 進度回卡）、overview-graph Op5（開跑前 gap
+  分析）、alchemist-playbook 式超參引用（ledger `playbook_rules_cited`）
+  接線。刻意不做訓練執行器——執行照各 repo 的 MISSION。
+
 ## 0.12.2 — 2026-07-08
 - **修批次 retrofit 的兩個結構性盲區**（實案：11 張 2023 老卡漏掃近三年）：
   `list_todo()` 回傳新增 `excluded_by_filter` 並在 stderr 明示「因 Source

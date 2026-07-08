@@ -60,6 +60,7 @@
 |---|---|
 | `project-card-log` | 在專案 repo 的 session（本機或遠端）解析出這個專案的卡，附加有日期、有程式碼依據的進度——只增不改 |
 | `project-card-merge` | 另一半：把累積的進度區塊整併成一張 paper 級的完整卡（全編輯端） |
+| `research-campaign` | 自主實驗戰役的任務書格式＋記帳慣例：MISSION.md 進 repo、queue/ledger 斷點續跑、顯著性 gate 量測紀律，進度自動回流專案卡 |
 
 **✍️ 論文寫作**——寫 paper 時收割知識庫
 
@@ -270,6 +271,8 @@ python3 ../_shared/topology.py refresh    # 全部主題；或 refresh <topic>
 | 「幫這個專案建一張 project card」——建卡＋骨架＋上 tag＋固定對應一步完成 | `/research-cards:project-card-log 建卡 "My Project"` |
 | 「把 project card 的進度整併成 paper 級」——收攏累積的進度區塊 | `/research-cards:project-card-merge 〈專案名〉` |
 | 「用知識圖幫我的 project card 做 research-gap 分析」——拿領域地圖對照專案卡，找出還沒被回答的缺口（Operation 5） | `/research-cards:overview-graph gap 〈專案卡〉` |
+| 「幫這個 repo 開一個研究實驗 campaign」——檢查 repo 就緒度 → 互動 intake → 產 MISSION.md 任務書＋queue/ledger | `/research-cards:research-campaign init` |
+| 「接續 campaign」／「campaign 進度如何」 | `/research-cards:research-campaign`（在該 repo session 內）／`… status` |
 
 對應關係去哪了：git repo 內是 git root 的 `.heptabase-card` marker；
 「project root 不是 git repo、repos 在底下一層」的佈局則進 registry

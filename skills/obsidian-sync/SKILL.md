@@ -60,8 +60,20 @@ iCloud Drive, run OUTSIDE the sandbox (the terminal needs Full Disk Access).
   text); highlight embeds → blockquote from the user data dir's `highlights.json`.
 - **Renames**: title change renames the .md file and rewrites wikilinks in
   managed folders.
+- **Journal bridge** (opt-in: `obsidian.journal.enabled`, window
+  `obsidian.journal.days`, default 30): one-way mirror of the Heptabase
+  journal into vault-root `<YYYY-MM-DD>.md` daily notes. The sync owns ONLY
+  the marker block `<!-- hepta-journal:start -->` … `<!-- hepta-journal:end -->`
+  (kept at the top); everything outside it — the user's own daily writing on
+  any device — is never touched. Incremental per-day via `contentMd5`
+  (`journals` section of the state file); empty Heptabase days never create
+  files; a day that becomes empty clears the block but keeps the markers;
+  malformed markers (one deleted / reordered) → conflict report, file left
+  alone. **Reverse flow (daily note → Heptabase journal) is a deliberate
+  non-goal**: content in the user area does not flow back (a level-2-style
+  journal write-back would be a separate feature).
 - State: `<vault>/.hepta-sync/state.json` (filenames, md5, prop snapshots,
-  resolved external titles, exported fileIds).
+  resolved external titles, exported fileIds, per-day journal md5).
 
 ## Agent duties after each run (read the JSON report)
 

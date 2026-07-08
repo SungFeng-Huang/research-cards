@@ -100,6 +100,11 @@
       },
       "$mirror_comment": "單向鏡像：每個條目把一塊 Heptabase whiteboard 覆寫成 vault 裡的 JSON Canvas（版面以 Heptabase 為準，別手排鏡像出的 canvas）。與 canvas（add-only 知識地圖）互不相干。 mirror_mention_edges（預設 true）：把卡片內文互相 mention 的連線（Heptabase 自動畫的 mention 線）也重現成 canvas edge。",
       "mirror_mention_edges": true
+    },
+    "journal": {
+      "$comment": "Journal 橋接（單向）：Heptabase journal → vault 根的 <YYYY-MM-DD>.md，只寫管理標記區塊（<!-- hepta-journal:start/end -->）——區塊外的手寫內容永不動；區塊內的編輯會在來源變更時被覆寫。days=滾動視窗。反向（daily note → Heptabase）為 non-goal。",
+      "enabled": false,
+      "days": 30
     }
   },
   "integrations": {

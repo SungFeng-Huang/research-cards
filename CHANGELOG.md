@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.17.0 — journal bridge (Heptabase → Obsidian daily notes)
+
+- obsidian-sync grows a one-way journal leg: the last `obsidian.journal.days`
+  (default 30) days of the Heptabase journal mirror into a managed marker
+  block (`<!-- hepta-journal:start/end -->`) at the top of vault-root
+  `<YYYY-MM-DD>.md` daily notes. Content OUTSIDE the markers (the user's own
+  daily writing) is never touched; malformed markers report a conflict and
+  the file is left alone. Incremental via per-day contentMd5 in sync state;
+  empty days never create files; emptied days clear the block but keep the
+  claim. Off by default (`obsidian.journal.enabled`).
+- Reverse flow (daily note → Heptabase journal) is an explicit non-goal of
+  this version.
+- File exports (images pasted in journals) reuse the card pipeline's
+  attachment logic (extracted as a shared helper).
+
 ## 0.16.0 — 2026-07-08
 - **project-card-merge chain-aware（CARD-OVERFLOW.md merge side 完成）**：
   scan/讀取沿續卡鏈（`chain`/`chain_dumps`/`child_payload`，PM 層 sentinel

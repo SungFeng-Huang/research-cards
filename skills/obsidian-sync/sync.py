@@ -62,6 +62,7 @@ SYSTEM_KEYS = ["heptabase_id", "created", "modified"]
 
 REBUILD = False
 report = {"created": [], "body_updated": [], "fm_updated": [], "renamed": [],
+          "journals": [],
           "prop_writeback": [], "conflicts": [], "removed_from_tag": [],
           "missing_files_recreated": [], "unknown_nodes": {},
           "unresolved_highlights": [], "bootstrap_fm_diffs": [],
@@ -326,6 +327,11 @@ def main():
                cid not in {c["id"] for c in col_cards[col["key"]]}:
                 report["removed_from_tag"].append({"card": cid, "file": st["file"]})
 
+    try:
+        sync_journals(state, resolver, dry)
+    except Exception as e:
+        report["errors"].append({"card": "journal", "err": repr(e)[:300]})
+
     if not dry:
         update_conflict_log(state)
         os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
@@ -417,12 +423,33 @@ def render_forward(note, cid, card, resolver, state, att_dir, dry):
                      anchor_ids)
     prefix, blocks = conv.convert_blocks(json.loads(note["content"]))
     report["unknown_nodes"].update(conv.unknown)
+    fileid_to_name = export_local_files(conv, att_dir, state, cid, dry)
+    out_blocks = [(node, resolver.resolve(md, cid, fileid_to_name, anchor_ids))
+                  for node, md in blocks]
+    body = assemble(md for _, md in out_blocks)
+    if not dry:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        json.dump({"contentMd5": note.get("contentMd5"),
+                   "title": note.get("title") or card["title"],
+                   "prefix": prefix, "anchorIds": sorted(anchor_ids),
+                   "blocks": [{"node": n, "md": m} for n, m in out_blocks]},
+                  open(cache_path(cid), "w"), ensure_ascii=False)
+    return body, note.get("contentMd5")
+
+
+
+
+def export_local_files(conv, att_dir, state, err_key, dry):
+    """Export a Converter's referenced Heptabase files into att_dir once,
+    remembering names in state["files"]. Shared by card body sync and the
+    journal bridge."""
     fileid_to_name = {}
     for fid in conv.local_files:
         if fid in state["files"]:
             fileid_to_name[fid] = state["files"][fid]
             continue
         try:
+            os.makedirs(att_dir, exist_ok=True)
             info = cli("file", "export", fid, "--output-dir", att_dir)
             name = info["filename"]
             # Heptabase pasted images may have no real extension
@@ -441,18 +468,116 @@ def render_forward(note, cid, card, resolver, state, att_dir, dry):
             if not dry:
                 state["files"][fid] = name
         except Exception as e:
-            report["errors"].append({"card": cid, "err": f"file export {fid}: {e}"})
-    out_blocks = [(node, resolver.resolve(md, cid, fileid_to_name, anchor_ids))
-                  for node, md in blocks]
-    body = assemble(md for _, md in out_blocks)
+            report["errors"].append({"card": err_key, "err": f"file export {fid}: {e}"})
+    return fileid_to_name
+
+
+# ---- journal bridge: Heptabase journal -> Obsidian daily notes (one-way) ----
+J_START = "<!-- hepta-journal:start -->"
+J_END = "<!-- hepta-journal:end -->"
+
+
+def _doc_is_empty(doc):
+    """True when the PM doc carries no visible content (Heptabase returns a
+    single empty paragraph for days with no journal)."""
+    for node in doc.get("content") or []:
+        if node.get("type") != "paragraph":
+            return False
+        if node.get("content"):
+            return False
+    return True
+
+
+def render_journal(note, date, resolver, att_dir, state, dry):
+    """Heptabase journal PM doc -> markdown body for the managed block."""
+    conv = Converter({"id": f"journal-{date}", "title": note.get("title") or date},
+                     set())
+    _, blocks = conv.convert_blocks(json.loads(note["content"]))
+    report["unknown_nodes"].update(conv.unknown)
+    fileid_to_name = export_local_files(conv, att_dir, state,
+                                        f"journal:{date}", dry)
+    return assemble(resolver.resolve(md, f"journal-{date}", fileid_to_name, set())
+                    for _, md in blocks)
+
+
+def write_managed_block(path, body, dry):
+    """Write `body` into the managed marker block of a daily note, preserving
+    everything outside the markers (the user's own notes). Returns the action
+    taken: created / updated / unchanged / conflict."""
+    block = J_START + "\n" + (body.rstrip() + "\n" if body.strip() else "") + J_END
+    if not os.path.exists(path):
+        if not dry:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(block + "\n")
+        return "created"
+    text = open(path, encoding="utf-8").read()
+    has_start, has_end = J_START in text, J_END in text
+    if has_start != has_end or \
+       (has_start and text.index(J_START) > text.index(J_END)):
+        return "conflict"  # half-deleted / reordered markers: never guess
+    if has_start:
+        pre, rest = text.split(J_START, 1)
+        _, post = rest.split(J_END, 1)
+        new_text = pre + block + post
+    else:
+        # day note existed before the bridge: prepend our block, keep the rest
+        new_text = block + "\n\n" + text.lstrip("\n")
+    if new_text == text:
+        return "unchanged"
     if not dry:
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        json.dump({"contentMd5": note.get("contentMd5"),
-                   "title": note.get("title") or card["title"],
-                   "prefix": prefix, "anchorIds": sorted(anchor_ids),
-                   "blocks": [{"node": n, "md": m} for n, m in out_blocks]},
-                  open(cache_path(cid), "w"), ensure_ascii=False)
-    return body, note.get("contentMd5")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_text)
+    return "updated"
+
+
+def sync_journals(state, resolver, dry):
+    """One-way journal leg: mirror the last N days of the Heptabase journal
+    into the managed block of vault-root daily notes. Config
+    obsidian.journal.{enabled, days}; incremental via per-day contentMd5.
+    The user's content OUTSIDE the markers is never touched; edits INSIDE
+    the markers are overwritten on the next source change (documented
+    one-way semantics). Reverse flow (daily note -> Heptabase) is a
+    deliberate non-goal of v1."""
+    jcfg = _cfg["obsidian"].get("journal") or {}
+    if not jcfg.get("enabled"):
+        return
+    days = int(jcfg.get("days") or 30)
+    if days <= 0:
+        return
+    jstate = state.setdefault("journals", {})
+    att_dir = os.path.join(VAULT, "attachments")
+    today = datetime.date.today()
+    for i in range(days):
+        date = (today - datetime.timedelta(days=i)).isoformat()
+        try:
+            note = cli("journal", "read", date)
+        except Exception as e:
+            report["errors"].append({"card": f"journal:{date}",
+                                     "err": repr(e)[:200]})
+            continue
+        md5 = note.get("contentMd5")
+        path = os.path.join(VAULT, f"{date}.md")
+        prev = jstate.get(date)
+        if prev and prev.get("md5") == md5 and os.path.exists(path):
+            continue  # source unchanged and target present
+        empty = _doc_is_empty(json.loads(note["content"]))
+        if empty and not os.path.exists(path):
+            # nothing to say and no note to claim: don't create empty files
+            if not dry:
+                jstate[date] = {"md5": md5}
+            continue
+        body = "" if empty else render_journal(note, date, resolver, att_dir,
+                                               state, dry)
+        action = write_managed_block(path, body, dry)
+        if action == "conflict":
+            report["conflicts"].append({"card": f"journal:{date}",
+                                        "file": date,
+                                        "reason": "managed markers malformed"})
+            continue
+        if action != "unchanged":
+            report["journals"].append({"date": date, "action": action})
+        if not dry:
+            jstate[date] = {"md5": md5}
 
 
 def adopt_new_files(col, folder, props_by_key, state, in_set, dry):

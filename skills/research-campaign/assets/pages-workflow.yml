@@ -1,0 +1,43 @@
+# GitHub Pages 部署 workflow（campaign 展示層，選配）
+# 裝法：
+#   1. 複製本檔到目標 repo 的 .github/workflows/pages.yml
+#   2. repo Settings → Pages → Source 選 "GitHub Actions"
+#   3. campaign.py report 產出 docs/campaign-report.html；push 即發佈
+# 紀律（呼應 MISSION GUARDRAILS）：對外展示的結果只在通過顯著性 gate 後更新。
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

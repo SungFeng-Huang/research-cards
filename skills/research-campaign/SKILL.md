@@ -30,7 +30,10 @@ description: >-
   哪些元件（可續訓 train 入口、per-utterance CSV 的 eval、顯著性工具、
   manifest 建構器…）campaign 才跑得動；intake 第一步就是對照它。
 - `scripts/campaign.py` — 記帳工具（stdlib）：`init`（scaffold）、
-  `status`（佇列＋帳本摘要）、`ledger-append`（schema 校驗寫入）。
+  `status`（佇列＋帳本摘要）、`ledger-append`（schema 校驗寫入）、
+  `report`（ledger/queue → 靜態 HTML campaign 報告）。
+- `assets/pages-workflow.yml` — GitHub Pages 部署 workflow 模板（配 report
+  即成對外展示層）。
 
 ## Mode 1 — Setup（互動式 intake → MISSION.md）
 
@@ -104,6 +107,21 @@ python3 scripts/campaign.py status --dir <repo>/runs/auto_research
 ```
 出佇列各狀態計數、最近 ledger 摘要（experiment/significant/decision）、
 BLOCKED 提示。回報時把「距離 campaign success gate 還差什麼」講清楚。
+
+## Mode 4 — Showcase（選配，GitHub Pages 展示層）
+
+```bash
+python3 scripts/campaign.py report --dir <repo>/runs/auto_research \
+  --out <repo>/docs/campaign-report.html          # ledger/queue → 單頁報告
+cp assets/pages-workflow.yml <repo>/.github/workflows/pages.yml
+# repo Settings → Pages → Source 選 "GitHub Actions"；push docs/ 即發佈
+```
+
+報告頁自動含：ladder 狀態表、ledger 全表（metrics／significant 徽章／
+decision／playbook 引用）、BLOCKED 橫幅；無時間戳（輸出確定性，發佈時間
+交給 git 歷史）。領域特定的 demo 頁（音檔 A/B 對聽、樣本展示等）自行加在
+docs/ 下，同一條 workflow 一起發佈。**紀律**：對外展示的結果只在通過顯著
+性 gate 後更新（GUARDRAILS 同款條文）。
 
 ## 分工界線（防止本 skill 膨脹）
 

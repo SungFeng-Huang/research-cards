@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.2 — 2026-07-08
+- **campaign 展示層（選配，取經 voidful/vocodec 的 Pages 模式）**：
+  `campaign.py report`——ledger/queue → 單頁靜態 HTML 報告（ladder 狀態
+  徽章、ledger 全表含顯著性徽章與 playbook 引用、BLOCKED 橫幅；全內容
+  HTML escape、無時間戳＝輸出確定性）；`assets/pages-workflow.yml`
+  GitHub Pages 部署模板（push docs/ 即發佈）。SKILL 新增 Mode 4，
+  紀律同 GUARDRAILS：對外展示只在通過顯著性 gate 後更新。
+
 ## 0.13.1 — 2026-07-08
 - **research-campaign 支援拆分式專案佈局**（project root 非 repo、核心
   code 才有版控——常見習慣）：MISSION 模板新增 PROJECT LAYOUT 段（git

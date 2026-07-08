@@ -107,5 +107,32 @@ class TestCampaign(unittest.TestCase):
         self.assertIn("GPU", out["BLOCKED"])
 
 
+class TestReport(unittest.TestCase):
+    def test_report_renders_and_is_deterministic(self):
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-rep-"))
+        root = repo / "runs" / "auto_research"
+        run(["init", "--repo", str(repo), "--rungs", "E0", "E1"])
+        (root / "MISSION.md").write_text("# MISSION: 測試戰役 <x&y>\n")
+        row = {"experiment": "E0", "config_hash": "h", "metrics": {"wer": 0.31},
+               "significant": True, "decision": "advance <ok>",
+               "playbook_rules_cited": ["speech.lr"]}
+        run(["ledger-append", "--dir", str(root), "--json", json.dumps(row)])
+        (root / "BLOCKED.md").write_text("等資料")
+        out = repo / "docs" / "campaign-report.html"
+        rep = json.loads(run(["report", "--dir", str(root),
+                              "--out", str(out)]).stdout)
+        self.assertEqual(rep["ledger_rows"], 1)
+        html = out.read_text()
+        self.assertIn("測試戰役 &lt;x&amp;y&gt;", html)   # 標題有 escape
+        self.assertIn("b-pending", html)                  # ladder 徽章
+        self.assertIn("b-sig", html)                      # 顯著性徽章
+        self.assertIn("advance &lt;ok&gt;", html)         # 內容 escape
+        self.assertIn("BLOCKED", html)
+        self.assertIn("speech.lr", html)
+        first = out.read_bytes()
+        run(["report", "--dir", str(root), "--out", str(out)])
+        self.assertEqual(first, out.read_bytes())         # 無時間戳＝確定性
+
+
 if __name__ == "__main__":
     unittest.main()

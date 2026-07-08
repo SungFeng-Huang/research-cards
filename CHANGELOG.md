@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.1 — 2026-07-08
+- **research-campaign 支援拆分式專案佈局**（project root 非 repo、核心
+  code 才有版控——常見習慣）：MISSION 模板新增 PROJECT LAYOUT 段（git
+  步驟作用域、狀態持久化語義：ledger 是工作簿、專案卡是帳本正本）；
+  repo-checklist 對應章節；`campaign.py init` 對非版控 root 出提示。
+- **`init --git`**：一鍵把 project root 升級成 repo——git init＋依當下
+  目錄生成起手 .gitignore（checkpoints/wandb/大檔排除；**巢狀 core repo
+  自動加入排除、維持獨立版控**）；首 commit 刻意留給使用者核可後執行。
+
 ## 0.13.0 — 2026-07-08
 - **新 skill `research-campaign`**（project 方向第三塊）：自主實驗戰役的
   任務書格式＋記帳慣例——MISSION.md 住在目標 repo 的 `runs/auto_research/`

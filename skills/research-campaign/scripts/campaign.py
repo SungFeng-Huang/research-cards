@@ -35,7 +35,51 @@ def _feature_gate():
         pass
 
 
+# 常見 ML 大 artifact——`init --git` 生成的起手 .gitignore
+GITIGNORE_STARTER = """# research-campaign starter .gitignore（依專案增刪）
+checkpoints/
+logs/
+wandb/
+data/
+*.pt
+*.ckpt
+*.safetensors
+*.wav
+*.npz
+runs/**/samples/
+__pycache__/
+"""
+
+
+def _bootstrap_git(project_root):
+    """把拆分式 project root 升級成 git repo：git init＋起手 .gitignore
+    （巢狀 core repo 自動加入排除，維持其獨立版控）。不自動首 commit——
+    內容先給使用者過目。"""
+    import subprocess
+    nested = []
+    for name in sorted(os.listdir(project_root)):
+        sub = os.path.join(project_root, name)
+        if os.path.isdir(os.path.join(sub, ".git")):
+            nested.append(name + "/")
+    subprocess.run(["git", "init", "-q", project_root], check=True)
+    gi = os.path.join(project_root, ".gitignore")
+    existing = open(gi).read() if os.path.exists(gi) else ""
+    add = GITIGNORE_STARTER
+    if nested:
+        add += "# 巢狀 core repos（維持獨立版控，不併入本 repo）\n"
+        add += "".join(n + "\n" for n in nested)
+    with open(gi, "a") as f:
+        if existing and not existing.endswith("\n"):
+            f.write("\n")
+        f.write(add)
+    return nested
+
+
 def cmd_init(args):
+    """--repo 收任意 project root（不必是 git repo；拆分式佈局把 campaign
+    狀態放在非版控的 project root 是預期用法）。--git 把 project root 升級
+    成 repo（git init＋起手 .gitignore、巢狀 repo 排除；首 commit 留給
+    使用者核可後執行）。"""
     root = os.path.join(os.path.abspath(args.repo), "runs", "auto_research")
     mission = os.path.join(root, "MISSION.md")
     if os.path.exists(mission):
@@ -56,11 +100,32 @@ def cmd_init(args):
     ledger = os.path.join(root, "ledger.jsonl")
     if not os.path.exists(ledger):
         open(ledger, "w").close()
-    print(json.dumps({"scaffolded": root,
-                      "mission": mission,
-                      "rungs": args.rungs or [],
-                      "next": "把核可後的 MISSION 內容寫進 MISSION.md（模板含逐段指引）"},
-                     ensure_ascii=False))
+    import subprocess
+    proj = os.path.abspath(args.repo)
+    in_git = subprocess.run(["git", "-C", proj, "rev-parse",
+                             "--is-inside-work-tree"],
+                            capture_output=True, text=True).stdout.strip() == "true"
+    nested = None
+    if not in_git and args.git:
+        nested = _bootstrap_git(proj)
+        in_git = True
+        print(f"[git] 已初始化 {proj} 為 repo；起手 .gitignore 已生成"
+              + (f"（排除巢狀 repos：{nested}）" if nested else "")
+              + "——請檢視 .gitignore 與 `git status` 後自行首 commit",
+              file=sys.stderr)
+    elif not in_git:
+        print("[note] campaign 目錄不在 git 版控內（拆分式佈局）——斷點續跑靠"
+              "檔案系統，跨機器恆久紀錄靠專案卡的 step-7 append；"
+              "想升級成 repo 可用 init --git", file=sys.stderr)
+    out = {"scaffolded": root,
+           "mission": mission,
+           "rungs": args.rungs or [],
+           "git_tracked": in_git,
+           "next": "把核可後的 MISSION 內容寫進 MISSION.md（模板含逐段指引）"}
+    if nested is not None:
+        out["git_initialized"] = True
+        out["nested_repos_ignored"] = nested
+    print(json.dumps(out, ensure_ascii=False))
 
 
 def _load_dir(d):
@@ -130,7 +195,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("init", help="scaffold runs/auto_research/ in a repo")
-    p.add_argument("--repo", default=".")
+    p.add_argument("--repo", default=".",
+                   help="project root（任意目錄，不必是 git repo）")
+    p.add_argument("--git", action="store_true",
+                   help="project root 不在版控時，git init＋生成起手 .gitignore"
+                        "（巢狀 core repo 自動排除；首 commit 留給使用者）")
     p.add_argument("--rungs", nargs="*", default=None)
     p.set_defaults(fn=cmd_init)
     p = sub.add_parser("status", help="queue + ledger summary")

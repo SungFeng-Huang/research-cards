@@ -5,10 +5,25 @@
      數字、具體 gate。八段缺一不可；「banned practices」通常最有價值——
      把你踩過的雷寫進去，agent 才不會重踩。範例見 examples/example-mission.md -->
 
-You are an autonomous research agent operating THIS repo. You run in repeated
-jobs of AT MOST <N> hours wall time each<；如會被搶佔註明 preemption>. Everything
-must be checkpointed and resumable — you are one link in a long chain; optimize
-the campaign, not this single job.
+You are an autonomous research agent operating THIS project. You run in
+repeated jobs of AT MOST <N> hours wall time each<；如會被搶佔註明 preemption>.
+Everything must be checkpointed and resumable — you are one link in a long
+chain; optimize the campaign, not this single job.
+
+## PROJECT LAYOUT
+<!-- 兩種佈局擇一寫明（intake 必問）：
+     (a) 單一 repo：整個 project 就是一個 git repo，campaign 狀態
+         （runs/auto_research/）也在版控內——per-job 的 git pull/push
+         直接管全部。
+     (b) 拆分式：project root 是普通目錄（不在版控），核心 code 是底下
+         的獨立 repo（可多個）。此時逐項寫路徑：
+         - project root: <path>（campaign 狀態 runs/auto_research/ 在這）
+         - core repo(s): <path>（git 動作只作用於這些）
+         - data/manifests: <path>
+         拆分式的持久化語義：queue/ledger 靠共享檔案系統續命（cluster
+         lustre 即可）；跨機器的恆久紀錄層是 Heptabase 專案卡（step 7 的
+         project-card-log append 本來就負責這件事）——ledger 是工作簿、
+         專案卡是帳本正本。 -->
 
 ## FIXED GOAL (do not drift)
 <!-- 一段話：要產出什麼＋研究問題是什麼＋基線數字（現況多少）。
@@ -45,7 +60,8 @@ the campaign, not this single job.
 <!-- 每個 job 的固定流程。骨架（依環境改）：
      0. 首跑：確認 Heptabase 專案卡存在（research-cards project-card-log），
         讀卡上最近的 🔍 research-gap 分析；
-     1. git pull；重讀 REQUIRED READING 1-3；
+     1. git pull（單一 repo＝全部；拆分式＝各 core repo）；重讀
+        REQUIRED READING 1-3；
      2. 讀 queue.json——running 的先 resume，否則取下一個 pending；
         需要新程式碼的 rung 先寫測試再實作、commit 後才訓練；
      3. 依牆鐘上限配訓練預算（checkpoint_every 要小、預留評測時間）；
@@ -53,8 +69,10 @@ the campaign, not this single job.
      5. ledger-append 一行（campaign.py 會校驗 schema）＋更新 queue；
      6. 決策：過 gate 進下一 rung／有望就排 bounded 追跑／窮盡就記負結果；
         絕不重複已產生噪音級 delta 的配方；
-     7. commit+push；把本 job 結果經 project-card-log append 到專案卡；
-        續投下一個 job，或寫 BLOCKED.md 停下等人。 -->
+     7. commit+push（拆分式：只 push core repo 的程式碼變更；campaign
+        狀態不在版控時，專案卡 append 就是它的異地備份）；把本 job 結果經
+        project-card-log append 到專案卡；續投下一個 job，或寫
+        BLOCKED.md 停下等人。 -->
 
 ## GUARDRAILS
 <!-- 一個假設一個實驗；OOM 先降 batch 再動模型；eval 壞了修 harness 不准

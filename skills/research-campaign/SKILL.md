@@ -39,9 +39,18 @@ description: >-
 1. **先驗 repo、再勘查、再提問**：先對照 `assets/repo-checklist.md` 檢查
    repo 具不具備 campaign 的必備元件（train --resume／eval 出 per-utterance
    CSV／顯著性工具／manifest 建構器／測試入口）——缺件讓使用者選「先補齊」
-   或「列為 E0 前置」。然後讀 README／configs／reports，能推斷的欄位直接
-   預填草稿。**只問補不齊的**，且一次批量問完（AskUserQuestion／一則
-   訊息），不要擠牙膏。最少要確認的欄位：
+   或「列為 E0 前置」。**拆分式佈局（project root 非 repo）再多給一個
+   選擇**：(a) 維持拆分——campaign 狀態靠檔案系統＋專案卡當恆久層；
+   (b) 升級成 repo——`campaign.py init --git` 會 git init＋依當下目錄生成
+   起手 .gitignore（大 artifact 與巢狀 core repo 自動排除、巢狀 repo 維持
+   獨立版控），首 commit 留給使用者核可 `git status` 後執行。判準：要
+   per-job commit 紀律完整覆蓋 campaign 狀態、或多人協作 → 建議 (b)；
+   單人單機、artifact 巨大 → (a) 也夠。然後讀 README／configs／reports，
+   能推斷的欄位直接預填草稿。**只問補不齊的**，且一次批量問完
+   （AskUserQuestion／一則訊息），不要擠牙膏。最少要確認的欄位：
+   - **專案佈局**：整包單一 repo，或 project root（普通目錄）＋核心
+     code repo(s)？各路徑為何？（決定 git 步驟作用域與狀態持久化語義，
+     見 repo-checklist 的拆分式佈局一節）
    - 目標與研究問題（FIXED GOAL 一段話＋非目標＝防漂移邊界）
    - 基線數字與主指標（現況多少、贏什麼才算贏、副指標護欄）
    - 執行環境（Slurm/local、單 job 牆鐘上限、會不會被搶佔）

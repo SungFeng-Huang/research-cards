@@ -40,6 +40,28 @@ class TestCampaign(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)          # 不覆蓋既有任務書
         self.assertIn("不覆蓋", r.stderr)
 
+    def test_init_outside_git_notes_split_layout(self):
+        r = run(["init", "--repo", str(self.repo)])
+        out = json.loads(r.stdout)
+        self.assertFalse(out["git_tracked"])
+        self.assertIn("不在 git 版控內", r.stderr)
+
+    def test_init_git_bootstraps_project_root(self):
+        # 拆分式佈局：project root 非 repo、底下有巢狀 core repo
+        nested = self.repo / "core_code"
+        nested.mkdir()
+        subprocess.run(["git", "init", "-q", str(nested)], check=True)
+        r = run(["init", "--repo", str(self.repo), "--git"])
+        out = json.loads(r.stdout)
+        self.assertTrue(out["git_tracked"])
+        self.assertTrue(out["git_initialized"])
+        self.assertEqual(out["nested_repos_ignored"], ["core_code/"])
+        self.assertTrue((self.repo / ".git").is_dir())
+        gi = (self.repo / ".gitignore").read_text()
+        self.assertIn("checkpoints/", gi)
+        self.assertIn("core_code/", gi)
+        self.assertIn("首 commit", r.stderr)  # 不自動 commit，留給使用者
+
     def test_ledger_schema_enforced(self):
         run(["init", "--repo", str(self.repo)])
         good = {"experiment": "E1", "config_hash": "abc", "metrics": {"wer": 0.3},

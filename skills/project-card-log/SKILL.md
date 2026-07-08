@@ -96,11 +96,28 @@ baselines, design rationale (the WHY), figure sources.
   can't be found, write it as `（待確認：…）` rather than inventing it.
 - Keep model/metric/config names verbatim; numbers exact.
 
-## Step 4 — Append the enrichment
-Append one dated, brief-aligned section (Markdown). Group under the same
-headings the brief uses so it's paper-ready:
+## Step 4 — Append the enrichment（overflow-safe）
+Append one dated, brief-aligned section (Markdown) via **`append_card.py`** —
+group under the same headings the brief uses so it's paper-ready. The helper
+walks the card **續卡 chain** to the current tail and appends there:
 ```bash
-hb append <CARD_ID> "$(cat <<'MD'
+python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> --content-file section.md
+# 或 pipe： printf '## 📥 cluster 補充 …' | python3 <…>/append_card.py --card <ENTRY_CARD_ID> --content -
+```
+- `--card` 一律傳 **Step 1 的 ENTRY 卡**（母卡）。script 自己沿鏈走到 tail——**絕不傳子卡 id**。
+- **卡沒滿**（常態）：`overflowed:false` → 內容直接 append 到 tail。
+- **卡接近容量上限**：**預設 `overflow_spill=false` → fail-fast**（不 spill、不移內容），
+  訊息叫你**先回 Mac 用 project-card-merge 整併母卡**再續。只有 config 設
+  `heptabase.collections.projects.overflow_spill=true`（且 merge 已 chain-aware）時，
+  才會**建續卡子卡**並在 tail 補 `▶ 續卡…[[card:<id>]]`（`overflowed:true, child:<id>`）；
+  此時 cluster 建的子卡未上 tag（bridge 無 tag 能力）→ 讀輸出 `note` 回 Mac 補 tag。
+- 想先看會不會溢位：加 `--dry-run`（只讀，回報 `dry_run:true`＋是否 would-block/would-spill）。
+- 把一條鏈**整併回一張卡**是 **Mac-only 的 project-card-merge** 的事（需 overwrite/
+  delete，append-only 的 bridge 做不到）——完整規格與 `overflow_spill` 啟用順序見
+  `CARD-OVERFLOW.md`。
+
+範例段落內容（append_card.py 的 `--content` 就餵這個）：
+```markdown
 ## 📥 cluster 補充 2026-06-24（from <repo>@<git short-sha>）
 ### Method
 - <evidenced detail …>
@@ -108,14 +125,17 @@ hb append <CARD_ID> "$(cat <<'MD'
 - <full ablation numbers / table …>
 ### Findings / Results
 - <…>
-MD
-)"
 ```
+（低階等價 `hb append <ID> "<md>"` 直接寫、但**不處理容量上限**——一律走 append_card.py。）
 For a quick single experiment result instead of a full enrichment:
 ```bash
 hb log-exp model=<m> val_loss=<x> step=<n> --to <CARD_ID>
 ```
 Writes queue locally and auto-sync if the Mac/tunnel is down (`hb drain-status`).
+> ⚠️ `hb log-exp --to` 直接寫進 **ENTRY 卡**，**不走 append_card.py 的 tail-walk /
+> 容量檢查**。只在母卡「沒有續卡鏈、且離上限還遠」時用。卡已 chained 或接近上限時，
+> 把該結果當一小段 markdown 餵給 `append_card.py`（`--content`），才會落到正確的 tail
+> 並受容量保護。
 
 ## Step 5 — Report
 Tell the user what you appended and what's still `（待確認）`. Suggest they do a

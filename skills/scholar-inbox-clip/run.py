@@ -476,12 +476,17 @@ def _extract_intermediate_report(html):
     return None
 
 # ── Source: HuggingFace Daily Papers ─────────────────────────────────────────
+def is_hf_daily_subject(subject):
+    return bool(re.match(r"(?i)^daily papers of\b", (subject or "").strip()))
+
+
 def is_hf_daily(subject, source=""):
     """HF 每日精選信：主旨「Daily papers of …」＋source 內有 papers 連結
-    （雙重確認，避免撞到其他同名信件）。"""
-    if not re.match(r"(?i)^daily papers of\b", (subject or "").strip()):
-        return False
-    return "huggingface.co/papers" in (source or "").replace("=\n", "")
+    （雙重確認，避免撞到其他同名信件）。主旨符合但 source 沒有連結多半是
+    source 讀取失敗——呼叫端應跳過不標記（下輪重試），絕不能走通用路徑
+    拿到零篇後照樣 dedup（整封信會被永久漏收）。"""
+    return is_hf_daily_subject(subject) and \
+        "huggingface.co/papers" in (source or "").replace("=\n", "")
 
 
 def extract_hf_papers(body, source):
@@ -496,12 +501,33 @@ def extract_hf_papers(body, source):
             ids.append(m.group(1))
             seen.add(m.group(1))
     rows = re.findall(r"^(.+?)\s*\((\d+)\s*▲\)\s*$", body or "", re.M)
-    if len(ids) != len(rows):
-        log(f"  [HF] 連結 {len(ids)} 筆 vs 標題行 {len(rows)} 筆——依連結序配對")
-    return [{"id": aid,
-             "title": (rows[i][0].strip() if i < len(rows) else ""),
-             "upvotes": (int(rows[i][1]) if i < len(rows) else 0)}
-            for i, aid in enumerate(ids)]
+    if len(ids) == len(rows):
+        # 數量相等才敢位置配對——一缺一多會整條鏈錯位，錯的 metadata 會
+        # 讓門檻與選文挑錯論文
+        return [{"id": aid, "title": rows[i][0].strip(),
+                 "upvotes": int(rows[i][1])}
+                for i, aid in enumerate(ids)]
+    log(f"  [HF] 連結 {len(ids)} 筆 vs 標題行 {len(rows)} 筆——"
+        "放棄位置配對，改從 HTML anchor 文字取標題")
+    # anchor text 與連結同源，不會錯位；抓不到的標 unknown（title=""、
+    # upvotes=None）——後續門檻/選文對 unknown 一律保守放行
+    title_by_id = {}
+    for m in re.finditer(
+            r"huggingface\.co/papers/(\d{4}\.\d{4,5})[^>]*>\s*([^<>]{4,300}?)\s*<",
+            decoded):
+        aid, text = m.group(1), re.sub(r"\s+", " ", m.group(2)).strip()
+        if re.search(r"[A-Za-z]{3}", text) and len(text) > len(title_by_id.get(aid, "")):
+            title_by_id[aid] = text
+    up_by_title = {t.strip(): int(u) for t, u in rows}
+    out = []
+    for aid in ids:
+        title = title_by_id.get(aid, "")
+        out.append({"id": aid, "title": title,
+                    "upvotes": up_by_title.get(title)})
+    missing = [p["id"] for p in out if not p["title"]]
+    if missing:
+        log(f"  [HF] {len(missing)} 篇取不到標題（保守放行）：{missing}")
+    return out
 
 
 def select_hf_papers(papers):
@@ -520,7 +546,8 @@ def select_hf_papers(papers):
         min_up = int((cfg.get("email") or {}).get("hf_min_upvotes") or 0)
     except (TypeError, ValueError):
         pass
-    kept = [p for p in papers if p["upvotes"] >= min_up]
+    kept = [p for p in papers
+            if p["upvotes"] is None or p["upvotes"] >= min_up]
     if len(kept) < len(papers):
         log(f"  [HF] 讚數門檻 {min_up}：{len(papers)} → {len(kept)}")
     field = ((cfg.get("profile") or {}).get("field") or "").strip()
@@ -541,12 +568,22 @@ def select_hf_papers(papers):
               f"的清單（arxiv ID: 標題）。只挑出符合任一條件的論文：{criteria}。"
               f"只輸出入選的 arxiv ID、每行一個；全部不符就輸出 NONE。"
               f"\n\n{listing}")
-    out = call_claude(prompt, timeout=180)
+    try:
+        out = call_claude(prompt, timeout=180)
+    except Exception as e:
+        log(f"  [HF] 領域篩選呼叫例外（{e}）——保守全收（靠 dedup/人工清理）")
+        return kept
     if not (out or "").strip():
         log("  [HF] 領域篩選呼叫失敗——保守全收（靠 dedup/人工清理）")
         return kept
-    chosen = set(re.findall(r"\d{4}\.\d{4,5}", out))
-    sel = [p for p in kept if p["id"] in chosen]
+    candidate_ids = {p["id"] for p in kept}
+    chosen = set(re.findall(r"\d{4}\.\d{4,5}", out)) & candidate_ids
+    if not chosen and not re.search(r"(?i)\bnone\b", out):
+        # 非空但既無候選 ID 也無明確 NONE——是壞回覆不是「零篇」；當成
+        # 失敗保守全收，否則整封信會被誤標已處理而永久漏收
+        log("  [HF] 領域篩選回覆無法解析——保守全收（靠 dedup/人工清理）")
+        return kept
+    sel = [p for p in kept if p["id"] in chosen or not p["title"]]
     label = "＋".join(filter(None, [field, "興趣主題" if interests else ""]))
     log(f"  [HF] 選文（{label}）：{len(kept)} → {len(sel)}")
     for p in sel:
@@ -1420,7 +1457,8 @@ def check_duplicate(arxiv_id):
             if url_marker.search(OBS.read_content_str(c["id"])):
                 return True
         return False
-    data = _hb("card", "list", "-q", bid, "--limit", "25", check=False)
+    data = _hb("card", "list", "-q", bid, "--card-types", "note",
+               "--limit", "25", check=False)
     results = data.get("results", [])
     if not results:
         return False
@@ -1433,23 +1471,33 @@ def check_duplicate(arxiv_id):
             continue
     return False
 
+def _strip_title(t):
+    """去掉 markdown 標題前綴（呼叫端常直接餵 H1 行「# [alphaXiv] …」）
+    與 [alphaXiv] 記號——漏剝任何一個都會讓正規化比較永遠不相等。"""
+    t = re.sub(r"^#+\s*", "", (t or "").strip())
+    return re.sub(r"^\[alphaxiv\]\s*", "", t, flags=re.I).strip()
+
+
 def _norm_title(t):
-    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "",
-                  re.sub(r"^\[alphaxiv\]\s*", "", (t or "").strip().lower()))
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", _strip_title(t).lower())
 
 
 def title_duplicate(title):
     """Second duplicate gate, by NORMALIZED-title equality. Catches papers
     whose two clips carry different id notations (numeric arxiv id vs a named
     alphaxiv slug) — those are invisible to the id-based check_duplicate."""
-    q = re.sub(r"^\[alphaXiv\]\s*", "", (title or "").strip())[:60]
-    if not q:
-        return False
     want = _norm_title(title)
+    if not want:
+        return False
     if OBS:
+        # vault 是本地檔案——直接掃全部 papers 標題做正規化等值比較；
+        # 走 substring 搜尋會被標點差異（Foo: Bar vs Foo — Bar）擋在
+        # 候選階段，正規化比較根本輪不到
         return any(_norm_title(c.get("title")) == want
-                   for c in OBS.search_cards(q, limit=25))
-    data = _hb("card", "list", "-q", q, "--limit", "25", check=False)
+                   for c in OBS.list_cards("papers"))
+    q = _strip_title(title)[:60]
+    data = _hb("card", "list", "-q", q, "--card-types", "note",
+               "--limit", "25", check=False)
     return any(_norm_title(r.get("title")) == want
                for r in data.get("results", []))
 
@@ -1784,6 +1832,22 @@ def set_source_type(card_id):
                     "--property-id", SOURCE_TYPE_PROP_ID, "--value", "alphaXiv"],
                    capture_output=True)
 
+class PropIOError(RuntimeError):
+    """Heptabase CLI property read/write 失敗——絕不能默默當成「空值」
+    （additive merge 會以空 existing 覆寫掉卡上既有值）或「寫入成功」。"""
+
+
+def _run_prop_json(cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise PropIOError(f"{' '.join(cmd[:3])} rc={r.returncode}: "
+                          f"{(r.stderr or r.stdout).strip()[:200]}")
+    try:
+        return json.loads(r.stdout)
+    except Exception as e:
+        raise PropIOError(f"{' '.join(cmd[:3])} 非 JSON 輸出：{e}")
+
+
 def valid_task_options():
     """Return the set of Tasks multiSelect option values that currently exist in
     the study/paper tag database. `set-property` REJECTS any value not in this
@@ -1798,12 +1862,8 @@ def valid_task_options():
         return None
     _need(STUDY_PAPER_TAG_ID, "collections.papers.tag_id")
     _need(TASKS_PROP_ID, "props.tasks")
-    r = subprocess.run(["heptabase", "tag", "properties", STUDY_PAPER_TAG_ID],
-                       capture_output=True, text=True)
-    try:
-        data = json.loads(r.stdout)
-    except Exception:
-        return set()
+    data = _run_prop_json(["heptabase", "tag", "properties",
+                           STUDY_PAPER_TAG_ID])
     for p in data.get("properties", []):
         if p["id"] == TASKS_PROP_ID:
             return {o.get("value") or o.get("name") or o.get("label")
@@ -1815,12 +1875,7 @@ def current_tasks(card_id):
     if OBS:
         return list(OBS.read_card(card_id).props.get("tasks") or [])
     _need(TASKS_PROP_ID, "props.tasks")
-    r = subprocess.run(["heptabase", "card", "properties", card_id],
-                       capture_output=True, text=True)
-    try:
-        data = json.loads(r.stdout)
-    except Exception:
-        return []
+    data = _run_prop_json(["heptabase", "card", "properties", card_id])
     for tag in data.get("tags", []):
         for p in tag.get("properties", []):
             if p["id"] == TASKS_PROP_ID:
@@ -1835,12 +1890,8 @@ def valid_topic_options():
         return None
     _need(STUDY_PAPER_TAG_ID, "collections.papers.tag_id")
     _need(TOPICS_PROP_ID, "props.topics")
-    r = subprocess.run(["heptabase", "tag", "properties", STUDY_PAPER_TAG_ID],
-                       capture_output=True, text=True)
-    try:
-        data = json.loads(r.stdout)
-    except Exception:
-        return set()
+    data = _run_prop_json(["heptabase", "tag", "properties",
+                           STUDY_PAPER_TAG_ID])
     for p in data.get("properties", []):
         if p["id"] == TOPICS_PROP_ID:
             return {o.get("value") or o.get("name") or o.get("label")
@@ -1852,12 +1903,7 @@ def current_topics(card_id):
     if OBS:
         return list(OBS.read_card(card_id).props.get("topics") or [])
     _need(TOPICS_PROP_ID, "props.topics")
-    r = subprocess.run(["heptabase", "card", "properties", card_id],
-                       capture_output=True, text=True)
-    try:
-        data = json.loads(r.stdout)
-    except Exception:
-        return []
+    data = _run_prop_json(["heptabase", "card", "properties", card_id])
     for tag in data.get("tags", []):
         for p in tag.get("properties", []):
             if p["id"] == TOPICS_PROP_ID:
@@ -1870,8 +1916,12 @@ def set_topics(card_id, values):
     Agentic、Diffusion 等）。與 set_tasks 同語義：union、不移除、集合外的
     值丟棄並記錄。Tasks 管「路由到哪張總覽卡」，Topics 管「這張卡屬於什麼
     主題」——off-topic 卡 Tasks 留空但 Topics 應該有家。"""
-    valid = valid_topic_options()
-    existing = current_topics(card_id)
+    try:
+        valid = valid_topic_options()
+        existing = current_topics(card_id)
+    except PropIOError as e:
+        log(f"  [TOPICS] property 讀取失敗——整卡跳過不寫（{e}）")
+        return []
     requested = [v for v in values if v]
     dropped = [] if valid is None else [v for v in requested if v not in valid]
     if dropped:
@@ -1884,10 +1934,15 @@ def set_topics(card_id, values):
     if OBS:
         OBS.set_props(card_id, {"Topics": merged})
     else:
-        subprocess.run(["heptabase", "card", "set-property", card_id,
-                        "--property-id", TOPICS_PROP_ID,
-                        "--json-value", json.dumps(merged, ensure_ascii=False)],
-                       capture_output=True)
+        r = subprocess.run(["heptabase", "card", "set-property", card_id,
+                            "--property-id", TOPICS_PROP_ID,
+                            "--json-value",
+                            json.dumps(merged, ensure_ascii=False)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            log(f"  [TOPICS] 寫入失敗 rc={r.returncode}："
+                f"{(r.stderr or r.stdout).strip()[:200]}")
+            return existing
     log(f"  [TOPICS] {existing} + {keep_new} -> {merged}")
     return merged
 
@@ -1897,8 +1952,12 @@ def set_tasks(card_id, values):
     already there (never removes existing tags), drops any value that is not a
     valid existing option (logs them), and writes the merged list. Returns the
     final list actually applied. Use the returned list to decide overview sync."""
-    valid = valid_task_options()
-    existing = current_tasks(card_id)
+    try:
+        valid = valid_task_options()
+        existing = current_tasks(card_id)
+    except PropIOError as e:
+        log(f"  [TASKS] property 讀取失敗——整卡跳過不寫（{e}）")
+        return []
     requested = [v for v in values if v]
     dropped = [] if valid is None else [v for v in requested if v not in valid]
     if dropped:
@@ -1911,10 +1970,15 @@ def set_tasks(card_id, values):
     if OBS:
         OBS.set_props(card_id, {"Tasks": merged})
     else:
-        subprocess.run(["heptabase", "card", "set-property", card_id,
-                        "--property-id", TASKS_PROP_ID,
-                        "--json-value", json.dumps(merged, ensure_ascii=False)],
-                       capture_output=True)
+        r = subprocess.run(["heptabase", "card", "set-property", card_id,
+                            "--property-id", TASKS_PROP_ID,
+                            "--json-value",
+                            json.dumps(merged, ensure_ascii=False)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            log(f"  [TASKS] 寫入失敗 rc={r.returncode}："
+                f"{(r.stderr or r.stdout).strip()[:200]}")
+            return existing
     log(f"  [TASKS] {existing} + {keep_new} -> {merged}")
     return merged
 
@@ -1926,8 +1990,12 @@ def retag_tasks(card_id, remove=(), add=()):
     semantically correct but merely inconvenient for a topic's status output
     is NOT a removal target (that's the [elsewhere] marker's / topic-doc
     分工約定's domain). Returns (before, after)."""
-    valid = valid_task_options()
-    before = current_tasks(card_id)
+    try:
+        valid = valid_task_options()
+        before = current_tasks(card_id)
+    except PropIOError as e:
+        log(f"  [RETAG] property 讀取失敗——整卡跳過不寫（{e}）")
+        return [], []
     bad_add = [] if valid is None else [v for v in add if v and v not in valid]
     if bad_add:
         log(f"  [RETAG] skipped unknown add options (create in UI first): {bad_add}")
@@ -1939,10 +2007,15 @@ def retag_tasks(card_id, remove=(), add=()):
     if OBS:
         OBS.set_props(card_id, {"Tasks": after})
     else:
-        subprocess.run(["heptabase", "card", "set-property", card_id,
-                        "--property-id", TASKS_PROP_ID,
-                        "--json-value", json.dumps(after, ensure_ascii=False)],
-                       capture_output=True)
+        r = subprocess.run(["heptabase", "card", "set-property", card_id,
+                            "--property-id", TASKS_PROP_ID,
+                            "--json-value",
+                            json.dumps(after, ensure_ascii=False)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            log(f"  [RETAG] 寫入失敗 rc={r.returncode}："
+                f"{(r.stderr or r.stdout).strip()[:200]}")
+            return before, before
     log(f"  [RETAG] {before} -> {after} (removed {sorted(set(before)-set(after))}, "
         f"added {sorted(set(after)-set(before))})")
     return before, after
@@ -1980,17 +2053,30 @@ def untagged_task_cards(source_type="alphaXiv"):
     None to include every untagged study/paper card (also legacy hand-made notes).
     Cards tagged study/overview are always excluded (overview cards normally no
     longer carry study/paper at all — the tag check is a guard in case one gets
-    re-tagged). Returns a list of {card_id, title, arxiv_id, source_type,
-    last_edited} newest-first so Claude can read each card and annotate it via
-    set_tasks()."""
+    re-tagged).
+
+    完成判定含 Topics：off-topic 卡刻意 Tasks=[] 但 Topics 有值＝已處理完
+    （不再永久重複入列）；Tasks 有值但 Topics 空的舊卡＝還缺 Topics，會以
+    missing=["topics"] 入列——backfill 才能對「每張卡都該有 Topics」收斂。
+    Returns a list of {card_id, title, arxiv_id, source_type, last_edited,
+    tasks, missing} newest-first；missing 告訴 agent 該補哪些 property。"""
     if OBS:
-        out = [{"card_id": c["id"], "title": c["title"],
-                "arxiv_id": c["props"].get("arxiv_id"),
-                "source_type": c["props"].get("source_type"),
-                "last_edited": c["modified"]}
-               for c in OBS.list_cards("papers")
-               if not (c["props"].get("tasks") or [])
-               and (source_type is None or c["props"].get("source_type") == source_type)]
+        out = []
+        for c in OBS.list_cards("papers"):
+            tasks = list(c["props"].get("tasks") or [])
+            topics = list(c["props"].get("topics") or [])
+            if topics:
+                # Topics 已有值：off-topic 卡（Tasks 空）與全填卡都算完成
+                continue
+            if source_type is not None and \
+                    c["props"].get("source_type") != source_type:
+                continue
+            out.append({"card_id": c["id"], "title": c["title"],
+                        "arxiv_id": c["props"].get("arxiv_id"),
+                        "source_type": c["props"].get("source_type"),
+                        "last_edited": c["modified"], "tasks": tasks,
+                        "missing": (["topics"] if tasks
+                                    else ["tasks", "topics"])})
         out.sort(key=lambda x: x["last_edited"] or "", reverse=True)
         return out
     _need(STUDY_PAPER_TAG_ID, "collections.papers.tag_id")
@@ -2006,18 +2092,21 @@ def untagged_task_cards(source_type="alphaXiv"):
     overview_ids = overview_card_ids()
     out = []
     for c in cards:
-        tasks, src, aid = [], None, None
+        tasks, topics, src, aid = [], [], None, None
         for p in c.get("properties", []):
             if p["id"] == TASKS_PROP_ID:       tasks = p.get("value") or []
+            elif p["id"] == TOPICS_PROP_ID:    topics = p.get("value") or []
             elif p["id"] == SOURCE_TYPE_PROP_ID: src = p.get("value")
             elif p["id"] == ARXIV_PROP_ID:     aid = p.get("value")
-        if tasks or c.get("id") in overview_ids:
-            continue
+        if topics or c.get("id") in overview_ids:
+            continue      # Topics 已有值＝完成（含 off-topic 的 Tasks=[] 卡）
         if source_type is not None and src != source_type:
             continue
         out.append({"card_id": c.get("id"), "title": c.get("title", ""),
                     "arxiv_id": aid, "source_type": src,
-                    "last_edited": c.get("lastEditedTime") or c.get("createdTime")})
+                    "last_edited": c.get("lastEditedTime") or c.get("createdTime"),
+                    "tasks": tasks,
+                    "missing": (["topics"] if tasks else ["tasks", "topics"])})
     out.sort(key=lambda x: x["last_edited"] or "", reverse=True)
     return out
 
@@ -2291,6 +2380,11 @@ def process_one_email(index, processed_keys):
         papers = extract_hf_papers(body, source)
         log(f"[{index}] HF Daily Papers：{len(papers)} 篇上榜")
         arxiv_ids = [p["id"] for p in select_hf_papers(papers)]
+    elif is_hf_daily_subject(subject):
+        # source 讀取失敗（空字串）——通用路徑解析不了 HF 連結，若繼續會
+        # 以零篇收場並永久 dedup。跳過不標記，保留給下一輪重試。
+        log(f"[{index}] [WARN] HF daily 主旨但讀不到 source——本輪跳過不標記")
+        return dedup_key, subject, recv_date, None
     else:
         arxiv_ids = extract_arxiv_ids(body, source)
     log(f"[{index}] Papers found: {arxiv_ids or '(none)'}")

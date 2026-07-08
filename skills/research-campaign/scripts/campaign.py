@@ -36,7 +36,8 @@ def _feature_gate():
 
 
 # 常見 ML 大 artifact——`init --git` 生成的起手 .gitignore
-GITIGNORE_STARTER = """# research-campaign starter .gitignore（依專案增刪）
+GITIGNORE_STARTER = """# research-campaign starter .gitignore（依專案增刪；
+# 附加在你原有規則之後——若上方有 ! 例外規則，請自行調整先後）
 checkpoints/
 logs/
 wandb/
@@ -59,8 +60,9 @@ def _bootstrap_git(project_root):
     nested = []
     for name in sorted(os.listdir(project_root)):
         sub = os.path.join(project_root, name)
-        if os.path.isdir(os.path.join(sub, ".git")):
-            nested.append(name + "/")
+        if os.path.exists(os.path.join(sub, ".git")):   # dir 或 file
+            nested.append(name + "/")                     # （worktree/submodule 是 .git file）
+
     subprocess.run(["git", "init", "-q", project_root], check=True)
     gi = os.path.join(project_root, ".gitignore")
     existing = open(gi).read() if os.path.exists(gi) else ""
@@ -82,15 +84,20 @@ def cmd_init(args):
     使用者核可後執行）。"""
     root = os.path.join(os.path.abspath(args.repo), "runs", "auto_research")
     mission = os.path.join(root, "MISSION.md")
+    upgrade_only = False
     if os.path.exists(mission):
-        sys.exit(f"已存在 {mission}——不覆蓋既有任務書（改用編輯，或先手動移除）")
+        if not args.git:
+            sys.exit(f"已存在 {mission}——不覆蓋既有任務書（改用編輯，或先"
+                     "手動移除；既有 campaign 要升級成 repo 用 init --git）")
+        upgrade_only = True    # 既有 campaign 的 --git 升級：跳過 scaffold
     os.makedirs(root, exist_ok=True)
-    tpl = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                       "..", "assets", "MISSION.template.md")
-    with open(tpl) as f:
-        template = f.read()
-    with open(mission, "w") as f:
-        f.write(template)
+    if not upgrade_only:
+        tpl = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                           "..", "assets", "MISSION.template.md")
+        with open(tpl) as f:
+            template = f.read()
+        with open(mission, "w") as f:
+            f.write(template)
     queue = os.path.join(root, "queue.json")
     if not os.path.exists(queue):
         with open(queue, "w") as f:
@@ -105,6 +112,15 @@ def cmd_init(args):
     in_git = subprocess.run(["git", "-C", proj, "rev-parse",
                              "--is-inside-work-tree"],
                             capture_output=True, text=True).stdout.strip() == "true"
+    if in_git:
+        # 位於某個 repo 內 ≠ campaign 狀態有被版控——祖先 repo 可能
+        # ignore 了這個目錄（runs/ 常見於 .gitignore）
+        ignored = subprocess.run(["git", "-C", proj, "check-ignore", "-q",
+                                  root], capture_output=True).returncode == 0
+        if ignored:
+            in_git = False
+            print("[note] campaign 目錄被外層 repo 的 .gitignore 忽略——"
+                  "視同不在版控（per-job commit 蓋不到它）", file=sys.stderr)
     nested = None
     if not in_git and args.git:
         nested = _bootstrap_git(proj)
@@ -132,6 +148,10 @@ def _load_dir(d):
     root = os.path.abspath(d)
     if not os.path.isdir(root):
         sys.exit(f"找不到 campaign 目錄：{root}（先跑 init）")
+    if not any(os.path.exists(os.path.join(root, f))
+               for f in ("MISSION.md", "queue.json", "ledger.jsonl")):
+        sys.exit(f"{root} 不像 campaign 目錄（沒有 MISSION.md/queue.json/"
+                 "ledger.jsonl）——--dir 打錯會把帳記到錯的地方，拒絕")
     return root
 
 
@@ -159,7 +179,7 @@ def cmd_status(args):
     out["recent"] = [{"experiment": r.get("experiment"),
                       "significant": r.get("significant"),
                       "decision": (r.get("decision") or "")[:80]}
-                     for r in rows[-args.recent:]]
+                     for r in (rows[-args.recent:] if args.recent > 0 else [])]
     bp = os.path.join(root, "BLOCKED.md")
     if os.path.exists(bp):
         with open(bp) as f:
@@ -169,8 +189,11 @@ def cmd_status(args):
 
 def cmd_ledger_append(args):
     root = _load_dir(args.dir)
+    def _no_nan(tok):
+        sys.exit(f"ledger row 含 {tok}——指標必須是有限數（NaN/Infinity "
+                 "會弄壞下游的 report/progress 頁）")
     try:
-        row = json.loads(args.json)
+        row = json.loads(args.json, parse_constant=_no_nan)
     except json.JSONDecodeError as e:
         sys.exit(f"--json 不是合法 JSON：{e}")
     if not isinstance(row, dict):
@@ -186,7 +209,7 @@ def cmd_ledger_append(args):
         print("[warn] 這行沒有 playbook_rules_cited——超參決策應引用出處",
               file=sys.stderr)
     with open(os.path.join(root, "ledger.jsonl"), "a") as f:
-        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        f.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
     print(json.dumps({"appended": row["experiment"]}, ensure_ascii=False))
 
 
@@ -323,6 +346,68 @@ th { background:#eef0ec; }
 """
 
 
+def _pages_out(root, filename):
+    """展示層檔案的預設落點：pages.json 的 output_dir（白名單 docs|public、
+    壞檔明確失敗不靜默回退），未 setup 則 docs/。root=<project>/runs/
+    auto_research → 上兩層是 project root。"""
+    out_dir = "docs"
+    pj = os.path.join(root, "pages.json")
+    if os.path.exists(pj):
+        try:
+            out_dir = json.load(open(pj)).get("output_dir")
+        except (ValueError, OSError) as e:
+            sys.exit(f"pages.json 壞了（{e}）——修好或刪掉再跑，"
+                     "不靜默回退以免 Pages 無聲停更")
+        if out_dir not in ("docs", "public"):
+            sys.exit(f"pages.json 的 output_dir={out_dir!r} 不合法"
+                     "（只允許 docs|public）——重跑 pages-setup")
+    return os.path.normpath(os.path.join(root, "..", "..", out_dir, filename))
+
+
+def _progress_module():
+    import importlib.util
+    here = os.path.dirname(os.path.realpath(__file__))
+    spec = importlib.util.spec_from_file_location(
+        "progress_page", os.path.join(here, "progress_page.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def cmd_progress_init(args):
+    root = _load_dir(args.dir)
+    path = os.path.join(root, "progress.json")
+    if os.path.exists(path):
+        sys.exit(f"已存在 {path}——不覆蓋既有設定（直接編輯它）")
+    mod = _progress_module()
+    with open(path, "w") as f:
+        json.dump(mod.PROGRESS_TEMPLATE, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print(json.dumps({"scaffolded": path,
+                      "next": "填 log_glob/step_re/kv_re/charts（_doc 欄有"
+                              "逐項說明），再跑 campaign.py progress"},
+                     ensure_ascii=False))
+
+
+def cmd_progress(args):
+    """訓練 log → 進度儀表（曲線/tiles/資料表/ladder/ledger/job 鏈）。"""
+    root = _load_dir(args.dir)
+    mod = _progress_module()
+    cfg = mod.load_progress_config(root)
+    if args.scheduler:
+        cfg["scheduler"] = args.scheduler
+    out = args.out
+    if out is None:
+        out = _pages_out(root, "campaign-progress.html")
+    result = mod.render(root, cfg, os.path.abspath(out))
+    report_page = os.path.join(os.path.dirname(os.path.abspath(out)),
+                               "campaign-report.html")
+    if not os.path.exists(report_page):
+        result["hint"] = ("進度頁連到 campaign-report.html 但它還不存在——"
+                          "跑一次 campaign.py report（step 7 契約是兩頁一起 regen）")
+    print(json.dumps(result, ensure_ascii=False))
+
+
 def cmd_report(args):
     """從 MISSION/queue/ledger/BLOCKED 產生單頁靜態 campaign 報告（無相依、
     無時間戳＝輸出確定性，發佈時間交給 git 歷史）。配 assets/
@@ -342,6 +427,9 @@ def cmd_report(args):
              f"<body><main><h1>{H.escape(title)}</h1>",
              "<p class=\"muted\">campaign report — generated by research-cards "
              "research-campaign（內容以 ledger 為準；顯著性未過 gate 的結果不作宣稱）</p>"]
+    if os.path.exists(os.path.join(root, "progress.json")):
+        parts.append("<p><a href=\"campaign-progress.html\">"
+                     "訓練進度儀表（曲線／即時狀態）→</a></p>")
     bp = os.path.join(root, "BLOCKED.md")
     if os.path.exists(bp):
         parts.append(f"<div class=\"blocked\"><b>BLOCKED</b><br>{H.escape(open(bp).read())}</div>")
@@ -380,20 +468,7 @@ def cmd_report(args):
     parts.append("</main></body></html>")
     out = args.out
     if out is None:
-        out_dir = "docs"
-        pj = os.path.join(root, "pages.json")
-        if os.path.exists(pj):
-            try:
-                out_dir = json.load(open(pj)).get("output_dir")
-            except (ValueError, OSError) as e:
-                sys.exit(f"pages.json 壞了（{e}）——修好或刪掉再跑，"
-                         "不靜默回退以免 Pages 無聲停更")
-            if out_dir not in ("docs", "public"):
-                sys.exit(f"pages.json 的 output_dir={out_dir!r} 不合法"
-                         "（只允許 docs|public）——重跑 pages-setup")
-        # root = <project>/runs/auto_research → 上兩層是 project root
-        out = os.path.normpath(os.path.join(root, "..", "..",
-                                            out_dir, "campaign-report.html"))
+        out = _pages_out(root, "campaign-report.html")
     out = os.path.abspath(out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
@@ -428,6 +503,19 @@ def main():
                    help="輸出路徑（預設依 pages.json 的 output_dir：github→docs/、"
                         "gitlab→public/，未 setup 則 docs/）")
     p.set_defaults(fn=cmd_report)
+    p = sub.add_parser("progress-init",
+                       help="生成 progress.json 模板（訓練進度儀表設定）")
+    p.add_argument("--dir", default="runs/auto_research")
+    p.set_defaults(fn=cmd_progress_init)
+    p = sub.add_parser("progress",
+                       help="訓練 log -> 進度儀表 HTML（SVG 曲線/tiles/表）")
+    p.add_argument("--dir", default="runs/auto_research")
+    p.add_argument("--out", default=None,
+                   help="輸出路徑（預設依 pages.json 落 "
+                        "<output_dir>/campaign-progress.html）")
+    p.add_argument("--scheduler", choices=["slurm", "none"], default=None,
+                   help="覆寫 progress.json 的 scheduler")
+    p.set_defaults(fn=cmd_progress)
     p = sub.add_parser("pages-setup",
                        help="依 git remote 安裝 GitHub/GitLab Pages 部署設定")
     p.add_argument("--repo", default=".")

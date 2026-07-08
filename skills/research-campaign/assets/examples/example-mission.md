@@ -58,7 +58,8 @@ E2 Controls: (a) LoRA vs full-FT at matched compute; (b) SpecAugment on/off;
 E3 Test-set confirmation run (touch test ONCE, after dev picks the winner).
 
 ## SUCCESS GATE (campaign-level)
-Significant dev-farfield WER improvement ≥ 5 absolute at ≤ +0.5 near-field
+Significant dev-farfield WER reduction to ≤ 30% (≥ 8.2 absolute vs the 38.2%
+zero-shot baseline — same numbers as FIXED GOAL) at ≤ +0.5 near-field
 regression, confirmed on test. Report honestly if LoRA cannot close the gap —
 the E2(a) control quantifies what full-FT buys.
 
@@ -72,8 +73,9 @@ the E2(a) control quantifies what full-FT buys.
 3. Budget: checkpoint_every 500; stop training at wall 3h15m; keep ≥ 40 min
    for eval.
 4. Evaluate per MEASUREMENT DISCIPLINE.
-5. `python3 scripts/campaign.py ledger-append --dir runs/auto_research
-   --json '{...}'`; update queue.json.
+5. `python3 <research-cards>/skills/research-campaign/scripts/campaign.py
+   ledger-append --dir runs/auto_research --json '{...}'`（campaign.py 住在
+   plugin，不會被 scaffold 進本 repo）; update queue.json.
 6. Decide next rung per gates; never repeat a noise-level recipe.
 7. git commit+push; append this job's outcome to the project card via
    project-card-log; sbatch the next job or write BLOCKED.md and stop.

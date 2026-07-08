@@ -19,12 +19,20 @@ import hbconfig
 
 _cfg = hbconfig.load_config()
 VAULT = _cfg["obsidian"]["vault"]
-# Mirror sync.py's folder rule exactly: configured folder, else the
-# capitalized collection key — and scan the union of both sets.
+# Mirror sync.py's rules exactly: a collection is active only with a real
+# tag_id (blank/"<placeholder>" entries are metadata-only, sync skips them);
+# folder = configured mapping, else the capitalized collection key. Scan the
+# union of active-collection folders and explicitly mapped folders — the map
+# also covers legacy folders whose collection left the config.
 _FOLDER_MAP = _cfg["obsidian"].get("folders") or {}
-_COLLECTIONS = (_cfg.get("heptabase") or {}).get("collections") or {}
-folder_of = {k: _FOLDER_MAP.get(k, k.capitalize()) for k in _COLLECTIONS}
-FOLDERS = sorted(set(_FOLDER_MAP.values()) | set(folder_of.values())) or ["Papers"]
+_COLLECTIONS = {
+    k: c for k, c in (((_cfg.get("heptabase") or {}).get("collections")
+                       or {}).items())
+    if isinstance(c.get("tag_id"), str) and c["tag_id"]
+    and not c["tag_id"].startswith("<")}
+folder_of = {k: _FOLDER_MAP.get(k, k.capitalize())
+             for k in set(_COLLECTIONS) | set(_FOLDER_MAP)}
+FOLDERS = sorted(set(folder_of.values())) or ["Papers"]
 STATE_PATH = os.path.join(VAULT, ".hepta-sync", "state.json")
 IMG_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp',
            '.pdf', '.mp4', '.mp3', '.m4a', '.wav'}
@@ -90,7 +98,10 @@ if os.path.exists(STATE_PATH):
     state = json.load(open(STATE_PATH))
     tracked = set()
     for cid, st in state["cards"].items():
-        rel = f"{folder_of.get(st['collection'], st['collection'])}/{st['file']}.md"
+        coll = st['collection']
+        # unknown collection (left the config entirely) → same capitalize
+        # fallback sync.py would have used when it wrote the file
+        rel = f"{folder_of.get(coll, coll.capitalize())}/{st['file']}.md"
         tracked.add(rel)
         if not os.path.exists(os.path.join(VAULT, rel)):
             out["state_orphans"].append({"id": cid, "file": rel})

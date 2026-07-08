@@ -77,12 +77,27 @@ def _txt(n):
         return n.get("text", "")
     if t == "card":                       # card-link node carries no text — surface it
         return "[[card:%s]]" % (n.get("attrs", {}).get("cardId", ""))
-    return "".join(_txt(c) for c in n.get("content", []) if isinstance(c, dict))
+    if t == "image":                      # nested figures must not vanish in dumps
+        a = n.get("attrs") or {}
+        return "[IMAGE %s]" % ((a.get("src") or a.get("fileId") or "")[:40])
+    if t == "hard_break":
+        return "\n"
+    kids = [c for c in n.get("content", []) if isinstance(c, dict)]
+    if not kids and t not in ("paragraph", "horizontal_rule"):
+        return f"[{t}]"                   # unknown attr-only leaf: never invisible
+    return "".join(_txt(c) for c in kids)
 
 def card_dump(cid):
     """Readable plain-text dump of a card (RECURSIVE — sees nested bullets/toggles,
     unlike a naive non-recursive extractor). Use to read the OLD card before rewriting."""
     _, doc = read_card(cid)
+    return doc_dump(doc)
+
+
+def doc_dump(doc):
+    """Pure renderer for an ALREADY-READ doc — lets callers that need
+    md5+dump+links from the SAME read (e.g. merge_lib.chain_dumps) avoid a
+    second, potentially different-version read."""
     out = []
     for n in doc["content"]:
         t = n.get("type")
@@ -108,21 +123,48 @@ def card_dump(cid):
                 cells = [" ".join(_txt(c) for c in cell.get("content", [])).strip()
                          for cell in row.get("content", [])]
                 out.append("| " + " | ".join(cells) + " |")
+        elif t == "code_block":
+            lang = (n.get("attrs") or {}).get("language") or ""
+            out.append(f"```{lang}")
+            out.append(_txt(n))
+            out.append("```")
+        elif t == "numbered_list_item":
+            out.append("#. " + _txt(n))
+        elif t == "todo_list_item":
+            box = "[x]" if (n.get("attrs") or {}).get("checked") else "[ ]"
+            out.append(f"{box} " + _txt(n))
+        elif t == "blockquote":
+            out.append("> " + _txt(n))
+        else:
+            # NEVER silently invisible: an unhandled node type still surfaces
+            # its text (or at least its type) so a merge can't drop it unseen.
+            s = _txt(n).strip()
+            out.append(f"[{t}] {s}" if s and s != f"[{t}]" else f"[{t}]")
     return "\n".join(out)
 
 def extract_images(doc):
     """Return the card's figures in order as [{"src","caption"}] so a rewrite can
-    re-insert them. caption = the italic paragraph immediately following the image."""
-    out, content = [], doc["content"]
-    for i, n in enumerate(content):
-        if n.get("type") == "image":
-            cap = ""
-            if i + 1 < len(content):
-                nxt = content[i + 1]
-                if nxt.get("type") == "paragraph" and any(
-                        m.get("type") == "em" for c in nxt.get("content", []) for m in c.get("marks", [])):
-                    cap = _txt(nxt)
-            out.append({"src": n["attrs"].get("src", ""), "caption": cap})
+    re-insert them. caption = the italic paragraph immediately following the image.
+    RECURSIVE — figures nested inside bullets/toggles/blockquotes are found too
+    (caption lookup stays sibling-scoped within the same parent)."""
+    out = []
+
+    def walk(children):
+        for i, n in enumerate(children):
+            if not isinstance(n, dict):
+                continue
+            if n.get("type") == "image":
+                cap = ""
+                if i + 1 < len(children):
+                    nxt = children[i + 1]
+                    if nxt.get("type") == "paragraph" and any(
+                            m.get("type") == "em" for c in nxt.get("content", []) for m in c.get("marks", [])):
+                        cap = _txt(nxt)
+                out.append({"src": n["attrs"].get("src", ""), "caption": cap})
+            else:
+                walk(n.get("content", []) or [])
+
+    walk(doc["content"])
     return out
 
 # ── retrofit-status detection ─────────────────────────────────────────────────
@@ -144,25 +186,27 @@ def list_todo(source_type="alphaXiv"):
     except ImportError:
         pass
     if OBS:
-        todo, done, excluded = [], [], 0
+        todo, done, excluded, read_errors = [], [], 0, []
         for c in OBS.list_cards("papers"):
             if source_type is not None and c["props"].get("source_type") != source_type:
                 excluded += 1
                 continue
-            try:
-                _, doc = read_card(c["id"])
-            except Exception:
-                continue
             rec = {"card_id": c["id"], "title": c["title"],
                    "arxiv": c["props"].get("arxiv_id")}
+            try:
+                _, doc = read_card(c["id"])
+            except Exception as e:
+                read_errors.append(dict(rec, error=str(e)[:120]))
+                continue
             (done if is_upgraded(doc) else todo).append(rec)
-        return _with_exclusion_note({"todo": todo, "done": done}, excluded, source_type)
+        return _with_exclusion_note({"todo": todo, "done": done},
+                                    excluded, source_type, read_errors)
     if not (STUDY_PAPER_TAG and SOURCE_TYPE_PROP and ARXIV_PROP):
         raise SystemExit("config 缺少 heptabase.collections.papers.tag_id / props.*（heptabase 模式必填）")
     r = subprocess.run(["heptabase", "tag", "cards", STUDY_PAPER_TAG,
                         "--include-properties"], capture_output=True, text=True)
     cards = json.loads(r.stdout).get("cards", [])
-    todo, done, excluded = [], [], 0
+    todo, done, excluded, read_errors = [], [], 0, []
     for c in cards:
         src = aid = None
         for p in c.get("properties", []):
@@ -173,24 +217,31 @@ def list_todo(source_type="alphaXiv"):
         if source_type is not None and src != source_type:
             excluded += 1
             continue
+        rec = {"card_id": c.get("id"), "title": c.get("title", ""), "arxiv": aid}
         try:
             _, doc = read_card(c["id"])
-        except Exception:
+        except Exception as e:
+            read_errors.append(dict(rec, error=str(e)[:120]))
             continue
-        rec = {"card_id": c["id"], "title": c.get("title", ""), "arxiv": aid}
         (done if is_upgraded(doc) else todo).append(rec)
-    return _with_exclusion_note({"todo": todo, "done": done}, excluded, source_type)
+    return _with_exclusion_note({"todo": todo, "done": done},
+                                excluded, source_type, read_errors)
 
 
-def _with_exclusion_note(result, excluded, source_type):
+def _with_exclusion_note(result, excluded, source_type, read_errors=()):
     """The silent blind spot that hid 11 legacy cards for years: cards without
     (or with a different) Source Type never even ENTER the todo list. Keep the
-    filter, but make the exclusion a visible number."""
+    filter, but make the exclusion a visible number. 同理：讀不了的卡不能
+    直接消失（todo=[] 會被誤判成收工）——記進 read_errors。"""
     result["excluded_by_filter"] = excluded
+    result["read_errors"] = list(read_errors)
     if excluded:
         print(f"[list_todo] 注意：另有 {excluded} 張 study/paper 卡因 "
               f"Source Type != {source_type!r} 未列入本清單"
               f"（list_todo(source_type=None) 可全掃）", file=sys.stderr)
+    if read_errors:
+        print(f"[list_todo] 注意：{len(result['read_errors'])} 張卡讀取失敗"
+              "（不在 todo/done 內）——收工前必須查明", file=sys.stderr)
     return result
 
 # ── ProseMirror builders ──────────────────────────────────────────────────────
@@ -321,8 +372,16 @@ def shrink_data_url(src, target_w=720, q=60):
 def _shrink_card_figures(content, steps=((720, 60), (560, 52), (440, 46))):
     """Progressively downscale every data-URL image in `content` (mutates src in
     place) — used by finalize when a card is too big because of large figures."""
-    imgs = [n for n in content if n.get("type") == "image"
-            and n["attrs"].get("src", "").startswith("data:")]
+    imgs = []
+    stack = list(content)
+    while stack:                          # nested figures shrink too
+        n = stack.pop(0)
+        if not isinstance(n, dict):
+            continue
+        if n.get("type") == "image" and n["attrs"].get("src", "").startswith("data:"):
+            imgs.append(n)
+        else:
+            stack.extend(n.get("content", []) or [])
     for tw, q in steps:
         if not imgs:
             break

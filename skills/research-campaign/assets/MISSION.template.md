@@ -72,8 +72,9 @@ chain; optimize the campaign, not this single job.
      7. commit+push（拆分式：只 push core repo 的程式碼變更；campaign
         狀態不在版控時，專案卡 append 就是它的異地備份）。有裝 showcase
         層（campaign.py pages-setup）時，push 前先 `campaign.py report`
-        重生進度頁一起 commit——CI 對發佈目錄的 paths 過濾會自動重新
-        部署 Pages（commit message：`Auto-update campaign progress page
+        （有 progress.json 再加 `campaign.py progress`）重生頁面一起
+        commit——CI 對發佈目錄的 paths 過濾會自動重新部署 Pages
+        （commit message：`Auto-update campaign progress page
         (session refresh)`）。把本 job 結果經 project-card-log append
         到專案卡；續投下一個 job，或寫 BLOCKED.md 停下等人。 -->
 

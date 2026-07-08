@@ -62,6 +62,40 @@ class TestCampaign(unittest.TestCase):
         self.assertIn("core_code/", gi)
         self.assertIn("首 commit", r.stderr)  # 不自動 commit，留給使用者
 
+    def test_init_git_upgrades_existing_campaign(self):
+        run(["init", "--repo", str(self.repo)])
+        (self.root / "MISSION.md").write_text("# MISSION: 手寫任務書\n")
+        r = run(["init", "--repo", str(self.repo), "--git"])   # 升級不被擋
+        out = json.loads(r.stdout)
+        self.assertTrue(out["git_tracked"])
+        self.assertTrue((self.repo / ".git").is_dir())
+        self.assertEqual((self.root / "MISSION.md").read_text(),
+                         "# MISSION: 手寫任務書\n")             # 任務書未被覆寫
+
+    def test_nested_gitfile_worktree_detected(self):
+        # submodule/linked worktree 的 .git 是「檔案」不是目錄——也要排除
+        nested = self.repo / "sub_repo"
+        nested.mkdir()
+        (nested / ".git").write_text("gitdir: /elsewhere/.git/worktrees/x\n")
+        r = run(["init", "--repo", str(self.repo), "--git"])
+        out = json.loads(r.stdout)
+        self.assertEqual(out["nested_repos_ignored"], ["sub_repo/"])
+
+    def test_ancestor_repo_ignoring_campaign_dir(self):
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / ".gitignore").write_text("runs/\n")
+        r = run(["init", "--repo", str(self.repo)])
+        out = json.loads(r.stdout)
+        self.assertFalse(out["git_tracked"])          # 被 ignore ≠ 有版控
+        self.assertIn("忽略", r.stderr)
+
+    def test_load_dir_rejects_non_campaign_dir(self):
+        stray = self.repo / "not_campaign"
+        stray.mkdir()
+        r = run(["status", "--dir", str(stray)], ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("不像 campaign 目錄", r.stderr)
+
     def test_ledger_schema_enforced(self):
         run(["init", "--repo", str(self.repo)])
         good = {"experiment": "E1", "config_hash": "abc", "metrics": {"wer": 0.3},

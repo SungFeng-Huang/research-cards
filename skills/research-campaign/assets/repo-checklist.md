@@ -3,7 +3,11 @@
 campaign 不自帶訓練／評測能力——它假設 repo 已具備下列元件。Setup intake 的
 第一步就是對照這張表：**缺「必備」項先補齊（或列為 E0 前置工作）再開跑**。
 
-## 必備（缺一個 campaign 就跑不動）
+## 必備（缺件先補齊或列為 E0 前置——直接開跑會在對應 rung 卡死）
+
+表中的具體形式（YAML config、per-utterance CSV、reports/ 目錄…）是**參考
+實作**（vocodec 的做法）——你的 repo 用等效機制即可，intake 對照的是
+「功能在不在」，不是檔案格式。
 
 | 元件 | 要求 | vocodec 對應 |
 |---|---|---|

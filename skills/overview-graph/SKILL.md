@@ -247,9 +247,16 @@ Two stages — structure finds candidates, the model makes the judgment:
    each candidate against live card content (grounding rules below), then
    write the gap analysis — 漏洞 with evidence + severity/confidence, 發想 in
    hung-yi-lee 問題→撞牆→怎麼辦呢 genealogy — and **append** it to the project
-   card as a dated `## 🔍 研究漏洞與方向發想（YYYY-MM-DD…）` section
-   (`heptabase note append`, project-card-log's append-only convention). The
-   append always lands at the card TAIL; the next `project-card-merge` run
+   card as a dated `## 🔍 研究漏洞與方向發想（YYYY-MM-DD…）` section.
+   Append through the overflow-safe helper, NOT a raw `heptabase note append`:
+   ```bash
+   python3 ../project-card-log/append_card.py --card <ENTRY_ID> --content-file gap.md
+   ```
+   It follows project-card-log's append-only convention, walks any
+   continuation chain to the tail（a raw append would land mid-chain on a
+   chained card）, and near the size cap spills to a new 續卡 when
+   `projects.overflow_spill` is enabled instead of overflowing. The
+   append always lands at the chain TAIL; the next `project-card-merge` run
    folds it into the body after Findings (its arc item 6.5), promoting
    actionable 發想 into 下一步 and verification-type 洞 into 待補 — the `🔍`
    heading prefix must survive the fold (it is research_gaps.py's

@@ -80,6 +80,46 @@ def read_card(card_id):
     return data.get("title", card_id), json.loads(data["content"])
 
 
+_LINK_MARK = "續卡（本卡已達容量上限）"   # append_card.LINK_MARK（chain sentinel）
+
+
+def _continuation_id(doc):
+    for n in reversed(doc.get("content") or []):
+        if n.get("type") != "paragraph":
+            continue
+        seen_mark = False        # 取 marker 之後的第一個 card——段落裡 marker
+        for c in n.get("content") or []:   # 前若還有別的 card mention 不能拿錯
+            if not seen_mark:
+                if c.get("type") == "text" and _LINK_MARK in (c.get("text") or ""):
+                    seen_mark = True
+                continue
+            if c.get("type") == "card" and (c.get("attrs") or {}).get("cardId"):
+                return c["attrs"]["cardId"]
+        if seen_mark:
+            return None          # 有 marker 沒 card＝壞 sentinel，視為鏈尾
+    return None
+
+
+def read_card_chain(card_id):
+    """Entry ＋ merge-spill 續卡鏈的聚合讀取。gap 分析必須以整張卡為地基：
+    只讀 entry 會把住在續卡裡的 mentions/Findings 當成不存在——已引用的
+    論文被列成 uncited、已處理的 gap 重新被提。obsidian 無 cap 無鏈，原樣。"""
+    title, doc = read_card(card_id)
+    if OBS:
+        return title, doc
+    seen, content = {card_id}, list(doc.get("content") or [])
+    cur = _continuation_id(doc)
+    while cur and cur not in seen:
+        if len(seen) > 64:   # append_card.CHAIN_MAX 同值——合法長鏈不誤殺
+            sys.exit(f"ERROR: 續卡鏈超過 64 張（{card_id}）——資料異常，先跑 "
+                     "project-card-merge scan 檢查")
+        seen.add(cur)
+        _t, d = read_card(cur)      # 讀失敗沿用 read_card 的 loud exit——
+        content += d.get("content") or []   # 寧可停也不做半套分析
+        cur = _continuation_id(d)
+    return title, dict(doc, content=content)
+
+
 def _plain_text(n):
     if not isinstance(n, dict):
         return ""
@@ -136,7 +176,7 @@ def main():
                  "first (hungyi_query.py --refresh-only)")
     g = json.loads(open(graph_path, encoding="utf-8").read())
 
-    title, doc = read_card(args.card_id)
+    title, doc = read_card_chain(args.card_id)
     text, mentioned = walk_text_and_mentions(doc)
     concepts = {c["raw"] for c in extract_concepts_from_text(title + "\n" + text)}
     proj_ids = {f"concept_{slug(c)}" for c in concepts}

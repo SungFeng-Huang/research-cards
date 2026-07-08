@@ -130,6 +130,11 @@ def load_live(db_path, wb_ids=None):
             data[key] = [
                 {camel: row[snake] for snake, camel in colmap.items()}
                 for row in dst.execute(f"SELECT {sel} FROM {table}")]
+        # card.content is fetched separately (below) so it needs its own
+        # drift guard — same discipline as the colmap checks above
+        if "content" not in {r[1] for r in dst.execute("PRAGMA table_info(card)")}:
+            raise LiveSchemaError("live DB 表 card 缺欄位 ['content']——"
+                                  "schema 可能變了；確認後改用備份來源（--all-data）")
         # card content is only needed for mention-line derivation on the
         # mirrored boards — fetch just those cards, not the whole workspace
         need = {i["cardId"] for i in data["cardInstances"]
@@ -156,7 +161,9 @@ def load_live(db_path, wb_ids=None):
                   "whiteboard_instance": "whiteboardInstances",
                   "insight_instance": "insightInstances",
                   "highlight_element_instance": "highlightElementInstances",
-                  "media_card_instance": "mediaCardInstances"}
+                  "media_card_instance": "mediaCardInstances",
+                  "chat_messages_element": "chatMessagesElements",
+                  "web_card_instance": "webCardInstances"}
         for table, key in census.items():
             if table not in have:
                 continue
@@ -231,7 +238,10 @@ def pm_to_text(content_json, report):
     if "%%HEPTA" in md:  # embeds/files inside a floating text — keep the rest
         report["text_placeholders_stripped"] += 1
         md = re.sub(r"%%HEPTA[^%]*%%", "", md)
-        md = "\n".join(l.rstrip() for l in md.splitlines() if l.strip()).strip()
+        # only tidy the hole the token left — deliberate blank lines
+        # (paragraph breaks) elsewhere in the text survive
+        md = re.sub(r"[ \t]+$", "", md, flags=re.M)
+        md = re.sub(r"\n{3,}", "\n\n", md).strip()
     return md
 
 
@@ -248,8 +258,10 @@ def mention_ids(content_json):
     while stack:
         n = stack.pop()
         if isinstance(n, dict):
-            if n.get("type") == "card" and (n.get("attrs") or {}).get("cardId"):
-                out.add(n["attrs"]["cardId"])
+            attrs = n.get("attrs")
+            if n.get("type") == "card" and isinstance(attrs, dict) \
+                    and attrs.get("cardId"):
+                out.add(attrs["cardId"])
             stack.extend(n.values())
         elif isinstance(n, list):
             stack.extend(n)
@@ -336,7 +348,8 @@ def build_canvas(wb_id, data, sync_cards, folders, workspace, report,
     other = [x for o in ("mediaElements", "pdfCardInstances", "mindMapInstances",
                          "webElements", "chatInstances", "journalInstances",
                          "whiteboardInstances", "insightInstances",
-                         "highlightElementInstances", "mediaCardInstances")
+                         "highlightElementInstances", "mediaCardInstances",
+                         "chatMessagesElements", "webCardInstances")
              for x in data.get(o, []) if x.get("whiteboardId") == wb_id]
     report["skipped_unsupported"] += len(other)
 
@@ -467,9 +480,11 @@ def main():
     for wb_id, rel, out, canvas in staged:
         if not args.dry_run:
             os.makedirs(os.path.dirname(out), exist_ok=True)
-            with open(out, "w") as f:
+            tmp = out + ".hb-tmp"          # atomic per file — a crash
+            with open(tmp, "w") as f:      # mid-write can't leave a half canvas
                 json.dump(canvas, f, ensure_ascii=False, indent=1)
                 f.write("\n")
+            os.replace(tmp, out)
         report["written"].append({"whiteboard": known[wb_id], "canvas": rel,
                                   "nodes": len(canvas["nodes"]),
                                   "edges": len(canvas["edges"]),

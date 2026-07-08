@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.16.0 — 2026-07-08
+- **project-card-merge chain-aware（CARD-OVERFLOW.md merge side 完成）**：
+  scan/讀取沿續卡鏈（`chain`/`chain_dumps`/`child_payload`，PM 層 sentinel
+  解析與 append_card 的文字層 round-trip 相容）；`find_orphans` 掃描
+  create-link 間 crash 留下的孤兒續卡；`cleanup_children` 收編後補 tag →
+  trash。合併輸入=整條鏈（子卡剝 auto-header/back-ref/sentinel 後視同 📥）。
+- **finalize_chain：merge 產物不再受 100K 上限濃縮**——超過 spill_threshold
+  時整段 H2 打包溢位成新續卡鏈（節點守恆，內容零遺失；子卡先建先 tag、entry
+  最後存=crash 只留可發現孤兒）；obsidian 模式無上限、照舊單卡。resplit
+  （narrative-act 拆卡）保留為人讀性更佳的替代，動用前先問使用者。
+- **Op5 append 改走 append_card.py**（overview-graph SKILL.md）：🔍 gap 分析
+  append 落鏈 tail、近上限時 spill，不再裸 `heptabase note append`。
+- config.example：projects 補 `char_cap`/`spill_threshold`/`overflow_spill`
+  （merge 側已 chain-aware，spill 可啟用）。tests：14 項純邏輯（守恆/順序/
+  邊界）＋真環境 e2e（spill→鏈讀回→scan→cleanup）驗證。
+
+## 0.15.0 — 2026-07-08
+- **訓練進度儀表**（`campaign.py progress-init`／`progress`＋
+  `scripts/progress_page.py`，收編 vocodec gen_progress_page 的 generic
+  版）：log 解析規則全設定化（`progress.json`：log_glob＋named-group
+  step_re＋雙 group kv_re＋charts 宣告，`_doc` 欄自帶說明）；輸出自包含
+  HTML——stat tiles、SVG 曲線（dataviz 規範：validated 色組、2px 線、
+  hairline 格線、crosshair 全 series tooltip、≥2 series 才有 legend、
+  單 y 軸、參考線直標）、取樣資料表（無滑鼠 fallback）、ladder／ledger／
+  job 鏈表。搶佔重跑重疊步以較新 job 為準；非有限值丟棄；抽稀 ≤700 點；
+  對相同輸入位元級確定（無牆鐘時間戳）。`scheduler:"slurm"` best-effort
+  squeue＋ETA（指令寫死不吃設定——progress.json 不能拿來跑任意指令；
+  預設 none 全離線）。與 report 同目錄互連、同吃 pages.json 落位；
+  per-job step 7 自動更新契約涵蓋兩頁。
+- 進度儀表 review 強化（多鏡頭工作流 24 confirmed findings 全修）：指標存
+  6 位有效數字（lr=5e-06 不再被壓成 0）；同 step 多行逐 key 合併（eval 行
+  /雜訊行不清空資料）；payload 全 `<` → `\u003c`（杜絕 script-data 逃逸）
+  ＋佔位替換互污免疫；log_glob 支援 `**`、拒絕逸出 project root；跨機器
+  穩定全序；串流讀 log（多 GB 不吃記憶體）；NaN 防線（ledger-append 拒收
+  ＋render 前 sanitize）；nd 0-10 驗證；未知欄位/空圖 key 警告；slurm
+  scheduler 路徑補測試（PATH shim squeue）。
+- **Review backlog 銷帳（Codex 復活後補審 11 筆）連帶修復**：
+  obsidian-sync verify.py 鏡射 sync 的 tag_id 過濾＋folder 聯集；
+  whiteboard2canvas census 補 2 表、placeholder 剝除只整理殘洞、原子寫檔、
+  card.content schema guard、mention attrs 防禦；scholar-inbox-clip HF 路
+  徑 4 修（source 讀取失敗不再永久漏收整封信、標題/讚數配對錯位改 anchor
+  text、壞 agent 回覆不再誤標已處理、呼叫例外保守全收）；property trio
+  I/O 失敗不再視為空值/成功（讀失敗跳過整卡、寫失敗回報）；backfill 完成
+  判定納入 Topics（off-topic 卡收斂、舊卡補 Topics 有佇列）；標題去重修
+  H1 前綴盲區＋`--card-types note`＋Obsidian 全量標題比較；card-rewrite
+  list_todo 讀卡失敗記 read_errors 進收工 gate、batch/campaign 兩級收工
+  語義；campaign example/checklist 數字與路徑修正。
+
 ## 0.14.0 — 2026-07-08
 - **campaign 展示層自動更新＋GitHub/GitLab 雙軌**（收編 vocodec 的
   auto-refresh Pages 模式）：`campaign.py pages-setup`——讀 `git remote

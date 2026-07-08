@@ -153,13 +153,19 @@ Candidate selection: cards whose subfield is likely unfamiliar / jargon-dense
 benefit most. Avoid re-running on already-teaching-style cards (those with a
 `先備知識` section).
 
-⚠️ **完成驗證（批次收工的硬條件）**——2026-07 實案：一次批次中途停掉留下
-11 張尾巴，近三年沒人發現。收工前必須：
-1. 重跑 `L.list_todo()` 直到 `todo == []`；
-2. 檢查回傳的 `excluded_by_filter`（Source Type 過濾的沉默排除數）——非零
-   時用 `list_todo(source_type=None)` 全掃一次，人工判定被排除者是否為
-   合法例外（hub 卡、手寫筆記）並回報使用者；
-3. 兩者都乾淨才算批次完成。
+⚠️ **完成驗證（收工的硬條件）**——2026-07 實案：一次批次中途停掉留下
+11 張尾巴，近三年沒人發現。兩個層級：
+
+- **本批次收工**（topic-scoped 小批次合法）：逐一驗證本批次的 card IDs
+  已 `is_upgraded`（title 相符、單 H1、<100k）——不要求全域 todo 清空。
+- **campaign 收工**（目標是「全部改寫完」時）：
+  1. `res = L.list_todo()`，直到 `res["todo"] == []`；
+  2. `res["read_errors"]` 必須為空——讀取失敗的卡不在 todo/done 內，
+     沉默消失會把「沒掃到」誤判成「掃完了」；非空先查明再收工；
+  3. `res["excluded_by_filter"]`（Source Type 過濾的沉默排除數）非零時
+     用 `L.list_todo(source_type=None)` 全掃一次，人工判定被排除者是否
+     為合法例外（hub 卡、手寫筆記）；合法例外**記錄並回報使用者**即可
+     ——這個數字不會歸零，歸零不是條件，「已審核」才是。
 
 ---
 

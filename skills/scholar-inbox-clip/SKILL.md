@@ -111,8 +111,12 @@ are off-topic** (LLM/vision/agent papers like *Qwen3*, *DeepSeek-V4*, *Seedance*
 0–2 個）。Only the genuinely speech/audio ones get **Tasks**.
 
 For scale (dozens of cards), fan out with parallel subagents: each reads a batch
-and returns `{card_id, tasks:[…]}` decisions; then apply `set_tasks()` for each
-in the main loop and collect the union of `overviews_to_sync()` results.
+and returns `{card_id, tasks:[…], topics:[…]}` decisions; then in the main loop
+apply `set_tasks()` **and `set_topics()`** for each（off-topic 卡 tasks 為空、
+topics 必有值——這正是它的完成標記，漏掉會永遠留在 backfill 佇列）and
+collect the union of `overviews_to_sync()` results. `--list-untagged` 的每筆
+帶 `missing`（`["topics"]`＝只補 Topics 的舊卡；`["tasks","topics"]`＝全新
+未標卡），照它決定要跑哪幾步。
 
 ### B3 — Sync every affected overview once
 ```python
@@ -1215,8 +1219,9 @@ Pipeline order in `run.py`:
 8. Auto-colorize (Claude returns JSON color rules)
 9. Add study/paper tag + set Source Type: alphaXiv + set arxiv ID property
 9b. **(model-in-the-loop runs — interactive OR desktop routine)** Auto-annotate
-    `Tasks` via `set_tasks()` (additive; existing options only) and re-sync any
-    owning overview topic returned by `overviews_to_sync()` — see Step 6.5. The
+    `Tasks` via `set_tasks()` AND `Topics` via `set_topics()`（additive;
+    existing options only；off-topic 卡 Tasks 留空但 Topics 必填）and re-sync
+    any owning overview topic returned by `overviews_to_sync()` — see Step 6.5. The
     bare scripted `run.py` main loop does NOT do this (it has no semantic
     judgment and the overview workflows are Claude-driven); the helpers live in
     `run.py` so the model-driven flow can call them.

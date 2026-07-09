@@ -281,14 +281,65 @@ class TestReport(unittest.TestCase):
         self.assertEqual(rep["ledger_rows"], 1)
         html = out.read_text()
         self.assertIn("測試戰役 &lt;x&amp;y&gt;", html)   # 標題有 escape
-        self.assertIn("b-pending", html)                  # ladder 徽章
-        self.assertIn("b-sig", html)                      # 顯著性徽章
+        self.assertIn("chip pending", html)               # ladder 徽章
+        self.assertIn("chip sig", html)                   # 顯著性徽章
+        self.assertIn('class="tiles"', html)              # 狀態磚
+        self.assertIn('meta name="description"', html)    # index 卡片描述來源
         self.assertIn("advance &lt;ok&gt;", html)         # 內容 escape
         self.assertIn("BLOCKED", html)
         self.assertIn("speech.lr", html)
         first = out.read_bytes()
         run(["report", "--dir", str(root), "--out", str(out)])
         self.assertEqual(first, out.read_bytes())         # 無時間戳＝確定性
+
+
+
+
+def _load_campaign():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("campaign_mod", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestShowcaseMacMergePass(unittest.TestCase):
+    """Known-opens the cluster branch left for the Mac merge pass."""
+
+    def test_index_casefold_variant_hard_rejects(self):
+        campaign = _load_campaign()
+        pub = tempfile.mkdtemp(prefix="rc-camp-idx-")
+        with open(os.path.join(pub, "Index.html"), "w") as f:
+            f.write("<title>user page</title>")
+        with open(os.path.join(pub, "report.html"), "w") as f:
+            f.write("<title>r</title>")
+        with self.assertRaises(SystemExit):
+            campaign._write_index(pub, "t")
+        # user file untouched
+        self.assertIn("Index.html", os.listdir(pub))
+
+    def test_ignored_generated_page_warns(self):
+        campaign = _load_campaign()
+        import io, contextlib
+        repo = tempfile.mkdtemp(prefix="rc-camp-ign-")
+        subprocess.run(["git", "-C", repo, "init", "-q"], check=True)
+        with open(os.path.join(repo, ".gitignore"), "w") as f:
+            f.write("*.html\n")
+        page = os.path.join(repo, "docs", "x.html")
+        os.makedirs(os.path.dirname(page))
+        with open(page, "w") as f:
+            f.write("<title>x</title>")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            campaign._warn_if_page_ignored(page)
+        self.assertIn("被 .gitignore 忽略", err.getvalue())
+        # non-ignored page stays silent
+        with open(os.path.join(repo, "docs", "keep.css"), "w") as f:
+            f.write("x")
+        err2 = io.StringIO()
+        with contextlib.redirect_stderr(err2):
+            campaign._warn_if_page_ignored(os.path.join(repo, "docs", "keep.css"))
+        self.assertEqual(err2.getvalue(), "")
 
 
 if __name__ == "__main__":

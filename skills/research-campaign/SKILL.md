@@ -31,7 +31,8 @@ description: >-
   manifest 建構器…）campaign 才跑得動；intake 第一步就是對照它。
 - `scripts/campaign.py` — 記帳工具（stdlib）：`init`（scaffold）、
   `status`（佇列＋帳本摘要）、`ledger-append`（schema 校驗寫入）、
-  `report`（ledger/queue → 靜態 HTML campaign 報告）、`pages-setup`
+  `report`（ledger/queue → 靜態 HTML campaign 報告，含指標趨勢圖；順帶
+  regen index）、`demo`（manifest → 音檔對聽頁）、`pages-setup`
   （依 git remote 裝 GitHub 或 GitLab Pages 部署設定）、`progress-init`／
   `progress`（訓練 log → SVG 曲線進度儀表）。
 - `scripts/progress_page.py` — 進度儀表引擎（stdlib）：log 解析規則全在
@@ -40,6 +41,11 @@ description: >-
   ledger／job 鏈）。
 - `assets/pages-workflow.yml` — GitHub Pages 部署 workflow 模板。
 - `assets/gitlab-pages.yml` — GitLab CI Pages job 模板（發佈 `public/`）。
+- `assets/showcase.css` — **showcase 頁的預設設計系統**（vocodec 風格：
+  色票 tokens、.tiles 狀態磚、.card 圖表卡、.chip 徽章、.report-list
+  landing 卡、.examples/.audio-grid 對聽卡）。report/index/demo 內嵌它
+  （self-contained）；`report` 也會把副本同步到發佈目錄，repo 自製頁
+  （訓練儀表板等）`<link rel="stylesheet" href="showcase.css">` 即得同套視覺。
 
 ## Mode 1 — Setup（互動式 intake → MISSION.md）
 
@@ -171,13 +177,31 @@ regen report（有 progress.json 也 regen progress）→ 連同 ledger/queue
 `Auto-update campaign progress page (session refresh)`。
 
 報告頁自動含：ladder 狀態表、ledger 全表（metrics／significant 徽章／
-decision／playbook 引用）、BLOCKED 橫幅；無時間戳（輸出確定性，發佈時間
-交給 git 歷史）。領域特定的 demo 頁（音檔 A/B 對聽、訓練曲線儀表——參考
-vocodec 的 `scripts/gen_progress_page.py` 解析訓練 log 畫 SVG 曲線）屬各
-repo 的 MISSION 資產，自行加在同一發佈目錄，一條 CI 一起發佈。**紀律**：
-進度頁（ladder＋ledger 全表）每 job 誠實刷新，not-significant rows 照登、
-有徽章標示；受顯著性 gate 管的是對外的「勝出宣稱」與 demo checkpoint
-（GUARDRAILS 同款條文）。
+decision／playbook 引用）、**ledger 指標趨勢圖**（出現 ≥2 次的數值 metric
+一張 SVG 小圖——趨勢需要兩點以上；x＝ledger 順序、點懸停看 rung／值。只出現
+一次的數值列進「單次評測指標」表格；非數值跳過、超過 12 張列名不畫並註明
+——不靜默截斷）、BLOCKED 橫幅；無時間戳（輸出確定性，發佈時間交給
+git 歷史）。report 收尾自動 **regen `index.html`**（landing 頁：掃發佈目錄
+所有 \*.html、report 排最前、各頁標題取其 `<title>`；`--no-index` 略過）。
+
+**音檔對聽頁（demo）**——manifest → A/B（多系統）對聽頁；音檔複製進發佈
+目錄的**版本化**資產目錄 `assets/<name>-<ver8>/`（換版原子切換、job 被 kill
+不留混種頁、舊版自動清）、`<audio preload="none">`（不預載）、產完 regen index：
+
+```bash
+python3 scripts/campaign.py demo --dir <repo>/runs/auto_research \
+  --manifest demo.json --name ab-listen
+# demo.json：{"title":"…","systems":["original","stride1"],
+#   "utterances":[{"id":"u1","audio":{"original":"a.wav","stride1":"b.wav"},
+#                  "note":"（選填）"}]}   # 音檔路徑相對 manifest 所在目錄
+```
+
+訓練曲線儀表（解析訓練 log 畫 loss/step 曲線——參考 vocodec 的
+`scripts/gen_progress_page.py`）仍屬各 repo 的 MISSION 資產（log 格式
+repo-specific），自行加在同一發佈目錄，index 會自動列進來。**紀律**：
+進度頁（ladder＋ledger 全表＋趨勢圖）每 job 誠實刷新，not-significant rows
+照登、有徽章標示；受顯著性 gate 管的是對外的「勝出宣稱」與 demo checkpoint
+（GUARDRAILS 同款條文）；對聽頁是素材，勝出宣稱以 report 為準。
 
 ## 分工界線（防止本 skill 膨脹）
 

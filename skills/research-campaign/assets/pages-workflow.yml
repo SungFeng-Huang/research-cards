@@ -36,6 +36,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # demo 音檔若走 Git LFS：只拉 docs/ 的物件——lfs:true 會 smudge 整個
+      # 工作樹（含 LFS checkpoints/datasets），可能吃爆 runner 磁碟與流量
+      - name: Fetch LFS objects for docs/ only
+        # 無條件執行：非 LFS repo 是 no-op（exit 0）。不用 ls-files|grep -q 偵測
+        # ——pipefail 下 grep -q 提早退出會 SIGPIPE 掉 ls-files（141），把有
+        # LFS 的 repo 誤判成沒有，pointer 就上線了
+        run: git lfs pull --include="docs/**"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

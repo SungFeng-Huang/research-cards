@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.0 — research-campaign showcase 2.0
+
+- Merged `cluster/append-card-overflow` follow-on branch `cluster/showcase-extras`
+  (25 cluster-side review rounds): vocodec-style pages + landing card grid,
+  `demo` subcommand (A/B audio-listening pages), semantic trend charts,
+  content-hash versioned assets, publish-transaction locking, CI templates.
+- Mac merge pass closes the branch's two known-opens: generated pages now WARN
+  when .gitignore would drop them from the commit (assets shipping orphaned);
+  a case-variant of index.html in the publish dir hard-rejects instead of
+  silently coexisting/overwriting across filesystems.
+
 ## 0.17.1 — journal bridge hardening (review follow-ups for 0.17.0)
 
 - **Frontmatter-aware claim**: claiming a pre-existing daily note inserts the

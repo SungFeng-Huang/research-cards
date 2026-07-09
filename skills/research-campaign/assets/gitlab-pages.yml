@@ -9,6 +9,9 @@
 # not-significant rows）；對外的「勝出宣稱」與 demo checkpoint 只在通過
 # 顯著性 gate 後更新。
 pages:
+  # 企業 instance 常見的兩個開關（需要就取消註解）：
+  # tags: [<runner-tag>]    # shared runner 只吃帶 tag 的 job 時（否則 pending 卡死）
+  # image: alpine:latest    # docker-executor runner 預設 image 拉不到時
   stage: deploy
   script:
     - echo "Publishing committed public/ to GitLab Pages"

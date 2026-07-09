@@ -1,0 +1,82 @@
+/* research-campaign showcase 預設設計系統（vocodec 風格）
+ * 單一風格來源：campaign.py 的 report／index／demo 直接內嵌本檔內容
+ * （頁面 self-contained）；`report` 也會把本檔複製到發佈目錄，repo 自製
+ * 頁（訓練儀表板等）用 <link rel="stylesheet" href="showcase.css"> 即可
+ * 同套視覺。色票 tokens 見 :root；元件：.tiles 狀態磚、.card 圖表卡、
+ * .chip 徽章、.report-list landing 卡、.examples/.audio-grid 對聽卡。
+ */
+:root { color-scheme:light; --bg:#f7f7f4; --ink:#1d2528; --muted:#586368;
+        --line:#d9dedb; --accent:#126c73; --panel:#ffffff; --faint:#898781;
+        --s1:#2a78d6; --good:#0ca30c; --crit:#d03b3b; --warn:#a15c07; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+       font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:36px 0 72px; }
+h1 { font-size:clamp(1.7rem,3.6vw,2.4rem); margin:0 0 4px; line-height:1.1; }
+h2 { font-size:18px; margin:36px 0 12px; }
+.sub { color:var(--muted); margin:0 0 20px; }
+a { color:var(--accent); }
+.kicker { margin:0 0 8px; color:var(--accent); font-size:.82rem; font-weight:750;
+          text-transform:uppercase; letter-spacing:.02em; }
+header.band { background:var(--panel); border-bottom:1px solid var(--line); }
+.hwrap { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:34px 0 16px; }
+.subtitle { max-width:880px; color:var(--muted); margin:10px 0 0; }
+nav.crumbs { display:flex; flex-wrap:wrap; gap:8px; padding:14px 0 18px; }
+nav.crumbs a { display:inline-flex; align-items:center; padding:5px 11px;
+               border:1px solid var(--line); border-radius:99px;
+               background:var(--panel); text-decoration:none; font-size:13px; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+         gap:12px; margin:6px 0 4px; }
+.tile { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+        padding:12px 14px; }
+.tile .lab { font-size:12.5px; color:var(--muted); }
+.tile .val { font-size:24px; font-weight:600; margin-top:2px;
+             font-variant-numeric:tabular-nums; }
+.tile .det { font-size:12px; color:var(--faint); margin-top:2px;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr));
+          gap:14px; }
+@media (max-width:520px){ .charts{grid-template-columns:1fr;} }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+        padding:14px 14px 8px; overflow:hidden; }
+.card h3 { font-size:14.5px; margin:0 0 6px; }
+.card svg { width:100%; height:auto; display:block; }
+svg text { font:11.5px system-ui,sans-serif; fill:var(--faint); }
+.wrap { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; background:var(--panel);
+        border:1px solid var(--line); border-radius:10px; overflow:hidden;
+        font-size:13.5px; }
+th, td { text-align:left; padding:7px 10px; border-top:1px solid var(--line);
+         vertical-align:top; }
+thead th, tr:first-child th { border-top:none; background:var(--bg);
+                              color:var(--muted); font-weight:600; }
+.chip { display:inline-block; font-size:12.5px; padding:1px 9px;
+        border-radius:99px; border:1px solid var(--line); white-space:nowrap; }
+.chip.done, .chip.sig { color:var(--good); border-color:var(--good); }
+.chip.running { color:var(--s1); border-color:var(--s1); }
+.chip.pending, .chip.nosig { color:var(--muted); }
+.chip.failed { color:var(--crit); border-color:var(--crit); }
+.blocked { border:2px solid var(--crit); background:#fbeeee; padding:10px 14px;
+           border-radius:8px; margin:16px 0; white-space:pre-wrap; }
+.report-list { display:grid; gap:16px; margin-top:28px; }
+.report { display:block; padding:22px; border:1px solid var(--line);
+          border-radius:10px; background:var(--panel); text-decoration:none;
+          color:inherit; }
+.report strong { display:block; margin-bottom:6px; font-size:1.08rem; }
+.report span { color:var(--muted); }
+.examples { display:grid; gap:16px; }
+article.example { background:var(--panel); border:1px solid var(--line);
+                  border-radius:10px; padding:16px 18px; }
+article.example h3 { margin:0 0 4px; font-size:15.5px; }
+article.example .note { color:var(--muted); margin:0 0 10px; }
+.audio-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+              gap:12px; }
+.audio-box { background:var(--bg); border:1px solid var(--line); border-radius:8px;
+             padding:10px 12px; }
+.audio-box .label { margin:0 0 6px; font-size:12.5px; color:var(--muted);
+                    font-weight:600; }
+.audio-box .dl { margin:6px 0 0; font-size:12px; }
+audio { width:100%; }
+.footnote { font-size:12.5px; color:var(--muted); margin-top:28px;
+            border-top:1px solid var(--line); padding-top:14px; }
+p.muted { color:var(--muted); }

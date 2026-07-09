@@ -377,8 +377,13 @@ def update_conflict_log(state):
     for k, c in live.items():
         if k not in log or log[k].get("resolved"):
             log[k] = {"first": today, "resolved": None, "entry": c}
+    window = set(state.get("journal_window") or [])
     for k, rec in log.items():
         if not rec.get("resolved") and k not in live:
+            entry = rec.get("entry") or {}
+            if str(entry.get("card", "")).startswith("journal:") and \
+               entry.get("file") not in window:
+                continue  # journal day out of the rolling window: unverified
             rec["resolved"] = today
 
     def fmt(rec, done):
@@ -423,7 +428,7 @@ def render_forward(note, cid, card, resolver, state, att_dir, dry):
                      anchor_ids)
     prefix, blocks = conv.convert_blocks(json.loads(note["content"]))
     report["unknown_nodes"].update(conv.unknown)
-    fileid_to_name = export_local_files(conv, att_dir, state, cid, dry)
+    fileid_to_name, _ = export_local_files(conv, att_dir, state, cid, dry)
     out_blocks = [(node, resolver.resolve(md, cid, fileid_to_name, anchor_ids))
                   for node, md in blocks]
     body = assemble(md for _, md in out_blocks)
@@ -442,11 +447,17 @@ def render_forward(note, cid, card, resolver, state, att_dir, dry):
 def export_local_files(conv, att_dir, state, err_key, dry):
     """Export a Converter's referenced Heptabase files into att_dir once,
     remembering names in state["files"]. Shared by card body sync and the
-    journal bridge."""
+    journal bridge. Returns (fileid_to_name, failed): callers that checkpoint
+    on success must refuse to when failed > 0, or a missing mapping renders
+    as a silently-empty embed forever. Under --dry-run nothing touches the
+    vault (no mkdir / export / rename): unmapped ids stay unmapped."""
     fileid_to_name = {}
+    failed = 0
     for fid in conv.local_files:
         if fid in state["files"]:
             fileid_to_name[fid] = state["files"][fid]
+            continue
+        if dry:
             continue
         try:
             os.makedirs(att_dir, exist_ok=True)
@@ -465,11 +476,11 @@ def export_local_files(conv, att_dir, state, err_key, dry):
                           os.path.join(att_dir, name + mime_ext))
                 name += mime_ext
             fileid_to_name[fid] = name
-            if not dry:
-                state["files"][fid] = name
+            state["files"][fid] = name
         except Exception as e:
+            failed += 1
             report["errors"].append({"card": err_key, "err": f"file export {fid}: {e}"})
-    return fileid_to_name
+    return fileid_to_name, failed
 
 
 # ---- journal bridge: Heptabase journal -> Obsidian daily notes (one-way) ----
@@ -489,44 +500,133 @@ def _doc_is_empty(doc):
 
 
 def render_journal(note, date, resolver, att_dir, state, dry):
-    """Heptabase journal PM doc -> markdown body for the managed block."""
+    """Heptabase journal PM doc -> (markdown body, failed_exports). A non-zero
+    failure count means the body has silently-empty embeds — the caller must
+    NOT checkpoint that day (retry next run)."""
     conv = Converter({"id": f"journal-{date}", "title": note.get("title") or date},
                      set())
     _, blocks = conv.convert_blocks(json.loads(note["content"]))
     report["unknown_nodes"].update(conv.unknown)
-    fileid_to_name = export_local_files(conv, att_dir, state,
-                                        f"journal:{date}", dry)
-    return assemble(resolver.resolve(md, f"journal-{date}", fileid_to_name, set())
+    fileid_to_name, failed = export_local_files(conv, att_dir, state,
+                                                f"journal:{date}", dry)
+    body = assemble(resolver.resolve(md, f"journal-{date}", fileid_to_name, set())
                     for _, md in blocks)
+    return body, failed
 
 
-def write_managed_block(path, body, dry):
+def _journal_run_digest(resolver):
+    """Digest of the render inputs BEYOND the source doc — the synced-card
+    set (wikilink targets), cached link titles, and highlights.json. Part of
+    each day's skip key, so a card rename or a newly-resolved highlight
+    re-renders journal days whose source md5 did not change. Computed once
+    per run; titles cached during this run's own renders converge on the
+    following run."""
+    h = hashlib.sha1()
+    h.update(json.dumps(sorted(getattr(resolver, "in_set", {}).items()),
+                        ensure_ascii=False).encode())
+    h.update(json.dumps(sorted(getattr(resolver, "titles", {}).items()),
+                        ensure_ascii=False).encode())
+    if os.path.exists(HIGHLIGHTS_PATH):
+        h.update(open(HIGHLIGHTS_PATH, "rb").read())
+    return h.hexdigest()[:16]
+
+
+def _split_frontmatter(text):
+    """(frontmatter_bytes, rest) — frontmatter kept byte-exact, empty when
+    the file does not start with a YAML properties block."""
+    m = re.match(r"^---\n.*?\n---\n?", text, re.S)
+    return (text[:m.end()], text[m.end():]) if m else ("", text)
+
+
+def _marker_lines(text):
+    """Line indices where a marker is a STANDALONE line (whitespace-trimmed
+    exact match). Inline occurrences (`prefix <marker> suffix`) are counted
+    separately so callers can treat them as corruption, not as a valid pair."""
+    lines = text.split("\n")
+    starts = [i for i, l in enumerate(lines) if l.strip() == J_START]
+    ends = [i for i, l in enumerate(lines) if l.strip() == J_END]
+    inline = (text.count(J_START) > len(starts)) or (text.count(J_END) > len(ends))
+    return lines, starts, ends, inline
+
+
+def _markers_intact(text):
+    _, starts, ends, inline = _marker_lines(text)
+    return len(starts) == 1 and len(ends) == 1 and starts[0] < ends[0] and not inline
+
+
+def _atomic_write(path, text):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".",
+                               prefix=".hepta-journal-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def write_managed_block(path, body, dry, claim_ok=True):
     """Write `body` into the managed marker block of a daily note, preserving
-    everything outside the markers (the user's own notes). Returns the action
-    taken: created / updated / unchanged / conflict."""
+    every byte outside the markers (the user's own notes). Returns the action
+    taken: created / updated / unchanged / conflict.
+
+    Guarantees (review 41068ad follow-ups): exactly ONE standalone marker
+    pair is required — duplicates, reordering, or a marker literal inside the
+    rendered body are conflicts, never guesses. A markerless file is claimed
+    only when `claim_ok` (i.e. this day was never managed before), inserting
+    AFTER any YAML frontmatter so Obsidian keeps recognising Properties, and
+    without stripping the user's leading blank lines. Writes go through a
+    tempfile + os.replace with an optimistic recheck, so an Obsidian/iCloud
+    save racing the sync surfaces as a conflict instead of being clobbered."""
+    if J_START in body or J_END in body:
+        return "conflict"  # rendered body must never smuggle marker literals
     block = J_START + "\n" + (body.rstrip() + "\n" if body.strip() else "") + J_END
     if not os.path.exists(path):
-        if not dry:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(block + "\n")
+        if dry:
+            return "created"
+        try:
+            # O_EXCL closes the exists()->write race: a note Obsidian creates
+            # in between surfaces as a conflict instead of being clobbered.
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return "conflict"
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(block + "\n")
         return "created"
+    st0 = os.stat(path)
     text = open(path, encoding="utf-8").read()
-    has_start, has_end = J_START in text, J_END in text
-    if has_start != has_end or \
-       (has_start and text.index(J_START) > text.index(J_END)):
-        return "conflict"  # half-deleted / reordered markers: never guess
-    if has_start:
-        pre, rest = text.split(J_START, 1)
-        _, post = rest.split(J_END, 1)
-        new_text = pre + block + post
+    lines, starts, ends, inline = _marker_lines(text)
+    if inline:
+        return "conflict"  # marker text embedded inside a line — never guess
+    if (len(starts), len(ends)) == (0, 0):
+        if not claim_ok:
+            # we managed this note before and the markers are gone — the user
+            # removed them; re-claiming would duplicate old content as stale
+            # text outside a fresh block. Report, never guess.
+            return "conflict"
+        fm, rest = _split_frontmatter(text)
+        new_text = fm + block + "\n\n" + rest
+    elif (len(starts), len(ends)) != (1, 1) or starts[0] > ends[0]:
+        return "conflict"  # half-deleted / duplicated / reordered markers
     else:
-        # day note existed before the bridge: prepend our block, keep the rest
-        new_text = block + "\n\n" + text.lstrip("\n")
+        pre = "\n".join(lines[:starts[0]])
+        post = "\n".join(lines[ends[0] + 1:])
+        new_text = (pre + ("\n" if pre else "")) + block + ("\n" + post if post else "")
     if new_text == text:
         return "unchanged"
     if not dry:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_text)
+        # Best-effort race guard: recheck as late as possible before the
+        # atomic replace. A save landing inside the remaining microseconds
+        # can still lose (no file locking on iCloud vaults) — the recheck
+        # narrows the window, it cannot close it.
+        st1 = os.stat(path)
+        if (st1.st_mtime_ns, st1.st_size) != (st0.st_mtime_ns, st0.st_size):
+            return "conflict"  # note changed under us — retry next run
+        _atomic_write(path, new_text)
     return "updated"
 
 
@@ -539,45 +639,75 @@ def sync_journals(state, resolver, dry):
     one-way semantics). Reverse flow (daily note -> Heptabase) is a
     deliberate non-goal of v1."""
     jcfg = _cfg["obsidian"].get("journal") or {}
-    if not jcfg.get("enabled"):
-        return
-    days = int(jcfg.get("days") or 30)
-    if days <= 0:
+    days = int(jcfg.get("days", 30))  # an explicit 0 means OFF, not 30
+    if not jcfg.get("enabled") or days <= 0:
+        # A disabled leg must not leave last run's window in state: days that
+        # were in-window then would look in-window-but-unreported now, and
+        # update_conflict_log() would wrongly mark their conflicts resolved.
+        state["journal_window"] = []
         return
     jstate = state.setdefault("journals", {})
     att_dir = os.path.join(VAULT, "attachments")
+    run_digest = _journal_run_digest(resolver)
     today = datetime.date.today()
+    window = []
     for i in range(days):
         date = (today - datetime.timedelta(days=i)).isoformat()
+        window.append(date)
         try:
             note = cli("journal", "read", date)
+            md5 = note.get("contentMd5")
+            path = os.path.join(VAULT, f"{date}.md")
+            prev = jstate.get(date) or {}
+            managed = bool(prev.get("managed"))
+            if (not REBUILD and prev.get("md5") == md5
+                    and prev.get("rd") == run_digest):
+                # source + render inputs unchanged; still verify the target —
+                # the fast path must not paper over deleted/duplicated markers
+                if managed:
+                    if os.path.exists(path) and \
+                       _markers_intact(open(path, encoding="utf-8").read()):
+                        continue
+                elif not managed and (not os.path.exists(path)
+                                      or prev.get("skipped")):
+                    continue
+            empty = _doc_is_empty(json.loads(note["content"]))
+            checkpoint = {"md5": md5, "rd": run_digest, "managed": managed}
+            if empty and not os.path.exists(path):
+                # nothing to say and no note to claim: don't create empty files
+                checkpoint["managed"] = False
+            elif empty and not managed and \
+                    J_START not in open(path, encoding="utf-8").read():
+                # an empty source day must not claim a pre-existing note the
+                # bridge never managed (review P1-1)
+                checkpoint["managed"] = False
+                checkpoint["skipped"] = True
+            else:
+                body, failed = ("", 0) if empty else render_journal(
+                    note, date, resolver, att_dir, state, dry)
+                if failed:
+                    # do NOT checkpoint: the day retries next run (review P1-3)
+                    continue
+                action = write_managed_block(path, body, dry,
+                                             claim_ok=not managed)
+                if action == "conflict":
+                    report["conflicts"].append(
+                        {"card": f"journal:{date}", "file": date,
+                         "reason": "managed markers malformed/removed, or "
+                                   "the note changed during the write"})
+                    continue
+                if action != "unchanged":
+                    report["journals"].append({"date": date, "action": action})
+                checkpoint["managed"] = True
+            if not dry:
+                jstate[date] = checkpoint
         except Exception as e:
+            # single-day isolation: one bad day never aborts the window
             report["errors"].append({"card": f"journal:{date}",
                                      "err": repr(e)[:200]})
             continue
-        md5 = note.get("contentMd5")
-        path = os.path.join(VAULT, f"{date}.md")
-        prev = jstate.get(date)
-        if prev and prev.get("md5") == md5 and os.path.exists(path):
-            continue  # source unchanged and target present
-        empty = _doc_is_empty(json.loads(note["content"]))
-        if empty and not os.path.exists(path):
-            # nothing to say and no note to claim: don't create empty files
-            if not dry:
-                jstate[date] = {"md5": md5}
-            continue
-        body = "" if empty else render_journal(note, date, resolver, att_dir,
-                                               state, dry)
-        action = write_managed_block(path, body, dry)
-        if action == "conflict":
-            report["conflicts"].append({"card": f"journal:{date}",
-                                        "file": date,
-                                        "reason": "managed markers malformed"})
-            continue
-        if action != "unchanged":
-            report["journals"].append({"date": date, "action": action})
-        if not dry:
-            jstate[date] = {"md5": md5}
+    if not dry:
+        state["journal_window"] = window
 
 
 def adopt_new_files(col, folder, props_by_key, state, in_set, dry):

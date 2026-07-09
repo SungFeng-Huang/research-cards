@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.17.1 — journal bridge hardening (review follow-ups for 0.17.0)
+
+- **Frontmatter-aware claim**: claiming a pre-existing daily note inserts the
+  managed block AFTER any YAML properties block (byte 0 stays `---`, Obsidian
+  keeps recognising Properties) and preserves the user's leading blank lines.
+  An EMPTY source day never claims a pre-existing unmanaged note.
+- **Complete incremental key**: each day's skip key now includes a digest of
+  the render inputs beyond the source doc (synced-card set, link titles,
+  highlights.json) — card renames and newly-resolved highlights re-render
+  journal days; `--rebuild-cache` also forces journal re-render. The fast
+  path re-validates the target's markers, so deleting markers after a sync
+  is caught (and reported as a conflict — the bridge never re-claims a note
+  it managed before).
+- **Attachment failures don't checkpoint**: a failed `file export` marks the
+  day failed and it retries next run instead of freezing an empty embed
+  forever. `--dry-run` no longer touches the vault on the attachment path
+  (no mkdir / export / rename).
+- **Marker validation**: exactly one standalone marker pair required —
+  duplicates conflict; a rendered body containing a marker literal is
+  refused. Writes go through tempfile + atomic replace with an optimistic
+  pre-write recheck (an Obsidian/iCloud save racing the sync becomes a
+  conflict, not a clobber).
+- Minors: `days: 0` now means off (was: silently 30); single-day failures are
+  isolated (one bad day no longer aborts the window); out-of-window journal
+  conflicts are no longer auto-marked resolved by the conflict ledger.
+- verify.py gains a `journal_issues` section: vault-root daily notes are
+  checked for malformed markers and, inside the managed block only, missing
+  embeds / broken wikilinks / leftover placeholders.
+- Tests: journal suite 7 → 17 (render-spy fast path, marker corruption with
+  existing state, dry-run with attachments, byte-exact preservation,
+  frontmatter, duplicate markers, single-day isolation, attachment retry,
+  marker-literal body, conflict-ledger window scoping).
+- Fix-round residuals (second review pass): markers must be STANDALONE
+  lines (inline occurrences are corruption -> conflict); new-file writes use
+  O_EXCL so an exists()-race surfaces as conflict instead of clobbering; a
+  disabled journal leg clears `journal_window` so stale conflicts stay open;
+  the update-path race guard is documented as best-effort (no locking on
+  iCloud vaults).
+
 ## 0.17.0 — journal bridge (Heptabase → Obsidian daily notes)
 
 - obsidian-sync grows a one-way journal leg: the last `obsidian.journal.days`

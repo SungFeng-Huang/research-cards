@@ -10,6 +10,9 @@ Scans managed folders and reports:
   duplicate_ids        - two files claiming the same heptabase_id
   state_orphans        - state.json entries whose file is missing
   untracked_files      - .md files in managed folders not in state.json
+  journal_issues       - vault-root daily notes (journal bridge): malformed
+                         managed markers, missing embeds / broken wikilinks
+                         inside the managed block, leftover placeholders
 """
 import json, os, re, subprocess, sys
 
@@ -93,6 +96,35 @@ for folder in FOLDERS:
             out["leftover_placeholders"].append({"in": rel, "marker": p[:60]})
 
 out["duplicate_ids"] = [{"id": k, "files": v} for k, v in ids.items() if len(v) > 1]
+
+# --- journal bridge: vault-root daily notes (managed block only — user
+# content outside the markers is theirs, not sync output to be verified)
+out["journal_issues"] = []
+J_START, J_END = "<!-- hepta-journal:start -->", "<!-- hepta-journal:end -->"
+root_att = set()
+if os.path.isdir(os.path.join(VAULT, "attachments")):
+    root_att = set(os.listdir(os.path.join(VAULT, "attachments")))
+for fn in sorted(os.listdir(VAULT)):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.md", fn):
+        continue
+    text = open(os.path.join(VAULT, fn)).read()
+    n_s, n_e = text.count(J_START), text.count(J_END)
+    if (n_s, n_e) == (0, 0):
+        continue  # daily note the bridge never claimed
+    if (n_s, n_e) != (1, 1) or text.index(J_START) > text.index(J_END):
+        out["journal_issues"].append({"in": fn, "issue": "malformed markers"})
+        continue
+    blk = text.split(J_START, 1)[1].split(J_END, 1)[0]
+    for e in embed_re.findall(blk):
+        e = e.strip()
+        if e not in root_att and e not in attachments and e not in notes:
+            out["journal_issues"].append({"in": fn, "issue": f"missing embed {e}"})
+    for w in wl_re.findall(blk):
+        w = w.strip()
+        if w and w not in notes:
+            out["journal_issues"].append({"in": fn, "issue": f"broken wikilink {w}"})
+    for p in re.findall(r"%%HEPTA[^%]*%%|HEPTA-[A-Z_]+:", blk):
+        out["journal_issues"].append({"in": fn, "issue": f"placeholder {p[:40]}"})
 
 if os.path.exists(STATE_PATH):
     state = json.load(open(STATE_PATH))

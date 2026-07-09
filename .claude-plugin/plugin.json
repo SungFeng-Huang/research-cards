@@ -1,7 +1,7 @@
 {
   "name": "research-cards",
   "description": "宏毅老師教你做研究——教學風格的研究卡片自動化：digest 剪報成教學卡、主題比較總覽與知識地圖、研究專案日誌、官方 BibTeX 匯出。支援 Heptabase／Obsidian（可雙向同步）與 Claude Code／Codex。",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "author": {
     "name": "Sung-Feng Huang"
   },

@@ -44,6 +44,22 @@ PROGRESS_TEMPLATE = {
     "title": "",
     "_doc_title": "頁面標題；留空則取 MISSION.md 的 H1",
     "log_glob": "slurm_logs/*.out",
+    "runs": [],
+    "_doc_runs": ("多個訓練 run 疊在同一張曲線圖（勾選顯示子集）：[{\"name\": "
+                  "\"E1 …\", \"log_glob\": \"exp/run_a/*.log\", \"desc\": \"設定差異\","
+                  " \"purpose\": \"實驗目的\"}, …]。留空＝單一 log_glob 當一個 run。"
+                  "desc/purpose 會渲染成曲線區上方的 run 總覽表。"),
+    "gstep_re": None,
+    "_doc_gstep_re": ("選配：全域 step（optimizer step，跨重啟單調）的 regex，"
+                      "需 named group (?P<gstep>\\d+)，如 PTL 的 checkpoint 訊息 "
+                      "\"global step (?P<gstep>\\d+)\"——job 鏈表會多一欄「全域 "
+                      "step(ckpt)」。log_glob 可為 list（把含這些訊息的 stderr log "
+                      "一併掃進來；不含訓練 step 行的檔案不影響曲線）。"),
+    "job_group_re": None,
+    "_doc_job_group_re": ("訓練 job 鏈的聚合鍵 regex（對 log 相對路徑 search，"
+                          "取 named group job 或整個 match）。預設：路徑裡最後一個 "
+                          "\"<數字>_<數字>\" 目錄視為 Slurm array 任務取 master id、"
+                          "否則取檔名數字尾碼——同任務的搶佔/重啟合成一列。"),
     "step_re": "^step=(?P<step>\\d+)\\b",
     "kv_re": "(\\w+)=(-?\\d+\\.?\\d*(?:[eE][+-]?\\d+)?)",
     "max_x": None,
@@ -85,8 +101,50 @@ def load_progress_config(root):
     if not isinstance(cfg, dict):
         _fail("progress.json 必須是 JSON object")
     cfg = {k: v for k, v in cfg.items() if not k.startswith("_doc")}
-    if not cfg.get("log_glob"):
-        _fail("progress.json 缺 log_glob")
+    user_keys = set(cfg)   # 未知欄位檢查用——之後會注入 _gstep_re 等內部鍵
+    runs = cfg.get("runs")
+    if runs:
+        if not isinstance(runs, list):
+            _fail("runs 必須是 list")
+        for i, r in enumerate(runs):
+            if not isinstance(r, dict) or not r.get("log_glob"):
+                _fail(f"runs[{i}] 缺 log_glob")
+            r.setdefault("name", f"run{i+1}")
+    elif not cfg.get("log_glob"):
+        _fail("progress.json 缺 log_glob（或改用 runs）")
+    if cfg.get("gstep_re"):
+        try:
+            g = re.compile(cfg["gstep_re"])
+        except re.error as e:
+            _fail(f"gstep_re 不是合法 regex：{e}")
+        if "gstep" not in g.groupindex:
+            _fail("gstep_re 必須含 named group (?P<gstep>\\d+)")
+        cfg["_gstep_re"] = g
+    else:
+        cfg["_gstep_re"] = None
+    if cfg.get("gstep_scale") is not None:
+        try:
+            assert int(cfg["gstep_scale"]) > 0
+        except (TypeError, ValueError, AssertionError):
+            _fail(f"gstep_scale={cfg.get('gstep_scale')!r} 必須是正整數"
+                  "（= accumulate_grad_batches，micro-batch/optimizer-step 比）")
+    if cfg.get("resume_re"):
+        try:
+            rr = re.compile(cfg["resume_re"])
+        except re.error as e:
+            _fail(f"resume_re 不是合法 regex：{e}")
+        if "gstep" not in rr.groupindex:
+            _fail("resume_re 必須含 named group (?P<gstep>\\d+)")
+        cfg["_resume_re"] = rr
+    else:
+        cfg["_resume_re"] = None
+    if cfg.get("job_group_re"):
+        try:
+            cfg["_job_group_re"] = re.compile(cfg["job_group_re"])
+        except re.error as e:
+            _fail(f"job_group_re 不是合法 regex：{e}")
+    else:
+        cfg["_job_group_re"] = None
     try:
         step_re = re.compile(cfg.get("step_re") or "")
     except re.error as e:
@@ -115,10 +173,25 @@ def load_progress_config(root):
         nd = c.get("nd")
         if nd is not None and (not isinstance(nd, int) or not 0 <= nd <= 10):
             _fail(f"charts[{i}] 的 nd={nd!r} 不合法（0-10 的整數）")
+    global TZ_OFFSET_HOURS, TZ_LABEL
+    if cfg.get("tz_offset_hours") is not None:
+        try:
+            h = int(cfg["tz_offset_hours"])
+        except (TypeError, ValueError):
+            _fail(f"tz_offset_hours={cfg['tz_offset_hours']!r} 不是整數")
+        if not -23 <= h <= 23:
+            _fail(f"tz_offset_hours={h} 超出合法範圍（-23 ~ +23）")
+        TZ_OFFSET_HOURS = h
+        TZ_LABEL = f"UTC{h:+d}"
+    else:
+        # 每次載入設定重設預設值，避免跨 campaign 使用上一份設定的時區
+        TZ_OFFSET_HOURS = 8
+        TZ_LABEL = "UTC+8"
     known = {"title", "log_glob", "step_re", "kv_re", "max_x", "x_label",
              "table_every", "max_points", "scheduler", "job_name",
-             "footnote", "charts"}
-    unknown = sorted(set(cfg) - known)
+             "footnote", "charts", "runs", "job_group_re", "tz_offset_hours",
+             "gstep_re", "gstep_scale", "resume_re"}
+    unknown = sorted(user_keys - known)
     if unknown:
         print(f"[progress] 警告：progress.json 有未知欄位 {unknown}——"
               "會被忽略（拼字錯誤？）", file=sys.stderr)
@@ -148,78 +221,283 @@ def sanitize(obj):
     return obj
 
 
-def _log_order(path):
-    """Chronological-ish ordering: trailing numeric id (slurm job id) if
-    present, else lexicographic. Later files overwrite earlier steps —
-    pre-emption reruns resolve to the newest attempt."""
-    m = re.search(r"(\d+)(?:\.[^.]*)?$", os.path.basename(path))
-    if m:
-        return (0, int(m.group(1)), os.path.basename(path))
-    return (1, 0, os.path.basename(path))
+def _digit_id(name):
+    """name 裡最長的數字串（同長取最後一個）＝raw job id。尾碼 regex 會抓到
+    rank/task 編號——slurm-10778323-0.log 的尾碼是 rank「0」不是 job id，
+    照它排序/分組會讓所有 rank-0 檔混在一起且新舊顛倒。無數字回 None。
+    已知邊界：檔名嵌日期（run-20260709-job-101.out）會誤取日期為 id——
+    這種自訂命名請用 job_group_re 指定；與 _attempt_key 同一套規則比
+    「各處各一套」重要（同 attempt 的檔案必須相鄰）。"""
+    nums = re.findall(r"\d+", name)
+    if not nums:
+        return None
+    best = max(len(n) for n in nums)
+    return [n for n in nums if len(n) == best][-1]
 
 
-def parse_logs(project_root, cfg):
-    """Return (train rows by step, per-logfile job summaries)."""
+def _log_order(relpath):
+    """Chronological-ish ordering: raw job id（slurm job id 單調遞增）優先
+    ——檔名沒有數字（如 <job>_<task>/train.out）就找上層目錄的 id，
+    再退 lexicographic。Later files overwrite earlier steps — pre-emption
+    reruns resolve to the newest attempt."""
+    d = _digit_id(os.path.basename(relpath))
+    if d is None:
+        for comp in reversed(relpath.split(os.sep)[:-1]):
+            d = _digit_id(comp)
+            if d is not None:
+                break
+    if d is not None:
+        return (0, int(d), relpath)
+    return (1, 0, relpath)
+
+
+def _job_group(relpath, group_re):
+    """訓練 job 鏈的聚合鍵：同一「任務」的多次嘗試（搶佔/重啟/requeue）
+    合成一列。預設規則：路徑中最後一個 <數字>_<數字> 目錄視為 Slurm array
+    任務、取 master id；否則退回檔名的 raw job id（= 原本一檔一列的行為）。
+
+    設計限制：若 log 目錄結構以 <array_master>_<task_idx>（不同任務）命名，
+    不同 task（e.g. 11111_0 / 11111_1）會被合入同一列。這符合「搶佔→重跑」
+    的命名慣例，但與標準 Slurm array 索引語義衝突。有此情境請改用
+    progress.json 的 job_group_re（named group "job"）覆寫聚合鍵。"""
+    if group_re is not None:
+        m = group_re.search(relpath)
+        if m:
+            return m.group("job") if "job" in m.groupindex else m.group(0)
+    comps = relpath.split(os.sep)
+    for comp in reversed(comps[:-1]):
+        m = re.fullmatch(r"(\d+)_\d+", comp)
+        if m:
+            return m.group(1)
+    d = _digit_id(os.path.basename(relpath))
+    return d if d is not None else os.path.basename(relpath)
+
+
+def parse_logs(project_root, cfg, log_glob, gstep_scale=None, gstep_native=False,
+               gstep_base=0):
+    """Return (train rows by step, per-任務 aggregated job summaries)。
+    log_glob 可為 str 或 list（多個 glob 合併掃描——例如把含 checkpoint
+    「global step」訊息的 stderr log 一起掃進 gstep 欄）。
+
+    全域軸模式（gstep_re 且該 run 給了 gstep_scale 或 gstep_native）：
+    x 軸統一成 optimizer step——log 的訓練計數器每次重啟歸零，因此逐檔
+    推 offset（檔內 ckpt 訊息的 gstep 對 位置 的中位差；沒有訊息的檔用
+    前一檔的最大全域值＝resume 點），global = offset + micro/scale。
+    gstep_native=True 表示該檔的 step 已是全域（如評測點 log），不轉換。"""
     train, jobs = {}, []
     step_re, kv_re = cfg["_step_re"], cfg["_kv_re"]
-    if os.path.isabs(cfg["log_glob"]):
-        _fail("log_glob 必須是相對 project root 的路徑（progress.json 會進"
-              "版控共享，絕對路徑/逸出會把 repo 外的資料發佈到 Pages）")
+    gstep_re = cfg.get("_gstep_re")
+    resume_re = cfg.get("_resume_re")
+    global_mode = gstep_native or (gstep_re is not None and gstep_scale)
+    scale = int(gstep_scale) if gstep_scale else 1
+    chain_base = int(gstep_base or 0)   # fine-tune/warm-start run 的全域起點
+    globs = log_glob if isinstance(log_glob, list) else [log_glob]
     proot = os.path.realpath(project_root)
     paths = []
-    for path in glob.glob(os.path.join(project_root, cfg["log_glob"]),
-                          recursive=True):
-        if not os.path.isfile(path):
-            continue
-        if not os.path.realpath(path).startswith(proot + os.sep):
-            _fail(f"log_glob 對到 project root 之外的檔案：{path}——拒絕"
-                  "（防止把 repo 外資料發佈到 Pages）")
-        paths.append(path)
-    # 全序：數字尾碼（slurm job id）→ 相對路徑——跨機器/檔案系統穩定，
+    for one in globs:
+        if os.path.isabs(one):
+            _fail("log_glob 必須是相對 project root 的路徑（progress.json 會進"
+                  "版控共享，絕對路徑/逸出會把 repo 外的資料發佈到 Pages）")
+        for path in glob.glob(os.path.join(project_root, one), recursive=True):
+            if not os.path.isfile(path):
+                continue
+            if not os.path.realpath(path).startswith(proot + os.sep):
+                _fail(f"log_glob 對到 project root 之外的檔案：{path}——拒絕"
+                      "（防止把 repo 外資料發佈到 Pages）")
+            paths.append(path)
+    # 全序：raw job id（slurm job id）→ 相對路徑——跨機器/檔案系統穩定，
     # 「較新 job 覆寫較舊」的語義不能靠 glob 的回傳順序
-    paths.sort(key=lambda p: (_log_order(p), os.path.relpath(p, proot)))
+    paths.sort(key=lambda p: _log_order(os.path.relpath(p, proot)))
+    # 以「attempt」（同 raw job id 的 slurm+error 等多檔）為掃描單位——
+    # ckpt「global step」訊息常在 stderr、訓練行在 stdout，必須同 attempt 關聯
+    def _attempt_key(path):
+        # attempt＝同一次 job 執行的所有檔案（stdout/stderr/rank 檔）。
+        # <master>_<task>/ 這種 slurm array 任務目錄優先：目錄即 attempt——
+        # 底下 train-0.out 的「0」是 rank，按 basename 數字會把不同目錄
+        # 合成一個 attempt。無 array 目錄才用檔名的 raw job id（最長數字串，
+        # slurm-10778323-0.log 取 10778323 不是尾端 rank）；連數字都沒有
+        # 就以所在目錄聚合，再不然一檔一 attempt。
+        rel = os.path.relpath(path, proot)
+        for comp in reversed(rel.split(os.sep)[:-1]):
+            if re.fullmatch(r"\d+_\d+", comp):
+                return os.path.dirname(rel)
+        d = _digit_id(os.path.basename(rel))
+        if d is not None:
+            return d
+        return os.path.dirname(rel) or rel
+
+    attempts, aorder = {}, []
     for path in paths:
+        k = _attempt_key(path)
+        if k not in attempts:
+            attempts[k] = []
+            aorder.append(k)
+        attempts[k].append(path)
+
+    for akey in aorder:
         first = last = None
-        try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                for line in f:                      # 串流——多 GB log 不整檔進記憶體
-                    m = step_re.search(line)
-                    if not m:
-                        continue
-                    try:
-                        step = int(m.group("step"))
-                    except ValueError:
-                        continue
-                    row = {}
-                    for k, v in kv_re.findall(line):
-                        if k == "step":
+        gmax = None
+        rstart = None           # resume 行的精確 gstep（「Restored … step=N-last.ckpt」）
+        file_rows = {}
+        amtime, ats = "—", None
+        for path in attempts[akey]:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    for line in f:                  # 串流——多 GB log 不整檔進記憶體
+                        if resume_re is not None and rstart is None:
+                            rm = resume_re.search(line)
+                            if rm:
+                                try:
+                                    rstart = int(rm.group("gstep"))
+                                except ValueError:
+                                    pass
+                        if gstep_re is not None:
+                            gm = gstep_re.search(line)
+                            if gm:
+                                try:
+                                    gv = int(gm.group("gstep"))
+                                    gmax = gv if gmax is None else max(gmax, gv)
+                                except ValueError:
+                                    pass
+                        m = step_re.search(line)
+                        if not m:
                             continue
-                        val = _num(v)
-                        if val is not None:
-                            row[k] = val
-                    # 逐 key 合併：同 step 的多行（train 行＋eval 行）各留
-                    # 各的指標；跨檔重跑仍是「較新值蓋較舊」；不帶指標的
-                    # 雜訊行（如 checkpoint 訊息）不會清空既有資料
-                    train.setdefault(step, {}).update(row)
-                    first = step if first is None else first
-                    last = step
-        except OSError:
+                        try:
+                            step = int(m.group("step"))
+                        except ValueError:
+                            continue
+                        row = {}
+                        for k2, v in kv_re.findall(line):
+                            if k2 == "step":
+                                continue
+                            val = _num(v)
+                            if val is not None:
+                                row[k2] = val
+                        # 逐 key 合併：同 step 多行各留各的指標；雜訊行不清資料
+                        (file_rows if global_mode else train).setdefault(step, {}).update(row)
+                        first = step if first is None else first
+                        last = step
+            except OSError:
+                continue
+            ts = _mtime_ts(path)
+            if ts is not None and (ats is None or ts > ats):
+                ats = ts
+                amtime = _fmt_mtime(ts)
+        if global_mode and (file_rows or gstep_native):
+            if gstep_native:
+                offset = 0.0
+            elif rstart is not None:
+                # resume 行給出精確起點：計數器從 0 起算 → offset = resume gstep
+                offset = float(rstart)
+            elif resume_re is not None:
+                # 有設 resume_re 卻沒有 resume 行 = 真 fresh start（PTL 只在
+                # resume 時印 Restored 行）→ 從 gstep_base（from-scratch=0、
+                # warm-start run=其起點）起算，不用鏈估計
+                offset = float(gstep_base or 0)
+            elif gmax is not None and last is not None:
+                # 沒 resume_re 可用時退回：最後一則 ckpt 訊息 ≈ 末段 val 點
+                offset = gmax - last / scale
+            else:
+                offset = float(chain_base)          # 無任何錨：從上次進度接續（估計）
+            def to_g(micro):
+                return micro if gstep_native else int(round(offset + micro / scale))
+            for micro in sorted(file_rows):
+                train.setdefault(to_g(micro), {}).update(file_rows[micro])
+            if first is not None:
+                first, last = to_g(first), to_g(last)
+            if last is not None:
+                chain_base = max(chain_base, last)
+        rel = os.path.relpath(attempts[akey][0], proot)
+        jobs.append({"job_id": _job_group(rel, cfg.get("_job_group_re")),
+                     "first_step": first, "last_step": last, "gstep": gmax,
+                     "resume": rstart, "log_mtime": amtime,
+                     "log_mtime_ts": ats})
+
+    # 回推 teardown 存檔：attempt i 無存檔「訊息」但有訓練列，而下一個有
+    # resume 行的 attempt 從 R 恢復、且 R 落在 i 的區間內 → 那顆 ckpt 只能是
+    # i 存的（resume_if_exists 下 fresh start 代表當時沒有更早的 ckpt）
+    for i, j in enumerate(jobs):
+        if j["gstep"] is not None or j["first_step"] is None:
             continue
-        mid = re.search(r"(\d+)(?:\.[^.]*)?$", os.path.basename(path))
-        jobs.append({"job_id": mid.group(1) if mid else os.path.basename(path),
-                     "first_step": first, "last_step": last,
-                     "log_mtime": _mtime_utc(path)})
-    return train, jobs
+        for k in range(i + 1, len(jobs)):
+            nxt = jobs[k]
+            if nxt.get("resume") is not None:
+                lo = j["first_step"] if j["first_step"] is not None else 0
+                # 上下界都要：resume 點超過 i 的最後進度＝那顆 ckpt 不可能是
+                # i 存的（只跑到 step 10 的 job 不該被標成 step 100 有存檔）。
+                # 非 global mode 時此比較假設 step 軸與 ckpt 步數同域——log
+                # 計數器每次重啟歸零的訓練請設 gstep_scale 進 global mode，
+                # 否則曲線本身就已錯位，回推寧可保守漏推不捏造
+                if lo <= nxt["resume"] and (j["last_step"] is not None
+                                            and nxt["resume"] <= j["last_step"]):
+                    j["gstep"] = nxt["resume"]
+                    j["gstep_inferred"] = True
+                break
+            if nxt["first_step"] is not None:
+                break   # 中間有跑過訓練的 attempt，歸屬不明——不回推
+
+    # 同任務多次嘗試（搶佔/重啟）聚合成一列：step 以最新嘗試為準（paths 已
+    # 依「較新覆寫較舊」全序排序）、起始取歷次最早、mtime 取最大
+    grouped, order = {}, []
+    for j in jobs:
+        g = grouped.get(j["job_id"])
+        if g is None:
+            # cur_first/cur_last＝「最新一次 attempt」自己的 step 區間——ETA 的
+            # 速度計算只能用它（group 聚合的 first/last 橫跨多次重啟，除以目前
+            # 單一 job 的 elapsed 會高估速度、低估 ETA）
+            grouped[j["job_id"]] = {**j, "attempts": 1,
+                                    "cur_first": j["first_step"],
+                                    "cur_last": j["last_step"]}
+            order.append(j["job_id"])
+        else:
+            g["attempts"] += 1
+            if j["first_step"] is not None and (g["first_step"] is None
+                                                or j["first_step"] < g["first_step"]):
+                g["first_step"] = j["first_step"]
+            if j.get("gstep") is not None and (g.get("gstep") is None
+                                               or j["gstep"] > g["gstep"]):
+                g["gstep"] = j["gstep"]
+                g["gstep_inferred"] = j.get("gstep_inferred", False)
+            if j["last_step"] is not None and (g["last_step"] is None
+                                               or j["last_step"] > g["last_step"]):
+                g["last_step"] = j["last_step"]     # 歷次嘗試的最大進度（暖機被砍的
+                                                    # 新 attempt 只印 step=0，不該蓋掉）
+            newer = (j["log_mtime_ts"] is not None
+                     and (g["log_mtime_ts"] is None
+                          or j["log_mtime_ts"] > g["log_mtime_ts"]))
+            if newer:
+                g["log_mtime"] = j["log_mtime"]
+                g["log_mtime_ts"] = j["log_mtime_ts"]
+            # cur_*＝「最新 attempt」的區間，判準與 log_mtime 一致（mtime 優先、
+            # 全缺 mtime 才退列序）——列序與 mtime 不一致時 ETA 才不會用錯 span
+            if newer or g["log_mtime_ts"] is None:
+                g["cur_first"], g["cur_last"] = j["first_step"], j["last_step"]
+    return train, [grouped[k] for k in order]
+
+
+TZ_OFFSET_HOURS = 8      # 頁面時間戳時區（預設台灣 UTC+8；progress.json tz_offset_hours 可覆寫）
+TZ_LABEL = "UTC+8"
+
+
+def _mtime_ts(path):
+    """epoch 秒（float）或 None——「哪個較新」一律用它比；顯示字串截到分鐘，
+    同分鐘的兩個 run 用字串比會平手、誤選較舊者。"""
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def _fmt_mtime(ts):
+    from datetime import datetime, timezone, timedelta
+    tz = timezone(timedelta(hours=TZ_OFFSET_HOURS))
+    return datetime.fromtimestamp(ts, tz=tz).strftime(
+        f"%Y-%m-%d %H:%M {TZ_LABEL}")
 
 
 def _mtime_utc(path):
-    from datetime import datetime, timezone
-    try:
-        ts = os.path.getmtime(path)
-    except OSError:
-        return "—"
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
-        "%Y-%m-%d %H:%M UTC")
+    ts = _mtime_ts(path)
+    return "—" if ts is None else _fmt_mtime(ts)
 
 
 def downsample(steps, target):
@@ -273,12 +551,8 @@ def _fmt(v, nd=3):
 
 def build_payload(root, cfg):
     project_root = os.path.normpath(os.path.join(root, "..", ".."))
-    train, jobs = parse_logs(project_root, cfg)
-    steps = sorted(train)
-    kept = downsample(steps, int(cfg.get("max_points") or 700))
-
-    def col(key):
-        return [_num(train[s].get(key)) for s in kept]
+    max_pts = int(cfg.get("max_points") or 700)
+    every = max(1, int(cfg.get("table_every") or 500))
 
     keys, seen = [], set()
     for c in cfg["charts"]:
@@ -300,37 +574,100 @@ def build_payload(root, cfg):
                         "color": SERIES_COLORS[i]}
                        for i, s in enumerate(c["series"])]})
 
-    if steps:
-        seen_keys = set()
+    # ---- 每個 run 各自解析（單一 log_glob = 一個匿名 run，向後相容）----
+    runs_cfg = cfg.get("runs") or [{"name": "", "log_glob": cfg["log_glob"]}]
+    runs, any_seen_keys = [], set()
+    for rc in runs_cfg:
+        train, jobs = parse_logs(
+            project_root, cfg, rc["log_glob"],
+            gstep_scale=rc.get("gstep_scale", cfg.get("gstep_scale")),
+            gstep_native=bool(rc.get("gstep_native")),
+            gstep_base=rc.get("gstep_base", 0))
+        steps = sorted(train)
+        kept = downsample(steps, max_pts)
+        cols = {k: [_num(train[s].get(k)) for s in kept] for k in keys}
+        table = ([[s] + [_num(train[s].get(k)) for k in keys]
+                  for s in steps if s % every == 0 or s == steps[-1]]
+                 if steps else [])
         for r in train.values():
-            seen_keys.update(r)
-        never = [k for k in keys if k not in seen_keys]
-        if never:
-            print(f"[progress] 警告：charts 引用的指標 {never} 從未出現在 "
-                  "log 裡（kv_re 抓不到或 key 拼錯？）——該圖會是空的",
-                  file=sys.stderr)
+            any_seen_keys.update(r)
+        runs.append({"name": str(rc.get("name") or ""),
+                     "short": str(rc.get("short") or ""),
+                     "attach": str(rc.get("attach") or ""),
+                     "desc": str(rc.get("desc") or ""),
+                     "purpose": str(rc.get("purpose") or ""),
+                     "aux": bool(rc.get("aux")),
+                     "job_notes": {str(k): str(v) for k, v in
+                                   (rc.get("job_notes") or {}).items()},
+                     "x": kept, "cols": cols, "table": table, "jobs": jobs,
+                     "last_step": steps[-1] if steps else None,
+                     "last_row": train[steps[-1]] if steps else {},
+                     "last_mtime": max([j["log_mtime"] for j in jobs
+                                        if j["log_mtime"] != "—"] or ["—"]),
+                     "last_mtime_ts": max([j["log_mtime_ts"] for j in jobs
+                                           if j["log_mtime_ts"] is not None]
+                                          or [None])})
+    never = [k for k in keys if k not in any_seen_keys]
+    if never and any(r["x"] for r in runs):
+        print(f"[progress] 警告：charts 引用的指標 {never} 從未出現在 "
+              "log 裡（kv_re 抓不到或 key 拼錯？）——該圖會是空的",
+              file=sys.stderr)
+    # active run = log 最新者（頁面預設顯示、tiles/ETA 依它算）
+    for i, r in enumerate(runs):
+        host = None
+        if r["attach"]:
+            for j, h in enumerate(runs):
+                if j != i and r["attach"] in h["name"]:
+                    host = j
+                    break
+            if host is None:
+                print(f"[progress] 警告：runs[{i}] 的 attach={r['attach']!r} "
+                      "對不到任何 run 名稱——當作獨立 run", file=sys.stderr)
+        r["attach_to"] = host
+    cand = [i for i, r in enumerate(runs) if not r["aux"]] or list(range(len(runs)))
+    act = cand[0]
+    for i in cand:
+        r = runs[i]
+        if r["last_mtime_ts"] is not None \
+                and (runs[act]["last_mtime_ts"] is None
+                     or r["last_mtime_ts"] > runs[act]["last_mtime_ts"]):
+            act = i
+    A = runs[act]
+    steps_last = A["last_step"]
+    jobs = A["jobs"]
+
     squeue = scheduler_state(cfg)
     max_x = cfg.get("max_x")
     rate = eta_h = None
-    if squeue and "RUNNING" in squeue and jobs and steps and max_x:
+    if squeue and "RUNNING" in squeue and jobs and steps_last is not None and max_x:
         mins = _elapsed_minutes(squeue)
-        cur = jobs[-1]
-        if mins and mins > 5 and cur["first_step"] is not None \
-                and cur["last_step"] is not None:
-            span = cur["last_step"] - cur["first_step"]
+        # 「目前在跑的」＝log 最新的 group；速度用它最新一次 attempt 的
+        # cur_first/cur_last（group 聚合的 first/last 橫跨多次重啟，除以單一
+        # squeue job 的 elapsed 會高估速度、把 ETA 算得過度樂觀）
+        cur = max(enumerate(jobs),
+                  key=lambda t: (t[1]["log_mtime_ts"] is not None,
+                                 t[1]["log_mtime_ts"] or 0, t[0]))[1]
+        # ts 平手（同秒/粗粒度檔案系統）取列序較後者——jobs 依 raw job id
+        # 時序排列，後者才是現役 job
+        if mins and mins > 5 and cur["cur_first"] is not None \
+                and cur["cur_last"] is not None:
+            span = cur["cur_last"] - cur["cur_first"]
             if span > 0:
                 rate = round(span / mins, 1)
-                eta_h = round((max_x - steps[-1]) / (span / mins) / 60, 1)
+                eta_h = round((max_x - steps_last) / (span / mins) / 60, 1)
 
-    last = train[steps[-1]] if steps else {}
+    last = A["last_row"]
     tiles = []
-    if steps and max_x:
+    if len(runs) > 1:
+        tiles.append({"lab": "最新活動 run", "val": A["name"] or f"run{act+1}",
+                      "det": f"log 更新 {A['last_mtime']}"})
+    if steps_last is not None and max_x:
         tiles.append({"lab": f"訓練進度（{cfg.get('x_label') or 'step'}）",
-                      "val": f"{steps[-1]:,} / {int(max_x):,}",
-                      "det": f"{100 * steps[-1] / max_x:.1f}%"})
-    elif steps:
+                      "val": f"{steps_last:,} / {int(max_x):,}",
+                      "det": f"{100 * steps_last / max_x:.1f}%"})
+    elif steps_last is not None:
         tiles.append({"lab": f"最新 {cfg.get('x_label') or 'step'}",
-                      "val": f"{steps[-1]:,}", "det": ""})
+                      "val": f"{steps_last:,}", "det": ""})
     for c in charts[:4]:
         s0 = c["series"][0]
         tiles.append({"lab": c["title"] or s0["label"],
@@ -352,10 +689,40 @@ def build_payload(root, cfg):
             ledger = [json.loads(l) for l in f if l.strip()]
     except (OSError, ValueError):
         ledger = []
-
-    every = max(1, int(cfg.get("table_every") or 500))
-    table = [[s] + [_num(train[s].get(k)) for k in keys]
-             for s in steps if s % every == 0 or s == steps[-1]]
+    glossary = {}
+    try:
+        with open(os.path.join(root, "glossary.json")) as f:
+            g = json.load(f)
+        if isinstance(g, dict):
+            glossary = {str(k): str(v) for k, v in g.items()}
+    except (OSError, ValueError):
+        pass
+    evals = None
+    try:
+        with open(os.path.join(root, "evals.json")) as f:
+            ev = json.load(f)
+        # 通用表格 spec：{"title": str, "note": str, "columns": [...], "rows": [[...]]}
+        if isinstance(ev, dict) and isinstance(ev.get("columns"), list) \
+                and isinstance(ev.get("rows"), list):
+            evals = {"title": str(ev.get("title") or "驗證評測"),
+                     "note": str(ev.get("note") or ""),
+                     "columns": [str(c) for c in ev["columns"]],
+                     "rows": [[c for c in r] for r in ev["rows"]
+                              if isinstance(r, list)]}
+            # 選配：groups=[[名稱,說明],…] 渲染「評測集設定說明」摺疊表；
+            # chart={x_col,series_col,value_cols} 為每個 value col 畫分組柱狀圖
+            if isinstance(ev.get("groups"), list):
+                evals["groups"] = [[str(a), str(b)] for a, b in
+                                   (g for g in ev["groups"]
+                                    if isinstance(g, list) and len(g) == 2)]
+            ch = ev.get("chart")
+            if isinstance(ch, dict) and isinstance(ch.get("value_cols"), list):
+                evals["chart"] = {"x_col": int(ch.get("x_col", 0)),
+                                  "series_col": int(ch.get("series_col", 1)),
+                                  "value_cols": [int(v) for v in ch["value_cols"]],
+                                  "x_order": [str(x) for x in ch.get("x_order") or []]}
+    except (OSError, ValueError):
+        pass
 
     title = str(cfg.get("title") or "").strip()
     if not title:
@@ -368,20 +735,34 @@ def build_payload(root, cfg):
     return {
         "title": title or "Research Campaign",
         "x_label": str(cfg.get("x_label") or "step"),
-        "max_points": int(cfg.get("max_points") or 700),
+        "max_points": max_pts,
         "table_every": every,
-        "x": kept,
-        "cols": {k: col(k) for k in keys},
+        # 頂層 x/cols/table/jobs = active run（單 run 時與舊版完全相同）
+        "x": A["x"],
+        "cols": A["cols"],
         "keys": keys,
         "charts": charts,
         "tiles": tiles,
         "squeue": squeue,
-        "last_mtime": max([j["log_mtime"] for j in jobs
-                           if j["log_mtime"] != "—"] or ["—"]),
+        "last_mtime": A["last_mtime"],
         "queue": queue,
         "ledger": ledger[-8:],
-        "table": table,
+        "table": A["table"],
         "jobs": jobs,
+        "runs": [{"name": r["name"], "short": r["short"], "desc": r["desc"],
+                  "purpose": r["purpose"], "attach_to": r["attach_to"],
+                  "aux": r["aux"], "job_notes": r["job_notes"],
+                  "x": r["x"], "cols": r["cols"],
+                  "table": r["table"], "jobs": r["jobs"],
+                  "last_step": r["last_step"], "last_mtime": r["last_mtime"],
+                  "last_mtime_ts": r["last_mtime_ts"]}
+                 for r in runs],
+        # 沒設 gstep_re/resume_re＝根本沒在追蹤存檔——job 表不能把 gstep=null
+        # 全判成 failed（預設勾選的 hideFailed 會把所有正常 job 藏光）
+        "gstep_tracked": bool(cfg.get("_gstep_re") or cfg.get("_resume_re")),
+        "active": act,
+        "glossary": glossary,
+        "evals": evals,
         "footnote": str(cfg.get("footnote") or ""),
     }
 
@@ -418,7 +799,7 @@ TEMPLATE = r"""<!doctype html>
   .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 14px 8px; position:relative; }
   .card h3 { font-size:14.5px; margin:0 0 2px; }
   .card .note { font-size:12px; color:var(--faint); margin:0 0 6px; }
-  .legend { display:flex; gap:14px; font-size:12.5px; color:var(--muted); margin:4px 0 2px; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12.5px; color:var(--muted); margin:4px 0 2px; }
   .legend .key { display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:5px; border-radius:1px; }
   svg text { font:11.5px system-ui,sans-serif; fill:var(--faint); }
   .tt { position:absolute; pointer-events:none; background:var(--panel); border:1px solid var(--line);
@@ -440,6 +821,16 @@ TEMPLATE = r"""<!doctype html>
   .chip.failed { color:var(--crit); border-color:var(--crit); }
   details { margin-top:14px; }
   summary { cursor:pointer; color:var(--accent); }
+  .runtabs { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; }
+  .runtabs button { font:inherit; font-size:13px; padding:5px 12px; border-radius:16px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer; }
+  .runtabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .runtabs .live { font-size:11px; opacity:.85; margin-left:4px; }
+  [data-tip] { text-decoration:underline dotted; cursor:help; }
+  #mtip { position:fixed; pointer-events:none; background:var(--panel);
+          border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+          font-size:12.5px; display:none; box-shadow:0 2px 10px rgba(0,0,0,.14);
+          max-width:360px; z-index:9; white-space:pre-line; color:var(--muted); }
   .footnote { font-size:12.5px; color:var(--muted); margin-top:28px; border-top:1px solid var(--line); padding-top:14px; }
   .wrap { overflow-x:auto; }
 </style>
@@ -450,22 +841,48 @@ TEMPLATE = r"""<!doctype html>
   <p class="sub"><span id="pgSub"></span> <a href="campaign-report.html">← campaign report</a></p>
   <div class="tiles" id="tiles"></div>
   <h2>訓練曲線</h2>
+  <div class="wrap"><table id="runsInfo" hidden style="margin-bottom:12px"></table></div>
+  <p class="sub" id="runTabsHint" hidden>勾選要疊在曲線上的 run（可多選）：</p>
+  <div id="runTabs" class="runtabs" hidden></div>
   <div class="charts" id="charts"></div>
   <details><summary id="tblSummary"></summary>
     <div class="wrap" style="margin-top:10px"><table id="dataTable"></table></div>
+  </details>
+  <h2 id="evalsH2" hidden></h2>
+  <p class="sub" id="evalsNote" hidden></p>
+  <div class="charts" id="evalsCharts"></div>
+  <details id="evalsGroups" hidden><summary>評測集設定說明（各組合代表什麼）</summary>
+    <div class="wrap" style="margin-top:10px"><table id="evalsGroupsTable"></table></div>
+  </details>
+  <details id="evalsTblWrap" hidden style="margin-top:10px"><summary>驗證評測數據表</summary>
+    <div class="wrap" style="margin-top:10px"><table id="evalsTable"></table></div>
   </details>
   <h2>Campaign 實驗階梯</h2>
   <div class="wrap"><table id="ladder"></table></div>
   <h2>Ledger（最近完成的評測決策）</h2>
   <div class="wrap"><table id="ledger"></table></div>
+  <details id="glossWrap" hidden><summary>指標說明（表頭/欄名滑過也會顯示）</summary>
+    <div class="wrap" style="margin-top:10px"><table id="glossTable"></table></div>
+  </details>
   <h2>訓練 job 鏈</h2>
+  <p class="sub" id="hideFailedWrap"><label><input type="checkbox" id="hideFailed" checked>
+    隱藏無存檔進度的嘗試（<span id="hiddenN">0</span> 筆——全域 step 空＝沒撐到第一次 checkpoint 的失敗/中斷；運行中的不隱藏）</label></p>
   <div class="wrap"><table id="jobsTable"></table></div>
   <p class="footnote" id="foot"></p>
 </main>
+<div id="mtip"></div>
 <script>
 const D = __PAYLOAD__;
 const fmtK = v => v >= 1000 ? (v/1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(v);
 const fmt = (v, nd=3) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (+v).toFixed(nd);
+/* 多 run：selected = 勾選要疊圖的 run 集合（預設只有最新活動 run）；
+   primary = 資料表顯示哪個 run（最後一個被勾起的） */
+const RUNS = (D.runs && D.runs.length) ? D.runs : [{name:'', desc:'', purpose:'', x:D.x, cols:D.cols, table:D.table, jobs:D.jobs, last_mtime:D.last_mtime}];
+const PAL = ['#2a78d6','#1baf7a','#eda100','#8073ac','#d6604d','#35978f','#de77ae','#008300'];
+let selected = new Set([D.active || 0]);
+let primary = D.active || 0;
+const runName = i => RUNS[i].name || ('run' + (i+1));
+const renderers = [];   // 每張圖的 render()，勾選變動時全部重畫
 
 document.title = D.title + ' — 訓練進度';
 document.getElementById('pgTitle').textContent = D.title + ' — 訓練進度';
@@ -489,31 +906,56 @@ function chart(host, cfg){
   const card = document.createElement('div'); card.className = 'card';
   const h3 = document.createElement('h3'); h3.textContent = cfg.title; card.appendChild(h3);
   if (cfg.note){ const p = document.createElement('p'); p.className='note'; p.textContent = cfg.note; card.appendChild(p); }
-  if (cfg.series.length >= 2){
-    const lg = document.createElement('div'); lg.className = 'legend';
-    cfg.series.forEach(s => {
-      const it = document.createElement('span');
-      const k = document.createElement('i'); k.className = 'key'; k.style.background = s.color;
-      it.appendChild(k); it.appendChild(document.createTextNode(s.label)); lg.appendChild(it);
-    });
-    card.appendChild(lg);
-  }
+  const lg = document.createElement('div'); lg.className = 'legend'; card.appendChild(lg);
   const box = document.createElement('div'); card.appendChild(box);
   const tt = document.createElement('div'); tt.className = 'tt'; card.appendChild(tt);
   host.appendChild(card);
 
+  function seriesList(){
+    // 疊圖：勾選的每個 run × chart 的每個指標 = 一條線。
+    // 沒有任何資料的組合直接略過（不畫線、不佔 legend——例如訓練 run 在
+    // 評測圖上、或評測 run 在 loss 圖上），legend 才不會四倍爆長。
+    const base = [...selected];
+    const sel = [...selected];
+    RUNS.forEach((r, i) => {
+      if (r.attach_to !== null && r.attach_to !== undefined
+          && base.includes(r.attach_to) && !sel.includes(i)) sel.push(i);
+    });
+    sel.sort((a,b)=>a-b);
+    const S = [];
+    sel.forEach(ri => cfg.series.forEach(sk => {
+      const ys = RUNS[ri].cols[sk.key] || [];
+      if (!ys.some(v => typeof v === 'number' && Number.isFinite(v))) return;
+      const multiRun = RUNS.length > 1, multiKey = cfg.series.length > 1;
+      const tag = RUNS[ri].short || runName(ri);
+      let label = sk.label;
+      if (multiRun) label = multiKey ? (tag + '·' + sk.label) : tag;
+      S.push({run: RUNS[ri], key: sk.key, label,
+              color: PAL[S.length % PAL.length]});
+    }));
+    return S;
+  }
+
   function render(){
     box.textContent = '';
+    const S = seriesList();
+    lg.textContent = '';
+    if (S.length >= 2){
+      S.forEach(s => { const it = document.createElement('span');
+        const k = document.createElement('i'); k.className = 'key'; k.style.background = s.color;
+        it.appendChild(k); it.appendChild(document.createTextNode(s.label)); lg.appendChild(it); });
+    }
     const W = Math.max(320, box.clientWidth || card.clientWidth - 28), H = 210;
     const m = {t:12, r:14, b:26, l:52};
-    const xs = D.x, n = xs.length;
-    if (!n){ box.textContent = '（尚無資料）'; return; }
-    const xmin = xs[0], xmax = xs[n-1] > xmin ? xs[n-1] : xmin + 1;
-    let vals = [];
-    cfg.series.forEach(s => vals = vals.concat(
-      D.cols[s.key].filter(v => typeof v === 'number' && Number.isFinite(v))));
-    cfg.refs.forEach(r => vals.push(r.y));
-    if (!vals.length){ box.textContent = '（尚無有效資料）'; return; }
+    let xmin = Infinity, xmax = -Infinity, vals = [];
+    S.forEach(s => {
+      const xs = s.run.x;
+      if (xs.length){ xmin = Math.min(xmin, xs[0]); xmax = Math.max(xmax, xs[xs.length-1]); }
+      vals = vals.concat((s.run.cols[s.key] || []).filter(v => typeof v === 'number' && Number.isFinite(v)));
+    });
+    (cfg.refs || []).forEach(r => vals.push(r.y));
+    if (!Number.isFinite(xmin) || !vals.length){ box.textContent = '（尚無資料）'; return; }
+    if (xmax === xmin) xmax = xmin + 1;
     let ymin = Math.min(...vals), ymax = Math.max(...vals);
     if (cfg.zero) ymin = Math.min(0, ymin);
     if (ymax === ymin) ymax = ymin + 1;
@@ -523,8 +965,8 @@ function chart(host, cfg){
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('width', W); svg.setAttribute('height', H);
-    const add = (tag, at, parent) => { const e = document.createElementNS(NS, tag);
-      for (const k in at) e.setAttribute(k, at[k]); (parent || svg).appendChild(e); return e; };
+    const add = (tag, at) => { const e = document.createElementNS(NS, tag);
+      for (const k in at) e.setAttribute(k, at[k]); svg.appendChild(e); return e; };
     const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
     for (let i = 0; i <= 4; i++){
       const v = ymin + (ymax - ymin) * i / 4, y = Y(v);
@@ -538,23 +980,23 @@ function chart(host, cfg){
       tx.textContent = fmtK(Math.round(v));
     }
     add('line', {x1:m.l, x2:W-m.r, y1:H-m.b, y2:H-m.b, stroke:css('--axis'), 'stroke-width':1});
-    cfg.refs.forEach(r => {
+    (cfg.refs || []).forEach(r => {
       const y = Y(r.y);
       add('line', {x1:m.l, x2:W-m.r, y1:y, y2:y, stroke:css('--faint'), 'stroke-width':1, opacity:.55});
       const tx = add('text', {x:W-m.r, y:y-4, 'text-anchor':'end'}); tx.textContent = r.label;
     });
-    cfg.series.forEach(s => {
-      const ys = D.cols[s.key];
+    S.forEach(s => {
+      const xs = s.run.x, ys = s.run.cols[s.key] || [];
       let d = '';
-      for (let i = 0; i < n; i++){
-        const v = ys[i]; if (v === null || Number.isNaN(v)) continue;
+      for (let i = 0; i < xs.length; i++){
+        const v = ys[i]; if (v === null || v === undefined || Number.isNaN(v)) continue;
         d += (d ? 'L' : 'M') + X(xs[i]).toFixed(1) + ' ' + Y(v).toFixed(1);
       }
-      add('path', {d, fill:'none', stroke:s.color, 'stroke-width':2,
-                   'stroke-linejoin':'round', 'stroke-linecap':'round'});
-      for (let i = n - 1; i >= 0; i--){
+      if (d) add('path', {d, fill:'none', stroke:s.color, 'stroke-width':2,
+                          'stroke-linejoin':'round', 'stroke-linecap':'round'});
+      for (let i = xs.length - 1; i >= 0; i--){
         const v = ys[i];
-        if (v !== null && !Number.isNaN(v)){
+        if (v !== null && v !== undefined && !Number.isNaN(v)){
           add('circle', {cx:X(xs[i]), cy:Y(v), r:4, fill:s.color, stroke:'#fff', 'stroke-width':2});
           break;
         }
@@ -562,41 +1004,46 @@ function chart(host, cfg){
     });
     const cross = add('line', {x1:0, x2:0, y1:m.t, y2:H-m.b, stroke:css('--axis'),
                                'stroke-width':1, visibility:'hidden'});
-    const hit = add('rect', {x:m.l, y:m.t, width:W-m.l-m.r, height:H-m.t-m.b,
-                             fill:'transparent'});
-    hit.style.touchAction = 'none';
-    hit.addEventListener('pointermove', ev => {
+    // hover 綁整個 svg（不靠透明 rect 的 hit-test）；每條線各自貼齊最近的點
+    svg.style.touchAction = 'none';
+    svg.addEventListener('pointermove', ev => {
       const r = svg.getBoundingClientRect();
-      const px = ev.clientX - r.left;
-      let lo = 0, hi = n - 1;
-      while (hi - lo > 1){ const mid = (lo + hi) >> 1; (X(xs[mid]) < px) ? lo = mid : hi = mid; }
-      const i = (px - X(xs[lo]) < X(xs[hi]) - px) ? lo : hi;
-      cross.setAttribute('x1', X(xs[i])); cross.setAttribute('x2', X(xs[i]));
+      const px = Math.min(Math.max(ev.clientX - r.left, m.l), W - m.r);
+      cross.setAttribute('x1', px); cross.setAttribute('x2', px);
       cross.setAttribute('visibility', 'visible');
+      const xv = xmin + (px - m.l) / (W - m.l - m.r) * (xmax - xmin);
       tt.textContent = '';
       const tl = document.createElement('div'); tl.className = 't';
-      tl.textContent = D.x_label + ' ' + xs[i].toLocaleString('en-US'); tt.appendChild(tl);
-      cfg.series.forEach(s => {
+      tl.textContent = D.x_label + ' ≈ ' + Math.round(xv).toLocaleString('en-US'); tt.appendChild(tl);
+      S.forEach(s => {
+        const xs = s.run.x; if (!xs.length) return;
+        let lo = 0, hi = xs.length - 1;
+        while (hi - lo > 1){ const mid = (lo + hi) >> 1; (xs[mid] < xv) ? lo = mid : hi = mid; }
+        const i = (Math.abs(xs[lo] - xv) < Math.abs(xs[hi] - xv)) ? lo : hi;
         const row = document.createElement('div'); row.className = 'r';
         const k = document.createElement('i');
         k.style.cssText = 'width:12px;height:2px;background:' + s.color + ';display:inline-block;border-radius:1px;';
-        const b = document.createElement('b'); b.textContent = fmt(D.cols[s.key][i], cfg.nd);
+        const b = document.createElement('b');
+        b.textContent = fmt((s.run.cols[s.key]||[])[i], cfg.nd) + '＠' + fmtK(xs[i]);
         const nm = document.createElement('span'); nm.textContent = s.label;
         row.appendChild(k); row.appendChild(b); row.appendChild(nm); tt.appendChild(row);
       });
       tt.style.display = 'block';
       const cr = card.getBoundingClientRect();
       let tx = ev.clientX - cr.left + 14;
-      if (tx + 150 > cr.width) tx = ev.clientX - cr.left - 158;
+      if (tx + 190 > cr.width) tx = Math.max(4, ev.clientX - cr.left - 200);
       tt.style.left = tx + 'px';
       tt.style.top = (ev.clientY - cr.top - 10) + 'px';
     });
-    hit.addEventListener('pointerleave', () => {
+    svg.addEventListener('pointerleave', () => {
       cross.setAttribute('visibility', 'hidden'); tt.style.display = 'none';
     });
     box.appendChild(svg);
   }
-  render();
+  // 首繪延到 rAF：同輪 script 同步塞多張卡片，立刻量 clientWidth 會拿到
+  // 「當下只有一張卡」的全行寬 → 首卡溢出破圖（vocodec 同款根因）
+  requestAnimationFrame(render);
+  renderers.push(render);
   let raf = null;
   window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); });
 }
@@ -608,7 +1055,8 @@ function fillTable(id, header, rows){
   const tb = document.getElementById(id); tb.textContent = '';
   const thead = document.createElement('thead'); const trh = document.createElement('tr');
   header.forEach(h => { const th = document.createElement('th');
-    if (typeof h === 'object'){ th.textContent = h.t; if (h.num) th.className = 'num'; }
+    if (typeof h === 'object'){ th.textContent = h.t; if (h.num) th.className = 'num';
+      if (h.tip){ th.dataset.tip = h.tip; } }
     else th.textContent = h;
     trh.appendChild(th); });
   thead.appendChild(trh); tb.appendChild(thead);
@@ -628,14 +1076,234 @@ function chipEl(status){
   const s = document.createElement('span'); s.className = 'chip ' + status;
   s.textContent = icon + ' ' + status; return {el:s};
 }
-fillTable('dataTable',
-  [D.x_label, ...D.keys.map(k => ({t:k, num:1}))],
-  D.table.map(r => [r[0].toLocaleString('en-US'),
-    ...r.slice(1).map(v => (v === null || v === undefined) ? '—' : (+v).toFixed(3))]));
+function fillDataTable(){
+  const P = RUNS[primary];
+  document.getElementById('tblSummary').textContent =
+    '資料表（' + (RUNS.length > 1 ? ('run：' + runName(primary) + '；') : '') +
+    D.x_label + ' 為 ' + D.table_every + ' 倍數的列＋最後一列 — 無需滑鼠懸停即可讀值）';
+  fillTable('dataTable',
+    [D.x_label, ...D.keys.map(k => ({t:k, num:1, tip:(D.glossary||{})[k] || ''}))],
+    P.table.map(r => [r[0].toLocaleString('en-US'),
+      ...r.slice(1).map(v => (v === null || v === undefined) ? '—' : (+v).toFixed(3))]));
+}
+function fillJobsTable(){
+  // 全部 run 的 job 合併列出，「實驗」欄標明歸屬。
+  // 狀態：▶ 運行中（squeue RUNNING 且 log 最新）/ ✓ 有存檔（gstep 有值）/
+  //      ✗ 無存檔（沒撐到第一次 checkpoint 的失敗或早期中斷）
+  // 未追蹤存檔（無 gstep_re/resume_re）時整個「隱藏失敗」控制與其文案都
+  // 不適用——藏起來，別讓使用者以為空 gstep＝失敗
+  document.getElementById('hideFailedWrap').style.display = D.gstep_tracked ? '' : 'none';
+  const hide = D.gstep_tracked && document.getElementById('hideFailed').checked;
+  const allJobs = [];
+  RUNS.forEach((r, i) => (r.jobs || []).forEach(j => allJobs.push([r, i, j])));
+  let newestMt = -1;   // 數值 ts 比較——顯示字串截到分鐘，同分鐘會平手
+  allJobs.forEach(([r, i, j]) => {
+    if (j.log_mtime_ts !== null && j.log_mtime_ts !== undefined && j.log_mtime_ts > newestMt)
+      newestMt = j.log_mtime_ts;
+  });
+  const isRunning = j => !!(D.squeue && D.squeue.indexOf('RUNNING') >= 0
+                            && j.log_mtime_ts !== null && j.log_mtime_ts !== undefined
+                            && j.log_mtime_ts === newestMt);
+  const statusOf = j => isRunning(j) ? 'running'
+    : !D.gstep_tracked ? 'plain'   // 沒追蹤存檔（無 gstep_re/resume_re）≠ failed
+    : ((j.gstep === null || j.gstep === undefined) ? 'failed' : 'done');
+  const runCell = i => {
+    const sp = document.createElement('span'); sp.textContent = runName(i);
+    const tip = [RUNS[i].desc, RUNS[i].purpose].filter(Boolean).join('\n');
+    if (tip) sp.dataset.tip = tip;
+    return {el: sp};
+  };
+  const chip = st => {
+    const lab = {running:'▶ 運行中', done:'✓ 有存檔', failed:'✗ 無存檔', plain:'—'}[st];
+    const sp = document.createElement('span'); sp.className = 'chip ' + (st === 'done' ? 'done' : st);
+    sp.textContent = lab; return {el: sp};
+  };
+  const rows = []; let hidden = 0;
+  allJobs.forEach(([r, i, j]) => {
+    const st = statusOf(j);
+    if (hide && st === 'failed'){ hidden++; return; }
+    rows.push([
+      runCell(i), j.job_id, chip(st), j.attempts || 1,
+      // 起點：resume 行給的是精確 gstep；first_step 是首筆訓練列換算的估計
+      (j.resume !== null && j.resume !== undefined) ? j.resume.toLocaleString('en-US')
+        : (j.first_step === null ? '—' : j.first_step.toLocaleString('en-US')),
+      (j.gstep === null || j.gstep === undefined) ? '—'
+        : ((j.gstep_inferred ? '~' : '') + j.gstep.toLocaleString('en-US')),
+      j.log_mtime,
+      (r.job_notes || {})[j.job_id] ||
+        ((r.jobs || []).length > 1 ? '（重啟批次——同實驗多列＝多次 sbatch，由 ckpt 續跑）' : '—')]);
+  });
+  document.getElementById('hiddenN').textContent = hidden;
+  fillTable('jobsTable',
+    ['實驗', '任務', '狀態', {t:'嘗試',num:1},
+     {t:'起始',num:1, tip:'該任務的起點：log 裡「Restored … step=N-last.ckpt」resume 行的精確值；沒有 resume 行的（真 from-scratch=0，或缺訊息時由前段進度鏈估計）'},
+     {t:'最大 step(ckpt)',num:1, tip: D.gstep_tracked
+        ? 'checkpoint 存檔的 optimizer step（跨重啟單調的真實進度）。~ 前綴＝由下一個 attempt 的 resume 行回推（scancel/SIGTERM 的 teardown 存檔不印訊息）。空＝該任務真的沒留下任何 ckpt'
+        : '未設定 gstep_re/resume_re——本頁沒在追蹤 checkpoint，空值不代表失敗'},
+     'log 最後更新', '備註'],
+    rows.length ? rows : [['（全部被隱藏或無資料）', '', '', '', '', '', '', '']]);
+}
+document.getElementById('hideFailed').addEventListener('change', fillJobsTable);
+fillDataTable();
+/* run 總覽表：每個 exp 的設定差異與實驗目的 */
+if (RUNS.length > 1 || RUNS.some(r => r.desc || r.purpose)){
+  const ri = document.getElementById('runsInfo'); ri.hidden = false;
+  fillTable('runsInfo', ['實驗', '設定差異', '實驗目的', {t:'最新 step',num:1}, 'log 更新'],
+    RUNS.map((r, i) => [runName(i)
+      + (i === (D.active||0) ? '（最新活動）' : '')
+      + ((r.attach_to !== null && r.attach_to !== undefined)
+         ? '（附掛於 ' + (RUNS[r.attach_to].short || runName(r.attach_to)) + '，隨其勾選顯示）' : ''),
+      r.desc || '—', r.purpose || '—',
+      r.last_step === null ? '—' : r.last_step.toLocaleString('en-US'), r.last_mtime]));
+}
+/* 多 run 勾選 chips：勾選集合疊在同一張圖；最後點亮的 run = 資料表顯示對象 */
+if (RUNS.length > 1){
+  const bar = document.getElementById('runTabs'); bar.hidden = false;
+  document.getElementById('runTabsHint').hidden = false;
+  RUNS.forEach((r, i) => {
+    if (r.attach_to !== null && r.attach_to !== undefined) return;  // 附掛 run 隨宿主，不單獨列
+    const b = document.createElement('button');
+    b.textContent = runName(i);
+    if (i === (D.active || 0)){
+      const s = document.createElement('span'); s.className = 'live';
+      s.textContent = '（最新活動）'; b.appendChild(s);
+    }
+    if (selected.has(i)) b.classList.add('on');
+    b.addEventListener('click', () => {
+      if (selected.has(i)){
+        if (selected.size <= 1) return;         // 至少留一個
+        selected.delete(i); b.classList.remove('on');
+        if (primary === i) primary = [...selected][0];
+      } else {
+        selected.add(i); b.classList.add('on'); primary = i;
+      }
+      renderers.forEach(fn => fn());
+      fillDataTable();
+    });
+    bar.appendChild(b);
+  });
+}
+function barChart(host, title, cats, serNames, matrix, tipOf){
+  // 分組柱狀圖：cats × series；每根柱 hover 立即顯示（組合, series, 精確值）
+  const card = document.createElement('div'); card.className = 'card';
+  const h3 = document.createElement('h3'); h3.textContent = title; card.appendChild(h3);
+  const lg = document.createElement('div'); lg.className = 'legend';
+  serNames.forEach((nm, i) => { const it = document.createElement('span');
+    const k = document.createElement('i'); k.className = 'key'; k.style.background = PAL[i % PAL.length];
+    it.appendChild(k); it.appendChild(document.createTextNode(nm)); lg.appendChild(it); });
+  if (serNames.length >= 2) card.appendChild(lg);
+  const box = document.createElement('div'); card.appendChild(box);
+  const tt = document.createElement('div'); tt.className = 'tt'; card.appendChild(tt);
+  host.appendChild(card);
+  function render(){
+    box.textContent = '';
+    const W = Math.max(320, box.clientWidth || card.clientWidth - 28), H = 210;
+    const m = {t:12, r:12, b:48, l:44};
+    let vals = [];
+    matrix.forEach(row => row.forEach(v => { if (typeof v === 'number' && Number.isFinite(v)) vals.push(v); }));
+    if (!vals.length){ box.textContent = '（無資料）'; return; }
+    let ymin = Math.min(0, ...vals);
+    let ymax = Math.max(...vals);
+    if (ymax <= ymin) ymax = ymin + 1; else ymax *= 1.1;
+    const Y = v => H - m.b - (v - ymin) / (ymax - ymin) * (H - m.t - m.b);
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    const add = (tag, at) => { const e = document.createElementNS(NS, tag);
+      for (const k in at) e.setAttribute(k, at[k]); svg.appendChild(e); return e; };
+    for (let i = 0; i <= 4; i++){
+      const v = ymin + (ymax - ymin) * i / 4, y = Y(v);
+      add('line', {x1:m.l, x2:W-m.r, y1:y, y2:y, stroke:'#e3e7e3', 'stroke-width':1});
+      const tx = add('text', {x:m.l-6, y:y+4, 'text-anchor':'end'});
+      tx.textContent = (+v.toFixed(2)).toString();
+    }
+    const gw = (W - m.l - m.r) / cats.length;
+    const bw = Math.min(26, gw * 0.8 / Math.max(1, serNames.length));
+    cats.forEach((c, ci) => {
+      const gx = m.l + gw * ci + gw / 2;
+      serNames.forEach((nm, si) => {
+        const v = matrix[si][ci];
+        if (v === null || v === undefined || Number.isNaN(v)) return;
+        const x = gx - (serNames.length * bw) / 2 + si * bw;
+        const rect = add('rect', {x: x, y: Y(v), width: bw - 2,
+          height: Math.max(1, H - m.b - Y(v)), fill: PAL[si % PAL.length], rx: 2});
+        rect.addEventListener('pointerenter', ev => {
+          tt.textContent = '';
+          const tl = document.createElement('div'); tl.className = 't'; tl.textContent = c;
+          const row = document.createElement('div'); row.className = 'r';
+          const b = document.createElement('b'); b.textContent = (+v.toFixed(4)).toString();
+          const s2 = document.createElement('span'); s2.textContent = nm + (tipOf ? '（' + tipOf + '）' : '');
+          row.appendChild(b); row.appendChild(s2); tt.appendChild(tl); tt.appendChild(row);
+          tt.style.display = 'block';
+          const cr = card.getBoundingClientRect();
+          let tx2 = ev.clientX - cr.left + 12;
+          if (tx2 + 180 > cr.width) tx2 = Math.max(4, ev.clientX - cr.left - 190);
+          tt.style.left = tx2 + 'px'; tt.style.top = (ev.clientY - cr.top - 8) + 'px';
+        });
+        rect.addEventListener('pointerleave', () => { tt.style.display = 'none'; });
+      });
+      const short = c.length > 20 ? c.slice(0, 19) + '…' : c;
+      const rot = cats.length > 4 || cats.some(x => String(x).length > 10);
+      const tx = rot
+        ? add('text', {x: gx, y: H-26, 'text-anchor':'end',
+                       transform: 'rotate(-18 ' + gx + ' ' + (H-26) + ')'})
+        : add('text', {x: gx, y: H-22, 'text-anchor':'middle'});
+      tx.textContent = short;
+    });
+    add('line', {x1:m.l, x2:W-m.r, y1:H-m.b, y2:H-m.b, stroke:'#9aa4a0', 'stroke-width':1});
+    box.appendChild(svg);
+  }
+  requestAnimationFrame(render);   // 同上：延後首繪防首卡全寬破圖
+  let raf = null;
+  window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); });
+}
+if (D.evals){
+  document.getElementById('evalsH2').hidden = false;
+  document.getElementById('evalsH2').textContent = D.evals.title;
+  if (D.evals.note){ const en = document.getElementById('evalsNote');
+    en.hidden = false; en.textContent = D.evals.note; }
+  document.getElementById('evalsTblWrap').hidden = false;
+  fillTable('evalsTable',
+    D.evals.columns.map(c => (D.glossary||{})[c] ? {t:c, tip:D.glossary[c]} : c),
+    D.evals.rows);
+  if (D.evals.groups && D.evals.groups.length){
+    document.getElementById('evalsGroups').hidden = false;
+    fillTable('evalsGroupsTable', ['評測集', '設定'], D.evals.groups);
+  }
+  if (D.evals.chart){
+    const ch = D.evals.chart;
+    let cats = [], sers = [];
+    D.evals.rows.forEach(r => {
+      if (!cats.includes(String(r[ch.x_col]))) cats.push(String(r[ch.x_col]));
+      if (!sers.includes(String(r[ch.series_col]))) sers.push(String(r[ch.series_col]));
+    });
+    if (ch.x_order && ch.x_order.length){
+      const pos = c => { const i = ch.x_order.indexOf(c); return i < 0 ? 999 : i; };
+      cats = cats.slice().sort((a, b) => pos(a) - pos(b));
+    }
+    const evHost = document.getElementById('evalsCharts');
+    ch.value_cols.forEach(vc => {
+      const colName = D.evals.columns[vc] || ('col' + vc);
+      const matrix = sers.map(sn => cats.map(cn => {
+        const row = D.evals.rows.find(r => String(r[ch.x_col]) === cn && String(r[ch.series_col]) === sn);
+        const v = row ? row[vc] : null;
+        return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+      }));
+      barChart(evHost, colName, cats, sers, matrix, (D.glossary||{})[colName] ? colName : '');
+    });
+  }
+}
+if (D.glossary && Object.keys(D.glossary).length){
+  document.getElementById('glossWrap').hidden = false;
+  fillTable('glossTable', ['指標', '說明'],
+    Object.keys(D.glossary).sort().map(k => [k, D.glossary[k]]));
+}
 if (D.queue && Array.isArray(D.queue.experiments)){
-  fillTable('ladder', ['ID', '實驗', '狀態', 'Gate / 備註'],
-    D.queue.experiments.map(e => [e.id, e.title || '', chipEl(e.status || 'pending'),
-      (e.gate ? e.gate + ' ' : '') + (e.notes ? '｜' + e.notes : '')]));
+  fillTable('ladder', ['ID', '實驗', '目標 / Gate', '狀態', '備註'],
+    D.queue.experiments.map(e => [e.id, e.title || '—',
+      [(e.goal || ''), (e.gate || '')].filter(Boolean).join('｜gate：') || '—',
+      chipEl(e.status || 'pending'),
+      (e.note || e.notes || '—')]));
 } else {
   fillTable('ladder', ['ID'], [['（尚無 queue.json）']]);
 }
@@ -644,19 +1312,37 @@ fillTable('ledger', ['實驗', '顯著', '決策'],
     ? D.ledger.map(r => [r.experiment,
         r.significant === true ? '是' : (r.significant === false ? '否' : '—'), r.decision || '—'])
     : [['（尚無 ledger 紀錄）', '', '']]);
-fillTable('jobsTable',
-  ['Job', {t:'起始',num:1}, {t:'最後',num:1}, 'log 最後更新'],
-  D.jobs.length
-    ? D.jobs.map(j => [j.job_id,
-        j.first_step === null ? '—' : j.first_step.toLocaleString('en-US'),
-        j.last_step === null ? '—' : j.last_step.toLocaleString('en-US'), j.log_mtime])
-    : [['（log_glob 沒對到任何檔案）', '', '', '']]);
+fillJobsTable();
 
+/* 即時 tooltip：所有 [data-tip] 元素（表頭/實驗欄…）滑過立刻顯示 */
+(function(){
+  const tip = document.getElementById('mtip');
+  document.addEventListener('pointerover', ev => {
+    const c = ev.target.closest('[data-tip]'); if (!c){ return; }
+    tip.textContent = c.dataset.tip; tip.style.display = 'block';
+  });
+  document.addEventListener('pointermove', ev => {
+    if (tip.style.display !== 'block') return;
+    if (!ev.target.closest('[data-tip]')){ tip.style.display = 'none'; return; }
+    let x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + 380 > window.innerWidth) x = Math.max(8, ev.clientX - 380);
+    if (y + 100 > window.innerHeight) y = ev.clientY - 100;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  });
+  document.addEventListener('pointerout', ev => {
+    if (ev.target.closest && ev.target.closest('[data-tip]')) tip.style.display = 'none';
+  });
+})();
 document.getElementById('foot').textContent =
   (D.squeue ? '目前佇列狀態：' + D.squeue + '｜' : '') +
   'log 最後更新：' + D.last_mtime +
   '｜曲線均勻抽稀至 ≤' + D.max_points + ' 點；資料表取 ' + D.x_label +
   ' 為 ' + D.table_every + ' 倍數的列＋最後一列。' +
+  '｜x 軸＝全域 optimizer step：訓練行計數器已按 accumulate 換算並用 log 的 ' +
+  '「Restored …step=N-last.ckpt」resume 行精確對位（無 resume 行＝真 from-scratch）。' +
+  '｜job 鏈：同任務（Slurm array）多次嘗試已合併一列；「起始」＝resume 行原值、' +
+  '「最大 step(ckpt)」＝存檔訊息（含 SIGTERM preemption 存檔）原值，~ 前綴＝由' +
+  '下一任務的 resume 點回推；空＝OOM/SIGKILL 來不及存檔。' +
   (D.footnote ? '｜' + D.footnote : '');
 </script>
 </body>

@@ -292,6 +292,38 @@ class TestReport(unittest.TestCase):
         run(["report", "--dir", str(root), "--out", str(out)])
         self.assertEqual(first, out.read_bytes())         # 無時間戳＝確定性
 
+    def test_report_chart_payload_escaped_and_overflow_safe(self):
+        import re
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-xss-"))
+        root = repo / "runs" / "auto_research"
+        run(["init", "--repo", str(repo), "--rungs", "E0", "E1"])
+        (root / "glossary.json").write_text(json.dumps(
+            {"mos": "品質 </script><script>x</script>"}, ensure_ascii=False))
+        evil = "</script><script>alert(1)//"
+        rows = [{"experiment": "E0", "config_hash": "h",
+                 "metrics": {"mos": 3.4, evil: 1, "tiny": 5e-6},
+                 "significant": False, "decision": "calibrate"},
+                {"experiment": "E1", "config_hash": "h",
+                 "metrics": {"mos": 3.1, evil: 2, "big": 10 ** 400},
+                 "significant": True, "decision": "advance"}]
+        for row in rows:
+            run(["ledger-append", "--dir", str(root), "--json",
+                 json.dumps(row)])
+        out = repo / "docs" / "campaign-report.html"
+        rep = json.loads(run(["report", "--dir", str(root),
+                              "--out", str(out)]).stdout)
+        # 10**400 不可 float——跳過該值即可，report 不得崩（OverflowError）
+        self.assertEqual(rep["ledger_rows"], 2)
+        html = out.read_text()
+        payload_line = re.search(r"^const D = .*$", html, re.M).group(0)
+        # 全 < 已跳脫：metric key/glossary 帶 </script> 也逃不出 script data
+        self.assertNotIn("<", payload_line[len("const D = "):])
+        self.assertIn("\\u003c/script>", payload_line)
+        d = json.loads(re.search(r"^const D = (.*);$", html, re.M).group(1))
+        self.assertIn("mos", d["metric_keys"])            # ≥2 次 → 入圖
+        self.assertNotIn("big", d["metric_keys"])         # overflow 值被跳過
+        self.assertEqual(d["metrics"]["mos"], [3.4, 3.1])
+
 
 
 

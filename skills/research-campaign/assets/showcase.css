@@ -3,7 +3,8 @@
  * （頁面 self-contained）；`report` 也會把本檔複製到發佈目錄，repo 自製
  * 頁（訓練儀表板等）用 <link rel="stylesheet" href="showcase.css"> 即可
  * 同套視覺。色票 tokens 見 :root；元件：.tiles 狀態磚、.card 圖表卡、
- * .chip 徽章、.report-list landing 卡、.examples/.audio-grid 對聽卡。
+ * .chip 徽章、.report-list landing 卡、.examples/.audio-grid 對聽卡、
+ * .mchip 指標膠囊（#mtip 全頁 tooltip、.tt 圖表卡內 tooltip）。
  */
 :root { color-scheme:light; --bg:#f7f7f4; --ink:#1d2528; --muted:#586368;
         --line:#d9dedb; --accent:#126c73; --panel:#ffffff; --faint:#898781;
@@ -38,8 +39,9 @@ nav.crumbs a { display:inline-flex; align-items:center; padding:5px 11px;
           gap:14px; }
 @media (max-width:520px){ .charts{grid-template-columns:1fr;} }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
-        padding:14px 14px 8px; overflow:hidden; }
+        padding:14px 14px 8px; overflow:hidden; position:relative; }
 .card h3 { font-size:14.5px; margin:0 0 6px; }
+.card .note { font-size:12px; color:var(--muted); margin:0 0 6px; }
 .card svg { width:100%; height:auto; display:block; }
 svg text { font:11.5px system-ui,sans-serif; fill:var(--faint); }
 .wrap { overflow-x:auto; }
@@ -80,3 +82,21 @@ audio { width:100%; }
 .footnote { font-size:12.5px; color:var(--muted); margin-top:28px;
             border-top:1px solid var(--line); padding-top:14px; }
 p.muted { color:var(--muted); }
+abbr[title] { text-decoration:underline dotted; cursor:help; }
+.mchip { display:inline-block; background:var(--bg); border:1px solid var(--line);
+         border-radius:6px; padding:0 6px; margin:1px 2px 1px 0; cursor:help;
+         font-size:.95em; }
+.mchip b { font-weight:600; }
+#mtip { position:fixed; pointer-events:none; background:var(--panel);
+        border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+        font-size:12.5px; display:none; box-shadow:0 2px 10px rgba(0,0,0,.14);
+        max-width:340px; z-index:9; }
+#mtip .k { font-weight:600; margin-bottom:2px; }
+#mtip .d { color:var(--muted); white-space:pre-line; }
+.tt { position:absolute; pointer-events:none; background:var(--panel);
+      border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+      font-size:12.5px; display:none; box-shadow:0 2px 10px rgba(0,0,0,.12);
+      white-space:nowrap; z-index:5; }
+.tt .t { color:var(--muted); margin-bottom:4px; font-weight:600; }
+.tt .r b { font-variant-numeric:tabular-nums; margin-right:6px; }
+.tt .g { color:var(--muted); font-size:11.5px; max-width:260px; white-space:normal; }

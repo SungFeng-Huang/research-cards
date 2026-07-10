@@ -164,6 +164,11 @@ python3 scripts/campaign.py progress --dir <repo>/runs/auto_research
 量級存活）；非有限值丟棄；資料表為無滑鼠 fallback（取 step 為
 table_every 倍數的列＋最後一列）；輸出對相同輸入位元級確定（無牆鐘
 時間戳；頁面含 log mtime＝輸入衍生，跨機器 mtime 不同輸出即不同）。
+進階（欄位說明見 progress.json 模板的 `_doc_*`）：`runs`＝多個訓練 run
+疊同一張圖（勾選顯示子集，desc/purpose 渲染成 run 總覽表）；`gstep_re`
+＋`gstep_scale`／`gstep_native`＝x 軸統一成全域 optimizer step（跨重啟
+單調，log_glob 可為 list 把含 ckpt 訊息的 stderr 一併掃入）；
+`job_group_re`＝搶佔/重啟的 job 鏈聚合。
 進度頁固定連 campaign-report.html——step 7 的 regen 契約本來就是兩頁
 一起產，report 缺席時 progress 指令會提示。
 
@@ -176,12 +181,17 @@ regen report（有 progress.json 也 regen progress）→ 連同 ledger/queue
 但不會部署——合併完記得把 pages.json 的 ci_ready 改 true。commit message 慣例：
 `Auto-update campaign progress page (session refresh)`。
 
-報告頁自動含：ladder 狀態表、ledger 全表（metrics／significant 徽章／
-decision／playbook 引用）、**ledger 指標趨勢圖**（出現 ≥2 次的數值 metric
-一張 SVG 小圖——趨勢需要兩點以上；x＝ledger 順序、點懸停看 rung／值。只出現
-一次的數值列進「單次評測指標」表格；非數值跳過、超過 12 張列名不畫並註明
-——不靜默截斷）、BLOCKED 橫幅；無時間戳（輸出確定性，發佈時間交給
-git 歷史）。report 收尾自動 **regen `index.html`**（landing 頁：掃發佈目錄
+報告頁自動含：狀態磚、ladder 表（rung 的實驗內容／目標／gate／備註——
+取 queue.json 選配欄位 `title`/`goal`/`gate`/`note`）、**ledger 指標圖**
+（出現 ≥2 次的數值 metric 一張互動小圖，巢狀 metrics 攤平成 `key.sub`；
+x＝ledger 順序、游標懸停顯示 rung 名與精確值；單次數值在 Ledger 表的
+指標膠囊可見，不畫孤點）、ledger 全表（metrics 逐項成**指標膠囊**，
+滑過即顯示指標說明；「驗證目標」欄由 experiment id 前綴對應 ladder rung，
+ledger row 可加選配 `purpose` 欄標子實驗角色）、BLOCKED 橫幅；無時間戳
+（輸出確定性，發佈時間交給 git 歷史）。指標說明來自選配的
+`runs/auto_research/glossary.json`（`{"指標名": "說明"}`，支援攤平前綴
+如 `detail`——campaign 起跑時就把會入帳的指標寫進去，讀者才看得懂）。
+report 收尾自動 **regen `index.html`**（landing 頁：掃發佈目錄
 所有 \*.html、report 排最前、各頁標題取其 `<title>`；`--no-index` 略過）。
 
 **音檔對聽頁（demo）**——manifest → A/B（多系統）對聽頁；音檔複製進發佈

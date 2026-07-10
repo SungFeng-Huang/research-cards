@@ -108,13 +108,97 @@ class TestConfig(Base):
         r = run(["progress", "--dir", str(self.root)], ok=False)
         self.assertNotEqual(r.returncode, 0)
 
+    def test_gstep_tracked_flag_follows_config(self):
+        # 沒設 gstep_re/resume_re＝沒在追蹤存檔——頁面 job 表不得把 gstep=null
+        # 全判 failed（預設勾選的隱藏會把所有正常 job 藏光）
+        self.write_logs()
+        self.write_cfg()
+        out = self.repo / "docs" / "p.html"
+        run(["progress", "--dir", str(self.root), "--out", str(out)])
+        self.assertFalse(payload_of(out)["gstep_tracked"])
+        self.write_cfg(resume_re="Restored step=(?P<gstep>\\d+)-last")
+        run(["progress", "--dir", str(self.root), "--out", str(out)])
+        self.assertTrue(payload_of(out)["gstep_tracked"])
+
+    def test_rank_suffix_ordering_and_job_grouping(self):
+        # slurm-<job>-<rank>.log：尾碼是 rank 不是 job id——需照 raw job id
+        # 排序（較新 job 覆寫重疊步數）與分組（不得全掛到 job「0」）
+        d = self.repo / "slurm_logs"
+        d.mkdir(exist_ok=True)
+        (d / "slurm-101-0.log").write_text("step=10 loss=1.0\nstep=20 loss=0.9\n")
+        (d / "slurm-102-0.log").write_text("step=20 loss=0.5\nstep=30 loss=0.4\n")
+        self.write_cfg(log_glob="slurm_logs/slurm-*.log")
+        cfg = pp.load_progress_config(str(self.root))
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
+        self.assertAlmostEqual(train[20]["loss"], 0.5)    # 102 覆寫 101
+        self.assertEqual([j["job_id"] for j in jobs], ["101", "102"])
+
+    def test_same_basename_across_dirs_are_separate_attempts(self):
+        # <job>_<task>/train.out：不同目錄的同名檔不得合成一個 attempt
+        for job, (s0, s1) in [("11111_0", (0, 101)), ("22222_0", (100, 201))]:
+            d = self.repo / "logs" / job
+            d.mkdir(parents=True)
+            (d / "train.out").write_text(
+                "".join(f"step={s} loss=1.0\n" for s in range(s0, s1, 10)))
+        self.write_cfg(log_glob="logs/**/train.out")
+        cfg = pp.load_progress_config(str(self.root))
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
+        self.assertEqual([j["job_id"] for j in jobs], ["11111", "22222"])
+        self.assertEqual([j["attempts"] for j in jobs], [1, 1])
+        self.assertEqual(jobs[0]["last_step"], 100)       # 各自的區間沒被互蓋
+        self.assertEqual(jobs[1]["first_step"], 100)
+
+    def test_array_dir_beats_rank_digit_in_basename(self):
+        # <job>_<task>/train-0.out：basename 的「0」是 rank——array 目錄
+        # 必須優先，否則兩個任務的 rank-0 檔塌成同一 attempt
+        for job, (s0, s1) in [("11111_0", (0, 101)), ("22222_0", (100, 201))]:
+            d = self.repo / "logs" / job
+            d.mkdir(parents=True)
+            (d / "train-0.out").write_text(
+                "".join(f"step={s} loss=1.0\n" for s in range(s0, s1, 10)))
+        self.write_cfg(log_glob="logs/**/train-*.out")
+        cfg = pp.load_progress_config(str(self.root))
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
+        self.assertEqual([j["job_id"] for j in jobs], ["11111", "22222"])
+        self.assertEqual([j["attempts"] for j in jobs], [1, 1])
+
+    def test_teardown_inference_requires_resume_within_span(self):
+        d = self.repo / "slurm_logs"
+        d.mkdir(exist_ok=True)
+        # 101 跑 0..100（無 ckpt 訊息）；102 從 100 恢復 → 回推 101 有存檔
+        (d / "run-101.out").write_text(
+            "".join(f"step={s} loss=1.0\n" for s in range(0, 101, 10)))
+        (d / "run-102.out").write_text(
+            "Restored step=100-last.ckpt\nstep=0 loss=0.5\nstep=10 loss=0.5\n")
+        # 103 只跑到 step 10；104 從 300 恢復——300 不在 103 區間，不得捏造
+        (d / "run-103.out").write_text("step=0 loss=0.5\nstep=10 loss=0.5\n")
+        (d / "run-104.out").write_text(
+            "Restored step=300-last.ckpt\nstep=0 loss=0.4\n")
+        self.write_cfg(resume_re="Restored step=(?P<gstep>\\d+)-last")
+        cfg = pp.load_progress_config(str(self.root))
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
+        by = {j["job_id"]: j for j in jobs}
+        self.assertEqual(by["101"]["gstep"], 100)         # 上下界內 → 回推
+        self.assertTrue(by["101"].get("gstep_inferred"))
+        self.assertIsNone(by["103"]["gstep"])             # 300 > last=10 → 不捏造
+
+    def test_unknown_field_warning_skips_injected_keys(self):
+        # 注入的內部鍵（_gstep_re 等）不得被當成未知欄位；真正的錯字要警告
+        self.write_logs()
+        self.write_cfg(gstep_re="global step (?P<gstep>\\d+)", gstep_scale=2)
+        r = run(["progress", "--dir", str(self.root)])
+        self.assertNotIn("未知欄位", r.stderr)
+        self.write_cfg(log_globb="slurm_logs/*.out")  # 錯字仍要警告
+        r = run(["progress", "--dir", str(self.root)])
+        self.assertIn("log_globb", r.stderr)
+
 
 class TestParsing(Base):
     def test_overlap_later_job_wins_and_jobs_summary(self):
         self.write_logs()
         self.write_cfg()
         cfg = pp.load_progress_config(str(self.root))
-        train, jobs = pp.parse_logs(str(self.repo), cfg)
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
         self.assertEqual(sorted(train)[0], 0)
         self.assertEqual(sorted(train)[-1], 200)
         # step 90 在兩個 log 都有——後面的 job（102）覆寫
@@ -131,7 +215,7 @@ class TestParsing(Base):
             "step=10 loss=1e999 recon=0.5\nstep=20 loss=0.9 recon=0.4\n")
         self.write_cfg()
         cfg = pp.load_progress_config(str(self.root))
-        train, _ = pp.parse_logs(str(self.repo), cfg)
+        train, _ = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
         self.assertNotIn("loss", train[10])           # inf → 丟棄該值
         self.assertEqual(train[10]["recon"], 0.5)     # 同行其他值保留
 
@@ -207,7 +291,7 @@ class TestRender(Base):
             "step=20 checkpoint saved to ckpt-20.pt\n")
         self.write_cfg()
         cfg = pp.load_progress_config(str(self.root))
-        train, _ = pp.parse_logs(str(self.repo), cfg)
+        train, _ = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
         self.assertEqual(train[10], {"loss": 0.9, "val_loss": 0.7})
         self.assertEqual(train[20], {"loss": 0.8})    # 雜訊行不清空
 
@@ -257,7 +341,7 @@ class TestRender(Base):
         (self.repo / "logs" / "exp1" / "b.out").write_text("step=2 loss=0.9\n")
         self.write_cfg(log_glob="logs/**/*.out")
         cfg = pp.load_progress_config(str(self.root))
-        train, jobs = pp.parse_logs(str(self.repo), cfg)
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
         self.assertEqual(sorted(train), [1, 2])        # ** 含零層
 
     def test_slurm_scheduler_line_and_eta(self):
@@ -337,6 +421,76 @@ class TestRender(Base):
         self.assertTrue(
             (self.repo / "public" / "campaign-progress.html").is_file())
         self.assertFalse((self.repo / "docs").exists())
+
+
+class TestTzOffset(Base):
+    """P2-2: tz_offset_hours 邊界驗證＋跨 cfg 不汙染。"""
+
+    def _make_cfg_with_tz(self, tz):
+        cfg = {"title": "t", "log_glob": "slurm_logs/*.out",
+               "step_re": "^step=(?P<step>\\d+)\\b",
+               "kv_re": "(\\w+)=(-?\\d+\\.?\\d*)",
+               "charts": [{"title": "c", "series": [{"key": "loss"}]}],
+               "tz_offset_hours": tz}
+        (self.root / "progress.json").write_text(json.dumps(cfg))
+
+    def test_valid_tz_offset_accepted(self):
+        self._make_cfg_with_tz(9)
+        out = self.repo / "docs" / "p.html"
+        run(["progress", "--dir", str(self.root), "--out", str(out)])
+
+    def test_tz_offset_out_of_range_rejected(self):
+        for bad in (24, -24, 100):
+            self._make_cfg_with_tz(bad)
+            r = run(["progress", "--dir", str(self.root)], ok=False)
+            self.assertNotEqual(r.returncode, 0, f"tz={bad} should be rejected")
+            self.assertIn("合法範圍", r.stderr)
+
+    def test_tz_global_resets_to_default_between_cfgs(self):
+        """cfg A 設 tz=5 生成頁面含 UTC+5；cfg B 不設，生成頁面應含 UTC+8。"""
+        self.write_logs()   # 提供有 mtime 的 log，讓時區標籤出現在頁面
+
+        def make_cfg(tz=None):
+            c = {"title": "t", "log_glob": "slurm_logs/*.out",
+                 "step_re": "^step=(?P<step>\\d+)\\b",
+                 "kv_re": "(\\w+)=(-?\\d+\\.?\\d*)",
+                 "charts": [{"title": "c", "series": [{"key": "loss"}]}]}
+            if tz is not None:
+                c["tz_offset_hours"] = tz
+            return c
+
+        out = self.repo / "docs" / "p.html"
+        # campaign A: tz=5 → UTC+5 出現在頁面
+        (self.root / "progress.json").write_text(json.dumps(make_cfg(tz=5)))
+        run(["progress", "--dir", str(self.root), "--out", str(out)])
+        self.assertIn("UTC+5", out.read_text())
+
+        # campaign B: 無 tz → 應重設回 UTC+8，不殘留 +5
+        (self.root / "progress.json").write_text(json.dumps(make_cfg()))
+        run(["progress", "--dir", str(self.root), "--out", str(out)])
+        html = out.read_text()
+        self.assertIn("UTC+8", html)
+        self.assertNotIn("UTC+5", html)
+
+
+class TestEvalBarChart(unittest.TestCase):
+    """P2-3: eval 柱狀圖 zero / negative 值不得產生 NaN 座標——JS 模板驗證。"""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "pp_bar", os.path.join(SCRIPTS, "progress_page.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        cls.TEMPLATE = m.TEMPLATE
+
+    def test_bar_chart_js_uses_safe_ymin(self):
+        """修正後模板 eval 柱狀圖的 ymin 以 Math.min(0,...) 計算，相容零值。"""
+        self.assertIn("Math.min(0, ...vals)", self.TEMPLATE)
+
+    def test_bar_chart_js_degenerate_guard_present(self):
+        """當 ymax <= ymin 時（全零），JS 應有 ymax = ymin + 1 的退化守衛。"""
+        self.assertIn("if (ymax <= ymin) ymax = ymin + 1", self.TEMPLATE)
 
 
 if __name__ == "__main__":

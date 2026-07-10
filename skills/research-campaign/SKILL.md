@@ -168,7 +168,12 @@ python3 scripts/campaign.py progress --dir <repo>/runs/auto_research
 table_every 倍數的列＋最後一列）；輸出對相同輸入位元級確定（無牆鐘
 時間戳；頁面含 log mtime＝輸入衍生，跨機器 mtime 不同輸出即不同）。
 進階（欄位說明見 progress.json 模板的 `_doc_*`）：`runs`＝多個訓練 run
-疊同一張圖（勾選顯示子集，desc/purpose 渲染成 run 總覽表）；`gstep_re`
+疊同一張圖（勾選顯示子集，desc/purpose 渲染成 run 總覽表）——**`name`
+是人看的顯示名**（圖例/總覽表用，隨時可能被美化改寫）、`short` 是縮寫；
+**自動化要定位 run 請比對 `short` 或用 name 前綴**，別對 name 全等比對。
+另注意 progress.json 是**人機共用的活設定檔**：程式要修改它必須
+read-modify-write 當下的檔案內容，別把記憶體裡的舊快照整檔寫回（會把
+並行編輯無聲蓋掉）；`gstep_re`
 ＋`gstep_scale`／`gstep_native`＝x 軸統一成全域 optimizer step（跨重啟
 單調，log_glob 可為 list 把含 ckpt 訊息的 stderr 一併掃入）；
 `job_group_re`＝搶佔/重啟的 job 鏈聚合。

@@ -250,8 +250,8 @@ def _detect_pages_host(repo, remote):
     return None, url
 
 
-def _deploy_branch(proj):
-    """github workflow 的觸發分支：優先 default branch（origin/HEAD），
+def _deploy_branch(proj, remote="origin"):
+    """github workflow 的觸發分支：優先 default branch（<remote>/HEAD），
     沒有（剛 init 的 repo）才用當下分支；detached HEAD 或分支名含 YAML
     危險字元時保留 main 並警告。"""
     import re
@@ -261,7 +261,7 @@ def _deploy_branch(proj):
         return subprocess.run(["git", "-C", proj, "symbolic-ref", "--short",
                                ref], capture_output=True, text=True).stdout.strip()
 
-    origin_head = _sref("refs/remotes/origin/HEAD")     # 如 origin/main
+    origin_head = _sref(f"refs/remotes/{remote}/HEAD")  # 如 origin/main
     branch = origin_head.split("/", 1)[1] if "/" in origin_head else ""
     if not branch:
         branch = _sref("HEAD")
@@ -276,11 +276,192 @@ def _deploy_branch(proj):
     return branch
 
 
+def _git(proj, *argv, check=True, input_text=None):
+    import subprocess
+    r = subprocess.run(["git", "-C", proj, *argv], capture_output=True,
+                       text=True, input=input_text)
+    if check and r.returncode != 0:
+        sys.exit(f"git {' '.join(argv)} 失敗：{r.stderr.strip()}")
+    return r
+
+
+def _assert_artifact_shape(proj, ref, branch):
+    """分支/遠端 ref 已存在時驗證它確實是 artifact 分支（單 root commit）
+    ——update 腳本會對它 amend＋force-push，把一條正常分支誤當 artifact
+    分支等於把它的歷史整條蒸發。shallow clone 的截斷邊界會讓多 commit
+    分支看起來像 root，形狀驗證不可信——一律拒絕。"""
+    if _git(proj, "rev-parse", "--is-shallow-repository",
+            check=False).stdout.strip() == "true":
+        sys.exit("此 repo 是 shallow clone——無法可靠驗證既有分支 "
+                 f"{branch!r} 是否為單-commit artifact 分支（截斷邊界會把"
+                 "正常分支偽裝成 root）。先 `git fetch --unshallow` 再重跑")
+    parents = _git(proj, "rev-list", "--parents", "-1", ref).stdout.split()
+    count = _git(proj, "rev-list", "--count", ref).stdout.strip()
+    if len(parents) > 1 or count != "1":
+        sys.exit(f"{ref} 已存在但不是單-commit 的 orphan artifact 分支"
+                 f"（{count} commits）——update 腳本會 amend+force-push 它，"
+                 f"繼續等於改寫該分支歷史。換個 --deploy-branch 名字，或"
+                 f"確認 {branch!r} 真是生成物分支後手動處理")
+
+
+def _ensure_orphan_branch(proj, branch, out_dir, ci_name, ci_body, remote):
+    """建 orphan 部署分支（單 commit，無 parent）。git <2.42 沒有
+    `worktree add --orphan`——全走 plumbing：tree = CI 檔 blob ＋ HEAD 的
+    out_dir 子樹（main 從未追蹤過 out_dir 就從空內容起步，首次 update
+    腳本 rsync+amend 會填）。冪等：本地分支已存在（驗過形狀）直接用；
+    本地無、遠端有則掛 tracking branch——先 best-effort fetch，免得沒
+    fetch 過的同名遠端分支被新 orphan 首次 push -f 蓋掉。
+    回傳 'existing'|'from-remote'|'created'。"""
+    if _git(proj, "rev-parse", "-q", "--verify",
+            f"refs/heads/{branch}", check=False).returncode == 0:
+        _assert_artifact_shape(proj, f"refs/heads/{branch}", branch)
+        return "existing"
+    # 明確 refspec 寫進 tracking ref——裸 `fetch remote branch` 只更新
+    # FETCH_HEAD，受限 refspec 的 repo 會偵測不到既有遠端分支，新建的
+    # orphan 首次 push 就把它蓋掉。離線 fetch 失敗照舊往下（沒網路也
+    # push 不出去）。
+    _git(proj, "fetch", "-q", remote,
+         f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}", check=False)
+    if _git(proj, "rev-parse", "-q", "--verify",
+            f"refs/remotes/{remote}/{branch}", check=False).returncode == 0:
+        _assert_artifact_shape(proj, f"refs/remotes/{remote}/{branch}", branch)
+        _git(proj, "branch", branch, f"{remote}/{branch}")
+        return "from-remote"
+    blob = _git(proj, "hash-object", "-w", "--stdin",
+                input_text=ci_body).stdout.strip()
+    entries = [f"100644 blob {blob}\t{ci_name}"]
+    sub = _git(proj, "rev-parse", "-q", "--verify", f"HEAD:{out_dir}",
+               check=False)
+    if sub.returncode == 0:
+        entries.append(f"040000 tree {sub.stdout.strip()}\t{out_dir}")
+    tree = _git(proj, "mktree",
+                input_text="\n".join(entries) + "\n").stdout.strip()
+    commit = _git(proj, "commit-tree", tree, "-m",
+                  "Pages artifact (auto-generated showcase; "
+                  "single amended commit)").stdout.strip()
+    _git(proj, "branch", branch, commit)
+    return "created"
+
+
+def _scaffold_artifact_branch(proj, root, branch, out_dir, ci_name, ci_body,
+                              remote):
+    """artifact-branch 模式的 repo 佈置：orphan 分支＋.pages-worktree＋
+    main 側 .gitignore/untracking＋update 腳本模板。全部冪等（重跑安全）。
+    不自動 commit/push——untracking commit 與首次分支 push 留給使用者
+    （與 init --git「首 commit 留給使用者核可」同一慣例）。"""
+    import shlex
+    result = {"deploy_branch": branch}
+    result["branch"] = _ensure_orphan_branch(proj, branch, out_dir,
+                                             ci_name, ci_body, remote)
+    # worktree（生成物的 rsync 目的地；update 腳本在裡面 amend+push）
+    wt = os.path.join(proj, ".pages-worktree")
+    if not os.path.isdir(wt):
+        # 目錄不在但註冊還在（prunable）——不 prune 會被誤判 existing，
+        # prune 後照 created 路徑重建
+        _git(proj, "worktree", "prune", check=False)
+    wt_branch = None
+    cur_wt = None
+    for l in _git(proj, "worktree", "list", "--porcelain").stdout.splitlines():
+        if l.startswith("worktree "):
+            cur_wt = os.path.realpath(l[len("worktree "):])
+        elif l.startswith("branch ") and cur_wt == os.path.realpath(wt):
+            wt_branch = l[len("branch "):].removeprefix("refs/heads/")
+    if wt_branch is not None:
+        # path 相同還要核對 checked-out 分支——換 --deploy-branch 重跑時
+        # worktree 若仍掛舊分支，update 腳本會 rsync 進 A、push 到 B
+        if wt_branch != branch:
+            sys.exit(f"{wt} 已是 worktree 但 checkout 在 {wt_branch!r} 而非 "
+                     f"{branch!r}——先 `git worktree remove .pages-worktree` "
+                     "再重跑（不代拆：裡面可能有未推的內容）")
+        result["worktree"] = "existing"
+    elif os.path.exists(wt):
+        sys.exit(f"{wt} 已存在但不是本 repo 的 git worktree——"
+                 "移走它再重跑（不代刪：內容物來歷不明）")
+    else:
+        _git(proj, "worktree", "add", wt, branch)
+        result["worktree"] = "created"
+    # main 側 .gitignore：生成物/worktree/update 腳本的 runtime 檔不進
+    # main（root-anchored——非錨定的 `public/` 會連 src/public/ 一起吃；
+    # append 在檔尾，白名單型 gitignore 的 !例外行在前面也會被後行蓋掉）
+    gi_path = os.path.join(proj, ".gitignore")
+    have = set()
+    if os.path.exists(gi_path):
+        have = {l.strip() for l in open(gi_path)}
+    wanted = [f"/{out_dir}/", "/.pages-worktree/",
+              "/runs/auto_research/.pages_update.lock",
+              "/runs/auto_research/pages_update.log"]
+    # 舊版（duplex 手佈置）用未錨定寫法——語義已涵蓋就不重複 append，
+    # 但未錨定的 `public/` 會連 src/public/ 這類同名子目錄一起吃，提醒改錨定
+    missing = [l for l in wanted if l not in have and l.lstrip("/") not in have]
+    legacy = [l.lstrip("/") for l in wanted
+              if l not in have and l.lstrip("/") in have]
+    if legacy:
+        print(f"[note] .gitignore 既有未錨定規則 {legacy}——它們會匹配任意"
+              "深度的同名目錄（如 src/public/）；建議手動改成 root-anchored"
+              "（前面加 /）", file=sys.stderr)
+    if missing:
+        with open(gi_path, "a") as f:
+            f.write("\n# campaign artifact-branch 部署（pages-setup --deploy-branch）：\n"
+                    "# 生成站台住 orphan 分支，main 不追蹤\n"
+                    + "\n".join(missing) + "\n")
+    result["gitignore_added"] = missing
+    # main 曾追蹤 out_dir 的話解除追蹤（--cached：工作樹檔案保留）。
+    # rm 失敗要炸出來（index lock 等）；untracking 判定只看「刪除」條目
+    # ——使用者先前 staged 的新增不能被誤報成解除追蹤成功
+    _git(proj, "rm", "-r", "-q", "--cached", "--ignore-unmatch",
+         "--", out_dir)
+    untracked = bool(_git(proj, "diff", "--cached", "--diff-filter=D",
+                          "--name-only", "--", out_dir).stdout.strip())
+    result["untracking_staged"] = untracked
+    # update 腳本（repo 端的刷新驅動；已存在不覆蓋——repo 可能已客製，
+    # 但分支對不上要 fail loud：pages.json 指新分支、腳本推舊分支）
+    tpl_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                            "..", "assets", "update-pages.sh.template")
+    script_path = os.path.join(proj, "scripts", "campaign", "update_pages.sh")
+    if os.path.exists(script_path):
+        # 已存在不覆蓋，但分支要對得上：pages.json 指向新分支而腳本仍推
+        # 舊分支＝部署無聲分家。模板腳本有 BRANCH= 行可精確比對；客製
+        # 腳本（如分支名寫死在 push 行）退而全文找分支名。
+        body = open(script_path).read()
+        m = re.search(r"^BRANCH=(\S+)\s*$", body, re.M)
+        if m and m.group(1) not in (branch, shlex.quote(branch)):
+            sys.exit(f"{script_path} 已存在但其 BRANCH={m.group(1)} 不是 "
+                     f"{branch!r}——pages.json 會指向新分支而腳本仍推舊分支。"
+                     "手動更新腳本（或刪掉讓 scaffold 重生）再重跑")
+        rm_ = re.search(r"^REMOTE=(\S+)\s*$", body, re.M)
+        if rm_ and rm_.group(1) not in (remote, shlex.quote(remote)):
+            sys.exit(f"{script_path} 已存在但其 REMOTE={rm_.group(1)} 不是 "
+                     f"{remote!r}——腳本會推到別的 remote。手動更新腳本"
+                     "（或刪掉讓 scaffold 重生）再重跑")
+        if not m and not re.search(rf"\b{re.escape(branch)}\b", body):
+            print(f"[note] {script_path} 已存在（客製腳本）且內文看不到分支"
+                  f"名 {branch!r}——請自行核對它推的分支與 pages.json 一致",
+                  file=sys.stderr)
+        result["update_script"] = "existing"
+    else:
+        tpl = (open(tpl_path).read()
+               .replace("__CAMPAIGN_PY__", shlex.quote(
+                   os.path.realpath(__file__)))
+               .replace("__OUTPUT_DIR__", shlex.quote(out_dir))
+               .replace("__DEPLOY_BRANCH__", shlex.quote(branch))
+               .replace("__REMOTE__", shlex.quote(remote))
+               .replace("__CI_FILE__", shlex.quote(ci_name)))
+        os.makedirs(os.path.dirname(script_path), exist_ok=True)
+        with open(script_path, "w") as f:
+            f.write(tpl)
+        os.chmod(script_path, 0o755)
+        result["update_script"] = script_path
+    return result
+
+
 def cmd_pages_setup(args):
     """依 git remote 自動選 GitHub Pages（workflow → docs/）或 GitLab
     Pages（.gitlab-ci.yml `pages` job → public/），把選擇記進
     runs/auto_research/pages.json——之後 `report` 未指定 --out 時據此決定
-    輸出目錄。--host 可覆寫自動偵測（self-hosted 網域偵測不到時用）。"""
+    輸出目錄。--host 可覆寫自動偵測（self-hosted 網域偵測不到時用）。
+    --deploy-branch <branch>（gitlab）＝artifact-branch 模式：生成站台住
+    orphan 單-commit 分支（update 腳本 amend+force-push），main 只收
+    campaign 狀態 commit——每小時 regen 的 HTML 不再汙染 main 歷史。"""
     import shutil
     proj = os.path.abspath(args.repo)
     root = os.path.join(proj, "runs", "auto_research")
@@ -293,6 +474,47 @@ def cmd_pages_setup(args):
         if host is None:
             sys.exit(f"remote {args.remote!r} 的 URL（{url or '未設定'}）看不出 "
                      "github/gitlab——用 --host github|gitlab 明講")
+    # ---- 前置 guard 全部在任何檔案副作用（nojekyll/CI 寫入/分支建立）之前 ----
+    pj_path = os.path.join(root, "pages.json")
+    prev = {}
+    if os.path.exists(pj_path):
+        try:
+            prev = json.load(open(pj_path))
+        except ValueError as e:
+            sys.exit(f"pages.json 壞了（{e}）——修好或刪掉再跑 pages-setup，"
+                     "不靜默重建以免自訂欄位無聲遺失")
+        except OSError:
+            prev = {}
+        if not isinstance(prev, dict):
+            sys.exit("pages.json 必須是 JSON object——修好或刪掉再跑")
+    if host == "github" and prev.get("deploy_branch"):
+        sys.exit("此 repo 的 pages.json 已是 artifact-branch 模式"
+                 f"（deploy_branch={prev['deploy_branch']!r}，gitlab 契約）"
+                 "——切到 github 前先手動移除該欄位並拆除 orphan 分支/"
+                 "worktree，否則 runtime 會繼續按不相容的舊契約運作")
+    dbranch = args.deploy_branch
+    if dbranch:
+        if host != "gitlab":
+            sys.exit("--deploy-branch 目前只支援 gitlab——GitHub Actions 的 "
+                     "push 觸發讀「被推分支上的 workflow 檔」，orphan 分支上"
+                     "得自帶 .github/workflows/（巢狀 tree scaffold 未實作）；"
+                     "GitHub 請沿用 default-branch 部署或手動佈置")
+        # 名字驗證交給 git 本人（自訂 regex 會漏 /pages、pages.lock 這類
+        # 非法 ref，等到 commit object 都建好才炸、留半完成 scaffold）
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", dbranch):
+            sys.exit(f"--deploy-branch {dbranch!r} 含非常規字元——換個名字")
+        if _git(proj, "check-ref-format", "--branch", dbranch,
+                check=False).returncode != 0:
+            sys.exit(f"--deploy-branch {dbranch!r} 不是合法的 git 分支名"
+                     "（check-ref-format 拒絕）")
+        # symbolic-ref：unborn HEAD（剛 init 無 commit）也拿得到所在分支名
+        # ——rev-parse --abbrev-ref 此時失敗，同名檢查漏掉會讓 scaffold 把
+        # 主分支建成 artifact root（主分支被改寫的半完成狀態）
+        cur = _git(proj, "symbolic-ref", "--quiet", "--short", "HEAD",
+                   check=False).stdout.strip()
+        if dbranch == cur:
+            sys.exit(f"--deploy-branch {dbranch!r} 是目前所在分支——artifact "
+                     "分支必須與工作分支分離（它會被 amend+force-push）")
     assets = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "assets")
     if host == "github":
         out_dir, ci_dst = "docs", os.path.join(proj, ".github", "workflows", "pages.yml")
@@ -306,17 +528,28 @@ def cmd_pages_setup(args):
         out_dir, ci_dst = "public", os.path.join(proj, ".gitlab-ci.yml")
         ci_src = os.path.join(assets, "gitlab-pages.yml")
         note = "GitLab Pages 由 `pages` job 發佈 public/（Settings → Pages 查網址）"
-    branch = _deploy_branch(proj)
+    branch = _deploy_branch(proj, args.remote)
     ci_body = open(ci_src).read()
     if host == "github" and branch != "main":
         ci_body = ci_body.replace('branches: ["main"]',
                                   f'branches: ["{branch}"]')
-    prev_ready = False                            # 重跑不降級手動合併後的標記
-    try:
-        prev = json.load(open(os.path.join(root, "pages.json")))
-        prev_ready = prev.get("host") == host and prev.get("ci_ready") is True
-    except (OSError, ValueError):
-        pass
+    if dbranch:
+        # 部署觸發改成 artifact 分支：生成物只走該分支，main 的 push（含
+        # campaign 狀態 commit）不再觸發部署——changes 過濾也不需要了
+        old_rule = ("  rules:\n"
+                    "    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'\n"
+                    "      changes:\n"
+                    "        - public/**/*\n")
+        new_rule = ("  rules:\n"
+                    f"    # 部署源＝orphan `{dbranch}` 分支（生成物專用、單 "
+                    "commit amend+force-push，\n"
+                    "    # 讓 main 歷史只留有意義的狀態/程式 commit）\n"
+                    f"    - if: '$CI_COMMIT_BRANCH == \"{dbranch}\"'\n")
+        if old_rule not in ci_body:
+            sys.exit("gitlab-pages.yml 模板的 rules 段與預期不符——模板改版後 "
+                     "--deploy-branch 的規則替換要跟著更新")
+        ci_body = ci_body.replace(old_rule, new_rule)
+    prev_ready = prev.get("host") == host and prev.get("ci_ready") is True
     installed = False
     if os.path.exists(ci_dst):
         if open(ci_dst).read() == ci_body:
@@ -335,12 +568,39 @@ def cmd_pages_setup(args):
             f.write(ci_body)
         installed = True
     ci_ready = installed or prev_ready
-    with open(os.path.join(root, "pages.json"), "w") as f:
-        json.dump({"host": host, "output_dir": out_dir,
-                   "ci_ready": ci_ready}, f, ensure_ascii=False)
-    print(json.dumps({"host": host, "remote_url": url, "ci_file": ci_dst,
-                      "ci_installed": installed, "output_dir": out_dir,
-                      "next": note}, ensure_ascii=False))
+    scaffold = None
+    if dbranch:
+        scaffold = _scaffold_artifact_branch(proj, root, dbranch, out_dir,
+                                             os.path.basename(ci_dst), ci_body,
+                                             args.remote)
+        steps = ["把 update 腳本掛進 per-job step 7（或 cron）："
+                 + (scaffold["update_script"] if scaffold["update_script"]
+                    != "existing" else "scripts/campaign/update_pages.sh 已存在"),
+                 "首次部署：跑一次 update 腳本"
+                 f"（它會 push --force-with-lease {args.remote} {dbranch}）"]
+        if scaffold["untracking_staged"]:
+            steps.insert(0, f"已解除 main 對 {out_dir}/ 的追蹤（staged）——"
+                            "請 commit 這個 untracking 到 main")
+        note = "；".join(steps) + "。" + note
+    # read-modify-write：保留 repo 自加的欄位（如 _doc_*、手動維護的
+    # deploy_branch）——全量覆寫會把 artifact-branch 設定無聲洗掉
+    pj = dict(prev)
+    pj.update({"host": host, "output_dir": out_dir, "ci_ready": ci_ready})
+    if dbranch:
+        pj["deploy_branch"] = dbranch
+        pj.setdefault("_doc_deploy_branch",
+                      "生成站台的部署分支：orphan 單-commit 分支，由 "
+                      "scripts/campaign/update_pages.sh amend+force-push；"
+                      "main 不追蹤 output_dir（只收 campaign 狀態 commit）。"
+                      "未設此欄位＝舊契約（default branch 部署）。")
+    with open(pj_path, "w") as f:
+        json.dump(pj, f, ensure_ascii=False)
+    out_obj = {"host": host, "remote_url": url, "ci_file": ci_dst,
+               "ci_installed": installed, "output_dir": out_dir,
+               "next": note}
+    if scaffold:
+        out_obj["artifact_branch"] = scaffold
+    print(json.dumps(out_obj, ensure_ascii=False))
 
 
 def _load_showcase_css():
@@ -387,6 +647,17 @@ def _publish_dir(root):
     return os.path.normpath(os.path.join(root, "..", "..", out_dir))
 
 
+def _artifact_branch_mode(root):
+    """pages.json 有 deploy_branch＝artifact-branch 模式：生成物住 orphan
+    分支（update 腳本 rsync 到 worktree 再 amend+push），main 側 output_dir
+    被 .gitignore 忽略是設計本身——gitignore 警告在此模式是誤報。"""
+    try:
+        return bool(json.load(open(os.path.join(root, "pages.json")))
+                    .get("deploy_branch"))
+    except (OSError, ValueError):
+        return False
+
+
 def _warn_if_page_ignored(path):
     """已寫入的生成頁若被 .gitignore 忽略要出聲（known-open of showcase 2.0）：
     ignored 的 HTML 不進 commit、Pages 上直接 404——而資產若未被忽略反而
@@ -409,11 +680,12 @@ def _warn_if_page_ignored(path):
               "請在 .gitignore 加例外（如 !docs/**/*.html）", file=sys.stderr)
 
 
-def _write_index(pub_dir, title):
+def _write_index(pub_dir, title, warn_ignored=True):
     """把 pub_dir 裡所有 *.html（除 index.html）整理成 landing index.html：
     卡片式連結格（vocodec 風格）——每頁標題取其 <title>、描述取其
     <meta name="description">（本工具產的頁面都有；手加的頁面沒有就只列
-    標題）。campaign-report 排最前、其餘照檔名。deterministic。"""
+    標題）。campaign-report 排最前、其餘照檔名。deterministic。
+    warn_ignored=False：artifact-branch 模式（main 側 ignore 是設計）。"""
     import html as H
     from urllib.parse import quote
     ipath = os.path.join(pub_dir, "index.html")
@@ -478,7 +750,8 @@ def _write_index(pub_dir, title):
         with os.fdopen(fd, "w") as f:
             f.write(body)
         os.replace(tmp, ipath)   # 原子換頁
-        _warn_if_page_ignored(ipath)
+        if warn_ignored:
+            _warn_if_page_ignored(ipath)
     finally:
         os.close(dirfd)          # close 即釋放 flock
     return [fn for fn, _, _ in pages]
@@ -930,7 +1203,9 @@ def cmd_report(args):
         with os.fdopen(fd, "w") as f:
             f.write("\n".join(parts) + "\n")
         os.replace(tmp, out)   # 原子換頁
-        _warn_if_page_ignored(out)
+        warn_ign = not _artifact_branch_mode(root)
+        if warn_ign:
+            _warn_if_page_ignored(out)
         # 同步 showcase.css 到發佈目錄——repo 自製頁 <link> 它即得同套視覺
         css_dst = os.path.join(outdir, "showcase.css")
         fd, tmp = tempfile.mkstemp(prefix=".css-", suffix=".tmp", dir=outdir)
@@ -943,7 +1218,7 @@ def cmd_report(args):
     # --out 指到 index.html 時不 regen index——否則剛寫好的報告會被 landing 頁蓋掉
     if not getattr(args, "no_index", False) \
             and os.path.basename(out).casefold() != "index.html":
-        idx = _write_index(os.path.dirname(out), title)
+        idx = _write_index(os.path.dirname(out), title, warn_ignored=warn_ign)
     print(json.dumps({"report": out, "ladder": os.path.exists(qp),
                       "ledger_rows": len(rows), "charts": len(chart_keys),
                       "glossary": len(gloss),
@@ -1149,7 +1424,9 @@ def cmd_demo(args):
         # 發佈資產被 .gitignore 吃掉（starter 有 *.wav）→ Pages 部署後播放
         # 器全 404。主動偵測並大聲警告（rc 0=ignored、1=否、128=非 repo）。
         ignored_warn = None
-        if plan:
+        # artifact-branch 模式：main 側 ignore 生成物（含音檔資產）是設計
+        # ——部署走 orphan 分支的 rsync，check-ignore 誤警關閉
+        if plan and not _artifact_branch_mode(root):
             import subprocess
             proj = os.path.normpath(os.path.join(root, "..", ".."))
             paths = [os.path.join(vdir, b) for _, b in plan]
@@ -1218,8 +1495,10 @@ def cmd_demo(args):
         with os.fdopen(fd, "w") as f:
             f.write(page)
         os.replace(tmp_out, out)   # 原子換頁：截斷式覆寫被 kill 會留半頁
-        _warn_if_page_ignored(out)
-        idx = _write_index(pub, _mission_title(root))
+        warn_ign = not _artifact_branch_mode(root)
+        if warn_ign:
+            _warn_if_page_ignored(out)
+        idx = _write_index(pub, _mission_title(root), warn_ignored=warn_ign)
         # 頁面已指向新版本 → 清「現行已發佈頁面沒有引用」的舊版本（與
         # legacy 未版本化目錄）。以頁面實際引用為準：無論競態誰後寫頁，
         # 最終狀態都是「頁面引用的版本必然存在」。
@@ -1324,6 +1603,9 @@ def main():
     p.add_argument("--repo", default=".")
     p.add_argument("--remote", default="origin")
     p.add_argument("--host", choices=["auto", "github", "gitlab"], default="auto")
+    p.add_argument("--deploy-branch", default=None, metavar="BRANCH",
+                   help="artifact-branch 模式（gitlab）：生成站台放 orphan 單-"
+                        "commit 分支（amend+force-push），main 不追蹤生成物")
     p.set_defaults(fn=cmd_pages_setup)
     args = ap.parse_args()
     args.fn(args)

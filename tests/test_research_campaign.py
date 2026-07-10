@@ -292,6 +292,109 @@ class TestReport(unittest.TestCase):
         run(["report", "--dir", str(root), "--out", str(out)])
         self.assertEqual(first, out.read_bytes())         # 無時間戳＝確定性
 
+    def test_pages_setup_deploy_branch_scaffold(self):
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-ab-"))
+        root = repo / "runs" / "auto_research"
+        run(["init", "--repo", str(repo)])
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(repo), "config", k, v], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                        "git@gitlab.example.com:g/p.git"], check=True)
+        (repo / "public").mkdir()
+        (repo / "public" / "index.html").write_text("<html>old</html>")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"],
+                       check=True)
+        out = json.loads(run(["pages-setup", "--repo", str(repo),
+                              "--deploy-branch", "pages"]).stdout)
+        ab = out["artifact_branch"]
+        self.assertEqual(ab["branch"], "created")
+        self.assertEqual(ab["worktree"], "created")
+        self.assertTrue(ab["untracking_staged"])      # main 曾追蹤 public/
+        # orphan：單 commit、無 parent、tree 含 CI 檔＋public 子樹
+        parents = subprocess.run(
+            ["git", "-C", str(repo), "rev-list", "--parents", "-1", "pages"],
+            capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual(len(parents), 1)             # 只有自身 sha＝無 parent
+        tree = subprocess.run(
+            ["git", "-C", str(repo), "ls-tree", "--name-only", "pages"],
+            capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual(sorted(tree), [".gitlab-ci.yml", "public"])
+        gi = (repo / ".gitignore").read_text()
+        self.assertIn("public/", gi)
+        self.assertIn(".pages-worktree/", gi)
+        self.assertIn('$CI_COMMIT_BRANCH == "pages"',
+                      (repo / ".gitlab-ci.yml").read_text())
+        self.assertNotIn("changes:", (repo / ".gitlab-ci.yml").read_text())
+        pj = json.loads((root / "pages.json").read_text())
+        self.assertEqual(pj["deploy_branch"], "pages")
+        script = repo / "scripts" / "campaign" / "update_pages.sh"
+        self.assertTrue(os.access(script, os.X_OK))
+        self.assertIn("flock", script.read_text())
+        # 冪等重跑：不重建、不重複 append
+        out2 = json.loads(run(["pages-setup", "--repo", str(repo),
+                               "--deploy-branch", "pages"]).stdout)
+        ab2 = out2["artifact_branch"]
+        self.assertEqual((ab2["branch"], ab2["worktree"],
+                          ab2["gitignore_added"], ab2["update_script"]),
+                         ("existing", "existing", [], "existing"))
+        # 無 flag 重跑不得洗掉 deploy_branch（read-modify-write）
+        run(["pages-setup", "--repo", str(repo)])
+        pj = json.loads((root / "pages.json").read_text())
+        self.assertEqual(pj.get("deploy_branch"), "pages")
+        # artifact-branch 模式下 main 側 ignore 生成頁是設計——不誤警
+        r = run(["report", "--dir", str(root)])
+        self.assertNotIn("被 .gitignore 忽略", r.stderr)
+        # 目前所在分支不可當部署分支
+        r = run(["pages-setup", "--repo", str(repo),
+                 "--deploy-branch",
+                 subprocess.run(["git", "-C", str(repo), "rev-parse",
+                                 "--abbrev-ref", "HEAD"], capture_output=True,
+                                text=True, check=True).stdout.strip()],
+                ok=False)
+        self.assertIn("目前所在分支", r.stderr)
+
+    def test_pages_setup_deploy_branch_guards(self):
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-abg-"))
+        run(["init", "--repo", str(repo)])
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(repo), "config", k, v], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                        "git@gitlab.example.com:g/p.git"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init",
+                        "--allow-empty"], check=True)
+        # 非法分支名（git 規則，非自訂 regex）在建任何東西之前就擋
+        r = run(["pages-setup", "--repo", str(repo),
+                 "--deploy-branch", "pages.lock"], ok=False)
+        self.assertIn("check-ref-format", r.stderr)
+        self.assertFalse((repo / ".gitlab-ci.yml").exists())
+        # 既有同名分支不是單-commit artifact 分支 → 擋（防 amend 掉正常分支）
+        subprocess.run(["git", "-C", str(repo), "branch", "dev"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "x",
+                        "--allow-empty"], check=True)   # main 2 commits
+        subprocess.run(["git", "-C", str(repo), "branch", "-f", "dev"],
+                       check=True)
+        r = run(["pages-setup", "--repo", str(repo),
+                 "--deploy-branch", "dev"], ok=False)
+        self.assertIn("orphan artifact", r.stderr)
+        # 正常 scaffold 後：worktree 掛錯分支要擋
+        run(["pages-setup", "--repo", str(repo), "--deploy-branch", "pages"])
+        pj_path = repo / "runs" / "auto_research" / "pages.json"
+        r = run(["pages-setup", "--repo", str(repo),
+                 "--deploy-branch", "pages2"], ok=False)
+        self.assertIn("checkout 在", r.stderr)
+        # artifact 模式（gitlab）不能直接 --host github（殘留 deploy_branch
+        # 會讓 runtime 誤判契約）
+        r = run(["pages-setup", "--repo", str(repo), "--host", "github"],
+                ok=False)
+        self.assertIn("artifact-branch", r.stderr)
+        # 壞 pages.json 不靜默重建（自訂欄位會無聲遺失）
+        pj_path.write_text("{broken")
+        r = run(["pages-setup", "--repo", str(repo)], ok=False)
+        self.assertIn("pages.json 壞了", r.stderr)
+
     def test_report_chart_payload_escaped_and_overflow_safe(self):
         import re
         repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-xss-"))

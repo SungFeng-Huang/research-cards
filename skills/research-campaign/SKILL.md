@@ -41,6 +41,9 @@ description: >-
   ledger／job 鏈）。
 - `assets/pages-workflow.yml` — GitHub Pages 部署 workflow 模板。
 - `assets/gitlab-pages.yml` — GitLab CI Pages job 模板（發佈 `public/`）。
+- `assets/update-pages.sh.template` — artifact-branch 模式的 repo 端刷新
+  腳本模板（`pages-setup --deploy-branch` 生成；flock／無變動不 amend／
+  state commit pathspec 隔離）。
 - `assets/showcase.css` — **showcase 頁的預設設計系統**（vocodec 風格：
   色票 tokens、.tiles 狀態磚、.card 圖表卡、.chip 徽章、.report-list
   landing 卡、.examples/.audio-grid 對聽卡）。report/index/demo 內嵌它
@@ -180,6 +183,36 @@ regen report（有 progress.json 也 regen progress）→ 連同 ledger/queue
 不需要另外的排程器。ci_ready=false（CI 檔待手動合併）期間 report 照產，
 但不會部署——合併完記得把 pages.json 的 ci_ready 改 true。commit message 慣例：
 `Auto-update campaign progress page (session refresh)`。
+
+**Artifact-branch 模式（選配，高頻 regen 的 campaign 用）**：`pages.json`
+含 `deploy_branch: "<branch>"` 時，部署契約改為——
+- 生成站台住該 **orphan 分支**（單一 commit，每次 regen 後由 repo 內
+  `scripts/campaign/update_pages.sh` rsync 到 `.pages-worktree/` →
+  `commit --amend` → `push -f`；per-job step 7 呼叫這支腳本），CI rule
+  是分支條件（`$CI_COMMIT_BRANCH == "<branch>"`）；**不得**把 output_dir
+  內容 commit 到 main。
+- main 只收 campaign 狀態（ledger/queue/glossary/progress.json 等）的
+  **pathspec-scoped** commit，且僅在內容真變動時——全域 staged 的無關
+  內容絕不能被 state commit 吃進去。
+- **未設 `deploy_branch` ＝上面的原契約**（default-branch 部署、paths
+  過濾），完全向後相容；`report`/`progress` runtime 不感知部署分支
+  （它們只寫本地 output_dir），僅 gitignore 誤忽略警告在此模式關閉
+  （main 側 ignore 生成物是設計本身）。
+- 動機：每小時 regen 的 HTML（內嵌 log mtime、新曲線點）必然天天數十
+  commit——放 orphan 分支 amend 後，main 歷史只剩有意義的 commit。
+
+scaffold 一鍵佈置（gitlab；冪等、重跑安全）：
+
+```bash
+python3 scripts/campaign.py pages-setup --repo <repo> --deploy-branch pages
+# 做的事：orphan 分支（git <2.42 無 worktree add --orphan——以 hash-object/
+#   mktree/commit-tree plumbing 建，tree=CI 檔＋既有 output_dir 子樹）、
+#   git worktree add .pages-worktree、main 的 .gitignore 補 output_dir/
+#   與 .pages-worktree/、git rm -r --cached 解除 main 追蹤（untracking
+#   commit 留給使用者）、CI rule 換分支條件、deploy_branch 寫進 pages.json、
+#   生成 update 腳本模板（flock 防重疊、site 無變動不 amend、狀態 commit
+#   pathspec 隔離——三個都是實戰踩雷後的硬規矩）
+```
 
 報告頁自動含：狀態磚、ladder 表（rung 的實驗內容／目標／gate／備註——
 取 queue.json 選配欄位 `title`/`goal`/`gate`/`note`）、**ledger 指標圖**

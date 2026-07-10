@@ -133,6 +133,23 @@ class TestConfig(Base):
         self.assertAlmostEqual(train[20]["loss"], 0.5)    # 102 覆寫 101
         self.assertEqual([j["job_id"] for j in jobs], ["101", "102"])
 
+    def test_custom_job_group_re_with_named_group(self):
+        # 自訂 job_group_re 帶 (?P<job>…)：曾因 Match.groupindex（不存在，
+        # 應為 Match.re.groupindex）AttributeError 一觸即崩
+        d = self.repo / "slurm_logs"
+        d.mkdir(exist_ok=True)
+        (d / "trainA-101.out").write_text("step=10 loss=1.0\n")
+        (d / "trainB-102.out").write_text("step=20 loss=0.9\n")
+        self.write_cfg(job_group_re=r"train(?P<job>[A-Z])-\d+")
+        cfg = pp.load_progress_config(str(self.root))
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
+        self.assertEqual(sorted(j["job_id"] for j in jobs), ["A", "B"])
+        self.write_cfg(job_group_re=r"train[A-Z]-\d+")   # 無 named group → 整段 match
+        cfg = pp.load_progress_config(str(self.root))
+        train, jobs = pp.parse_logs(str(self.repo), cfg, cfg["log_glob"])
+        self.assertEqual(sorted(j["job_id"] for j in jobs),
+                         ["trainA-101", "trainB-102"])
+
     def test_same_basename_across_dirs_are_separate_attempts(self):
         # <job>_<task>/train.out：不同目錄的同名檔不得合成一個 attempt
         for job, (s0, s1) in [("11111_0", (0, 101)), ("22222_0", (100, 201))]:

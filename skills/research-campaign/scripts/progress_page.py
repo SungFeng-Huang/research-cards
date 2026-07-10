@@ -263,7 +263,7 @@ def _job_group(relpath, group_re):
     if group_re is not None:
         m = group_re.search(relpath)
         if m:
-            return m.group("job") if "job" in m.groupindex else m.group(0)
+            return m.group("job") if "job" in m.re.groupindex else m.group(0)
     comps = relpath.split(os.sep)
     for comp in reversed(comps[:-1]):
         m = re.fullmatch(r"(\d+)_\d+", comp)

@@ -10,9 +10,10 @@ Scans managed folders and reports:
   duplicate_ids        - two files claiming the same heptabase_id
   state_orphans        - state.json entries whose file is missing
   untracked_files      - .md files in managed folders not in state.json
-  journal_issues       - vault-root daily notes (journal bridge): malformed
-                         managed markers, missing embeds / broken wikilinks
-                         inside the managed block, leftover placeholders
+  journal_issues       - daily notes (journal bridge; folder from
+                         obsidian.journal.folder, default vault root):
+                         malformed managed markers, missing embeds / broken
+                         wikilinks inside the managed block, placeholders
 """
 import json, os, re, subprocess, sys
 
@@ -97,17 +98,19 @@ for folder in FOLDERS:
 
 out["duplicate_ids"] = [{"id": k, "files": v} for k, v in ids.items() if len(v) > 1]
 
-# --- journal bridge: vault-root daily notes (managed block only — user
-# content outside the markers is theirs, not sync output to be verified)
+# --- journal bridge: daily notes under obsidian.journal.folder (default
+# vault root; managed block only — user content outside the markers is
+# theirs, not sync output to be verified)
 out["journal_issues"] = []
 J_START, J_END = "<!-- hepta-journal:start -->", "<!-- hepta-journal:end -->"
 root_att = set()
 if os.path.isdir(os.path.join(VAULT, "attachments")):
     root_att = set(os.listdir(os.path.join(VAULT, "attachments")))
-for fn in sorted(os.listdir(VAULT)):
+JDIR = hbconfig.journal_dir(_cfg)
+for fn in sorted(os.listdir(JDIR)) if os.path.isdir(JDIR) else []:
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.md", fn):
         continue
-    text = open(os.path.join(VAULT, fn)).read()
+    text = open(os.path.join(JDIR, fn)).read()
     n_s, n_e = text.count(J_START), text.count(J_END)
     if (n_s, n_e) == (0, 0):
         continue  # daily note the bridge never claimed

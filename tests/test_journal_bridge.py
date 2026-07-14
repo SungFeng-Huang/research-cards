@@ -31,12 +31,13 @@ def file_doc(text, fid):
         {"type": "file", "attrs": {"id": None, "fileId": fid}}]}
 
 
-def load_sync(tmp):
+def load_sync(tmp, journal=None):
     cfg = {"backend": "both",
            "heptabase": {"workspace_id": "0" * 8,
                          "collections": {"papers": {"tag_id": "0" * 36}}},
            "obsidian": {"vault": tmp, "folders": {"papers": "Papers"},
-                        "journal": {"enabled": True, "days": 3}}}
+                        "journal": {"enabled": True, "days": 3,
+                                    **(journal or {})}}}
     cfg_path = os.path.join(tmp, "config.json")
     json.dump(cfg, open(cfg_path, "w"))
     os.environ["RESEARCH_CARDS_CONFIG"] = cfg_path
@@ -140,6 +141,21 @@ class TestJournalBridge(unittest.TestCase):
         self.assertIn(self.sync.J_END, text)
         # empty days with no existing note are not created
         self.assertFalse(os.path.exists(self.note("2026-07-07")))
+
+    def test_journal_folder_subdir(self):
+        self.sync = load_sync(self.tmp, journal={"folder": "Journal"})
+        self._run({"2026-07-08": para_doc("hello sub")})
+        sub = os.path.join(self.tmp, "Journal", "2026-07-08.md")
+        self.assertTrue(os.path.exists(sub))
+        self.assertIn("hello sub", open(sub, encoding="utf-8").read())
+        # nothing lands at the vault root when a folder is configured
+        self.assertFalse(os.path.exists(self.note("2026-07-08")))
+
+    def test_journal_folder_escape_rejected(self):
+        for bad in ("../outside", "/tmp/abs", "a/../../b"):
+            self.sync = load_sync(self.tmp, journal={"folder": bad})
+            with self.assertRaises(self.sync.hbconfig.ConfigError):
+                self._run({"2026-07-08": para_doc("x")})
 
     def test_user_content_preserved(self):
         with open(self.note("2026-07-08"), "w") as f:

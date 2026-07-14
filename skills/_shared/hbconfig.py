@@ -129,6 +129,22 @@ def plugin_root():
         return None
 
 
+def journal_dir(cfg):
+    """Journal daily-note dir: vault + obsidian.journal.folder (vault-
+    relative; empty/absent = vault root, backward compatible). Values
+    escaping the vault (absolute paths, '..') are rejected — the bridge
+    must never touch files outside it."""
+    vault = os.path.normpath(cfg["obsidian"]["vault"])
+    folder = ((cfg["obsidian"].get("journal") or {}).get("folder") or "")
+    jdir = os.path.normpath(os.path.join(vault, folder))
+    if os.path.isabs(folder) or (jdir != vault
+                                 and not jdir.startswith(vault + os.sep)):
+        raise ConfigError(
+            "obsidian.journal.folder 必須是 vault 內的相對路徑"
+            f"（不可為絕對路徑或以 .. 逃出 vault），目前是 {folder!r}")
+    return jdir
+
+
 def collections(cfg):
     """Unified collection view: key -> {tag_id?, tag_name?, filter?, folder?, new_card_props?}."""
     out = {}

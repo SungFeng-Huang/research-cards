@@ -61,8 +61,9 @@ iCloud Drive, run OUTSIDE the sandbox (the terminal needs Full Disk Access).
 - **Renames**: title change renames the .md file and rewrites wikilinks in
   managed folders.
 - **Journal bridge** (opt-in: `obsidian.journal.enabled`, window
-  `obsidian.journal.days`, default 30): one-way mirror of the Heptabase
-  journal into vault-root `<YYYY-MM-DD>.md` daily notes. The sync owns ONLY
+  `obsidian.journal.days`, default 30; folder `obsidian.journal.folder`,
+  vault-relative, empty = vault root): one-way mirror of the Heptabase
+  journal into `<YYYY-MM-DD>.md` daily notes under that folder. The sync owns ONLY
   the marker block `<!-- hepta-journal:start -->` … `<!-- hepta-journal:end -->`
   (kept at the top); everything outside it — the user's own daily writing on
   any device — is never touched. Incremental per-day via `contentMd5`

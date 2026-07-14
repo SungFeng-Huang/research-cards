@@ -632,8 +632,11 @@ def write_managed_block(path, body, dry, claim_ok=True):
 
 def sync_journals(state, resolver, dry):
     """One-way journal leg: mirror the last N days of the Heptabase journal
-    into the managed block of vault-root daily notes. Config
-    obsidian.journal.{enabled, days}; incremental via per-day contentMd5.
+    into the managed block of daily notes. Config
+    obsidian.journal.{enabled, days, folder} — `folder` is the vault-relative
+    daily-note directory (empty/absent = vault root, backward compatible;
+    values escaping the vault are rejected); incremental via per-day
+    contentMd5.
     The user's content OUTSIDE the markers is never touched; edits INSIDE
     the markers are overwritten on the next source change (documented
     one-way semantics). Reverse flow (daily note -> Heptabase) is a
@@ -647,6 +650,9 @@ def sync_journals(state, resolver, dry):
         state["journal_window"] = []
         return
     jstate = state.setdefault("journals", {})
+    jdir = hbconfig.journal_dir(_cfg)
+    if not dry:
+        os.makedirs(jdir, exist_ok=True)
     att_dir = os.path.join(VAULT, "attachments")
     run_digest = _journal_run_digest(resolver)
     today = datetime.date.today()
@@ -657,7 +663,7 @@ def sync_journals(state, resolver, dry):
         try:
             note = cli("journal", "read", date)
             md5 = note.get("contentMd5")
-            path = os.path.join(VAULT, f"{date}.md")
+            path = os.path.join(jdir, f"{date}.md")
             prev = jstate.get(date) or {}
             managed = bool(prev.get("managed"))
             if (not REBUILD and prev.get("md5") == md5

@@ -29,7 +29,7 @@ allowed-tools: Bash(osascript *) Bash(heptabase *) Bash(python3 *) Bash(mktemp *
 讀 `~/.config/research-cards/config.json`（樣板：plugin 根目錄 `config.example.json`）。
 `heptabase`/`both`（或無 config）：原 heptabase CLI 路徑，行為不變（自動化流程安全）。
 `obsidian`：卡片＝vault `Papers/` 的 .md（frontmatter 存 arxiv_id/source_type/tasks），
-journal＝vault 根目錄的每日筆記 `<date>.md`，顏色標記＝`<span style="color:…">`、
+journal＝每日筆記 `<date>.md`（資料夾由 `obsidian.journal.folder` 設定，空＝vault 根），顏色標記＝`<span style="color:…">`、
 toggle＝`- ⏵ `字首 bullet（plugin markdown 方言，Obsidian 可渲染、不可誤點）。`check-tasks` 的選項清單在
 obsidian 模式改為「OVERVIEW_TASKS ∪ vault 既有 tasks 值」（無 tag database 可查）。
 

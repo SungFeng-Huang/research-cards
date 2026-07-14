@@ -313,9 +313,12 @@ class ObsidianBackend(Backend):
                     return out
         return out
 
-    # ---- journal: vault-root daily note <date>.md (Obsidian daily-notes) ---
+    # ---- journal: daily note <date>.md — folder from obsidian.journal.folder
+    # (empty string = vault root, backward compatible) ----------------------
     def _journal_path(self, date_str):
-        return os.path.join(self.vault, date_str + ".md")
+        jdir = hbconfig.journal_dir(self.cfg)
+        os.makedirs(jdir, exist_ok=True)
+        return os.path.join(jdir, date_str + ".md")
 
     def journal_append(self, date_str, markdown):
         with open(self._journal_path(date_str), "a") as f:

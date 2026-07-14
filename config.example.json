@@ -102,9 +102,10 @@
       "mirror_mention_edges": true
     },
     "journal": {
-      "$comment": "Journal 橋接（單向）：Heptabase journal → vault 根的 <YYYY-MM-DD>.md，只寫管理標記區塊（<!-- hepta-journal:start/end -->）——區塊外的手寫內容永不動；區塊內的編輯會在來源變更時被覆寫。days=滾動視窗。反向（daily note → Heptabase）為 non-goal。",
+      "$comment": "Journal 橋接（單向）：Heptabase journal → vault 的 <YYYY-MM-DD>.md，只寫管理標記區塊（<!-- hepta-journal:start/end -->）——區塊外的手寫內容永不動；區塊內的編輯會在來源變更時被覆寫。days=滾動視窗。folder=daily note 所在的 vault 相對資料夾（空字串/省略＝vault 根，向後相容；不可為絕對路徑或以 .. 逃出 vault；搬資料夾時先移動既有 <date>.md 再改此值）。反向（daily note → Heptabase）為 non-goal。",
       "enabled": false,
-      "days": 30
+      "days": 30,
+      "folder": ""
     }
   },
   "integrations": {

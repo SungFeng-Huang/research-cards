@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.21.0 — journal daily notes in a vault subfolder
+
+- New `obsidian.journal.folder` (vault-relative; empty/absent = vault root,
+  backward compatible): the journal bridge writes its `<YYYY-MM-DD>.md` daily
+  notes under that folder, and `verify` scans the same place. Existing notes
+  are not moved automatically — relocate them before changing the value.
+- Path assembly is centralized in `hbconfig.journal_dir()`, which normalizes
+  the value and rejects anything escaping the vault (absolute paths, `..`),
+  so a mistyped config can never write daily notes outside the vault.
+
+## 0.20.0 — artifact-branch deployment for campaign pages
+
+- `pages-setup --deploy-branch <branch>` (GitLab): idempotent scaffold of an
+  artifact branch for the showcase — anchored .gitignore, CI rule, pages.json
+  bookkeeping; works from an unborn HEAD and inside worktrees.
+- `assets/update-pages.sh.template`: flock-serialized rsync → amend →
+  `--force-with-lease` push with a state commit; guards against unstaged/
+  untracked files, rolls back on push failure, handles the first-push
+  empty-SHA lease.
+
+## 0.19.0 — showcase interactivity + multi-run progress
+
+- Glossary metric capsules and interactive JS ledger metric charts on the
+  campaign showcase pages.
+- Progress dashboard: multiple runs on a shared global step axis, job-chain
+  aggregation. Fixes: `tz_offset_hours` cross-campaign pollution + range
+  validation, eval bar-chart all-zero NaN, Slurm array-task handling notes.
+
 ## 0.18.0 — research-campaign showcase 2.0
 
 - Merged `cluster/append-card-overflow` follow-on branch `cluster/showcase-extras`

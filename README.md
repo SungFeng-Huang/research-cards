@@ -446,12 +446,13 @@ wiki 的 [Ecosystem Integration](https://github.com/SungFeng-Huang/research-card
 ## 整合（選用）
 
 **Academic Research Skills（ARS）＋ experiment-agent（研究產出線）**——
-research-cards 管**長期知識庫**；同一位作者生態的
-[ARS](https://github.com/Imbad0202/academic-research-skills)（research →
+research-cards 管**長期知識庫**；[Imbad0202](https://github.com/Imbad0202)
+的 [ARS](https://github.com/Imbad0202/academic-research-skills)（research →
 write → review → revise 的單篇論文 pipeline，另有
 [Codex 版](https://github.com/Imbad0202/academic-research-skills-codex)）與
 [experiment-agent](https://github.com/Imbad0202/experiment-agent)（實驗
-執行＋監控＋統計解讀＋重現驗證）管**單篇稿件與單次實驗**。三者互不依賴、
+執行＋監控＋統計解讀＋重現驗證）管**單篇稿件與單次實驗**——那兩者彼此
+同作者、互相原生整合，與本專案無隸屬關係。三者互不依賴、
 但可深度混用：深查結果 clip 回卡片庫、`bib-export`／總覽卡／專案帳本餵
 ARS 寫作線、experiment-agent 的 validate 當 campaign ledger 的第二雙眼。
 分工矩陣、重疊處怎麼選、四條混用 recipe 見 wiki：

@@ -105,9 +105,13 @@ description: >-
 4. **記帳**：每個完成的評測寫一行 ledger（schema 由工具把關）：
    ```bash
    python3 scripts/campaign.py ledger-append --dir <repo>/runs/auto_research \
-     --json '{"experiment":"E1","config_hash":"…","metrics":{…},
+     --json '{"experiment":"E1","config_hash":"…",
+              "purpose":"本列在驗證什麼（一句話）","metrics":{…},
               "significant":false,"decision":"…","playbook_rules_cited":[…]}'
    ```
+   `purpose` 每列都要給——report/progress 頁的「驗證目標」欄靠它區別
+   同 rung 的多列（缺值工具會警告；progress 頁不做 rung fallback、直接
+   顯示 —）。`decision` 寫成自足敘事（結論＋關鍵數字＋脈絡承接）。
    更新 queue.json 狀態（pending|running|done|failed）。
 5. **Step-7 掛鉤（job 收尾）**：code/config/ledger push 之前，若有裝
    showcase 層（Mode 4）先 regen report 一起 commit（觸發 Pages 自動
@@ -224,8 +228,9 @@ python3 scripts/campaign.py pages-setup --repo <repo> --deploy-branch pages
 （出現 ≥2 次的數值 metric 一張互動小圖，巢狀 metrics 攤平成 `key.sub`；
 x＝ledger 順序、游標懸停顯示 rung 名與精確值；單次數值在 Ledger 表的
 指標膠囊可見，不畫孤點）、ledger 全表（metrics 逐項成**指標膠囊**，
-滑過即顯示指標說明；「驗證目標」欄由 experiment id 前綴對應 ladder rung，
-ledger row 可加選配 `purpose` 欄標子實驗角色）、BLOCKED 橫幅；無時間戳
+滑過即顯示指標說明；「驗證目標」欄＝該列的 `purpose`（step 4 的必填慣例；
+缺值的 legacy 列 report 退回所屬 rung 的 title、progress 頁顯示 —），
+experiment 名稱滑過可看所屬 rung 的完整內容與 gate）、BLOCKED 橫幅；無時間戳
 （輸出確定性，發佈時間交給 git 歷史）。指標說明來自選配的
 `runs/auto_research/glossary.json`（`{"指標名": "說明"}`，支援攤平前綴
 如 `detail`——campaign 起跑時就把會入帳的指標寫進去，讀者才看得懂）。

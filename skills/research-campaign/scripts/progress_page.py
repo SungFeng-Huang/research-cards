@@ -800,6 +800,13 @@ TEMPLATE = r"""<!doctype html>
   .card h3 { font-size:14.5px; margin:0 0 2px; }
   .card .note { font-size:12px; color:var(--faint); margin:0 0 6px; }
   .legend { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12.5px; color:var(--muted); margin:4px 0 2px; }
+  .evsel-ck { text-align:center; }
+  .evsel-ck input { accent-color:#2a78d6; cursor:pointer; }
+  .swk { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:7px; vertical-align:-1px; }
+  .evsel-bar { display:flex; gap:8px; align-items:center; }
+  .evsel-bar button { font:inherit; font-size:12px; padding:2px 10px; border:1px solid var(--line);
+           border-radius:8px; background:var(--bg); color:var(--ink); cursor:pointer; }
+  .evsel-n { color:var(--muted); font-size:12px; }
   .legend .key { display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:5px; border-radius:1px; }
   svg text { font:11.5px system-ui,sans-serif; fill:var(--faint); }
   .tt { position:absolute; pointer-events:none; background:var(--panel); border:1px solid var(--line);
@@ -850,10 +857,10 @@ TEMPLATE = r"""<!doctype html>
   </details>
   <h2 id="evalsH2" hidden></h2>
   <p class="sub" id="evalsNote" hidden></p>
-  <div class="charts" id="evalsCharts"></div>
-  <details id="evalsGroups" hidden><summary>評測集設定說明（各組合代表什麼）</summary>
+  <details id="evalsGroups" open hidden><summary id="evalsGroupsSummary">評測集設定說明</summary>
     <div class="wrap" style="margin-top:10px"><table id="evalsGroupsTable"></table></div>
   </details>
+  <div class="charts" id="evalsCharts"></div>
   <details id="evalsTblWrap" hidden style="margin-top:10px"><summary>驗證評測數據表</summary>
     <div class="wrap" style="margin-top:10px"><table id="evalsTable"></table></div>
   </details>
@@ -1183,13 +1190,17 @@ if (RUNS.length > 1){
     bar.appendChild(b);
   });
 }
-function barChart(host, title, cats, serNames, matrix, tipOf){
-  // 分組柱狀圖：cats × series；每根柱 hover 立即顯示（組合, series, 精確值）
+function barChart(host, title, cats, serNames, matrix, tipOf, colors, autoResize){
+  // 分組柱狀圖：cats × series；每根柱 hover 立即顯示（組合, series, 精確值）。
+  // colors（選配）＝逐 series 指定色——evals 勾選過濾時各組顏色才不會跳動。
+  // autoResize=false：呼叫端自行統一處理 resize（如 evals 每次勾選整批重建，
+  // 若每個 instance 都掛 window listener 會隨互動線性累積——review P2）。
+  const colorOf = i => (colors && colors[i]) || PAL[i % PAL.length];
   const card = document.createElement('div'); card.className = 'card';
   const h3 = document.createElement('h3'); h3.textContent = title; card.appendChild(h3);
   const lg = document.createElement('div'); lg.className = 'legend';
   serNames.forEach((nm, i) => { const it = document.createElement('span');
-    const k = document.createElement('i'); k.className = 'key'; k.style.background = PAL[i % PAL.length];
+    const k = document.createElement('i'); k.className = 'key'; k.style.background = colorOf(i);
     it.appendChild(k); it.appendChild(document.createTextNode(nm)); lg.appendChild(it); });
   if (serNames.length >= 2) card.appendChild(lg);
   const box = document.createElement('div'); card.appendChild(box);
@@ -1226,7 +1237,7 @@ function barChart(host, title, cats, serNames, matrix, tipOf){
         if (v === null || v === undefined || Number.isNaN(v)) return;
         const x = gx - (serNames.length * bw) / 2 + si * bw;
         const rect = add('rect', {x: x, y: Y(v), width: bw - 2,
-          height: Math.max(1, H - m.b - Y(v)), fill: PAL[si % PAL.length], rx: 2});
+          height: Math.max(1, H - m.b - Y(v)), fill: colorOf(si), rx: 2});
         rect.addEventListener('pointerenter', ev => {
           tt.textContent = '';
           const tl = document.createElement('div'); tl.className = 't'; tl.textContent = c;
@@ -1254,8 +1265,10 @@ function barChart(host, title, cats, serNames, matrix, tipOf){
     box.appendChild(svg);
   }
   requestAnimationFrame(render);   // 同上：延後首繪防首卡全寬破圖
-  let raf = null;
-  window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); });
+  if (autoResize !== false){
+    let raf = null;
+    window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); });
+  }
 }
 if (D.evals){
   document.getElementById('evalsH2').hidden = false;
@@ -1268,12 +1281,23 @@ if (D.evals){
     D.evals.rows);
   if (D.evals.groups && D.evals.groups.length){
     document.getElementById('evalsGroups').hidden = false;
-    fillTable('evalsGroupsTable', ['評測集', '設定'], D.evals.groups);
+    // 有 chart 時，表格由下方 chart 區塊建（含勾選欄＋色塊）；無 chart 退回純
+    // 說明表——summary 文案跟著分流，別對無圖的設定宣稱「勾選＝顯示於圖表」
+    if (D.evals.chart){
+      document.getElementById('evalsGroupsSummary').textContent =
+        '評測集選擇與設定說明（勾選＝顯示於下方圖表）';
+    } else {
+      fillTable('evalsGroupsTable', ['評測集', '設定'], D.evals.groups);
+    }
   }
   if (D.evals.chart){
     const ch = D.evals.chart;
     let cats = [], sers = [];
     D.evals.rows.forEach(r => {
+      // 只收「在任一 value 欄有有限值」的列——不同 schema 的評測（如 spk_sim
+      // 只有自己的欄位）不會把 '?' 之類的空類別擠進 x 軸
+      const hasVal = ch.value_cols.some(vc => typeof r[vc] === 'number' && Number.isFinite(r[vc]));
+      if (!hasVal) return;
       if (!cats.includes(String(r[ch.x_col]))) cats.push(String(r[ch.x_col]));
       if (!sers.includes(String(r[ch.series_col]))) sers.push(String(r[ch.series_col]));
     });
@@ -1282,15 +1306,83 @@ if (D.evals){
       cats = cats.slice().sort((a, b) => pos(a) - pos(b));
     }
     const evHost = document.getElementById('evalsCharts');
-    ch.value_cols.forEach(vc => {
-      const colName = D.evals.columns[vc] || ('col' + vc);
-      const matrix = sers.map(sn => cats.map(cn => {
-        const row = D.evals.rows.find(r => String(r[ch.x_col]) === cn && String(r[ch.series_col]) === sn);
-        const v = row ? row[vc] : null;
-        return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
-      }));
-      barChart(evHost, colName, cats, sers, matrix, (D.glossary||{})[colName] ? colName : '');
+    // ---- 評測集選擇表：設定說明表升級為選擇器（位於圖表上方）----
+    // 勾選＝第一欄；色塊併入「評測集」欄（＝該組在圖中的顏色）；25+ 組時靠
+    // 勾選過濾，避免全畫擠爆。
+    // Object.create(null)：series 名是任意字串——"__proto__" 之類的合法名稱
+    // 在普通 object 上會踩到原型 setter（review P3）
+    const serColor = Object.create(null); sers.forEach((sn, i) => { serColor[sn] = PAL[i % PAL.length]; });
+    const checked = Object.create(null); sers.forEach(sn => { checked[sn] = true; });
+    const descOf = Object.create(null); (D.evals.groups || []).forEach(g => { descOf[String(g[0])] = g[1]; });
+    document.getElementById('evalsGroups').hidden = false;
+    const gt = document.getElementById('evalsGroupsTable');
+    gt.textContent = '';
+    const thr = document.createElement('tr');
+    [['顯示', '勾選＝畫進下方圖表'], ['評測集', '色塊＝該組在圖中的顏色'], ['設定', '']].forEach(p => {
+      const th = document.createElement('th'); th.textContent = p[0];
+      if (p[1]) th.dataset.tip = p[1]; thr.appendChild(th); });
+    gt.appendChild(thr);
+    // 全選/全不選＋計數（跨欄工具列）
+    const bar = document.createElement('tr');
+    const btd = document.createElement('td'); btd.colSpan = 3;
+    const bwrap = document.createElement('div'); bwrap.className = 'evsel-bar';
+    const boxes = [];
+    const setAll = on => { sers.forEach(sn => { checked[sn] = on; });
+      boxes.forEach(b => { b.checked = on; }); renderEvals(); };
+    const mkBtn = (txt, fn) => { const b = document.createElement('button');
+      b.type = 'button'; b.textContent = txt; b.addEventListener('click', fn); return b; };
+    bwrap.appendChild(mkBtn('全選', () => setAll(true)));
+    bwrap.appendChild(mkBtn('全不選', () => setAll(false)));
+    const pcount = document.createElement('span'); pcount.className = 'evsel-n';
+    bwrap.appendChild(pcount); btd.appendChild(bwrap); bar.appendChild(btd); gt.appendChild(bar);
+    sers.forEach(sn => {
+      const tr = document.createElement('tr');
+      const td0 = document.createElement('td'); td0.className = 'evsel-ck';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
+      cb.addEventListener('change', () => { checked[sn] = cb.checked; renderEvals(); });
+      boxes.push(cb); td0.appendChild(cb);
+      const td1 = document.createElement('td');
+      const k = document.createElement('i'); k.className = 'swk';
+      k.style.background = serColor[sn];
+      td1.appendChild(k); td1.appendChild(document.createTextNode(sn));
+      const td2 = document.createElement('td'); td2.textContent = descOf[sn] || '—';
+      tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); gt.appendChild(tr);
     });
+    // groups 有登記、但圖上沒有任何有限值的組——列出說明但不給勾選
+    (D.evals.groups || []).forEach(g => {
+      const n = String(g[0]); if (sers.includes(n)) return;
+      const tr = document.createElement('tr');
+      const td0 = document.createElement('td'); td0.className = 'evsel-ck'; td0.textContent = '—';
+      td0.dataset.tip = '此組在圖表指標上沒有數值（不同 schema 或全缺值），僅列說明';
+      const td1 = document.createElement('td'); td1.textContent = n;
+      const td2 = document.createElement('td'); td2.textContent = g[1] || '—';
+      tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); gt.appendChild(tr);
+    });
+    function renderEvals(){
+      evHost.textContent = '';
+      const on = sers.filter(sn => checked[sn]);
+      pcount.textContent = '顯示 ' + on.length + ' / ' + sers.length + ' 組';
+      if (!on.length){ const p = document.createElement('p'); p.className = 'sub';
+        p.textContent = '（未勾選任何評測集）'; evHost.appendChild(p); return; }
+      ch.value_cols.forEach(vc => {
+        const colName = D.evals.columns[vc] || ('col' + vc);
+        const matrix = on.map(sn => cats.map(cn => {
+          const row = D.evals.rows.find(r => String(r[ch.x_col]) === cn && String(r[ch.series_col]) === sn);
+          const v = row ? row[vc] : null;
+          return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+        }));
+        barChart(evHost, colName, cats, on, matrix,
+                 (D.glossary||{})[colName] ? colName : '',
+                 on.map(sn => serColor[sn]),    // 勾選增減時各組顏色保持穩定
+                 false);                        // resize 由下方統一 listener 處理
+      });
+    }
+    renderEvals();
+    // 單一共用 resize listener：整批重建 evals 圖（每張圖自掛 listener 會隨
+    // 勾選互動線性累積——review P2）
+    let evRaf = null;
+    window.addEventListener('resize', () => {
+      cancelAnimationFrame(evRaf); evRaf = requestAnimationFrame(renderEvals); });
   }
 }
 if (D.glossary && Object.keys(D.glossary).length){
@@ -1307,11 +1399,11 @@ if (D.queue && Array.isArray(D.queue.experiments)){
 } else {
   fillTable('ladder', ['ID'], [['（尚無 queue.json）']]);
 }
-fillTable('ledger', ['實驗', '顯著', '決策'],
+fillTable('ledger', ['實驗', '驗證目標（本列）', '顯著', '決策'],
   (D.ledger || []).length
-    ? D.ledger.map(r => [r.experiment,
+    ? D.ledger.map(r => [r.experiment, r.purpose || '—',
         r.significant === true ? '是' : (r.significant === false ? '否' : '—'), r.decision || '—'])
-    : [['（尚無 ledger 紀錄）', '', '']]);
+    : [['（尚無 ledger 紀錄）', '', '', '']]);
 fillJobsTable();
 
 /* 即時 tooltip：所有 [data-tip] 元素（表頭/實驗欄…）滑過立刻顯示 */

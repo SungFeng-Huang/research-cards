@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.22.0 — per-row verification goals + evals series selector
+
+- Ledger rows carry a per-row `purpose` (what THIS row verifies): the
+  report's 「驗證目標」 column shows it (legacy rows fall back to the rung
+  title), and `ledger-append` warns when `purpose` is missing or `decision`
+  is too short to read as a self-contained narrative.
+- Progress-page evals bar charts gain a series selector: the eval-set
+  description table doubles as the picker (checkboxes, select all/none,
+  stable per-series colors), so dozens of eval sets stay readable by
+  filtering instead of drawing everything at once.
+- Hardening: one shared resize listener rebuilds all evals charts (per-chart
+  listeners no longer accumulate across re-renders); series maps use
+  null-prototype objects (a series literally named `__proto__` is safe);
+  rows with no finite values no longer squeeze empty categories into the
+  x-axis.
+
 ## 0.21.0 — journal daily notes in a vault subfolder
 
 - New `obsidian.journal.folder` (vault-relative; empty/absent = vault root,

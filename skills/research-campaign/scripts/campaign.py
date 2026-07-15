@@ -219,6 +219,12 @@ def cmd_ledger_append(args):
     if not row.get("playbook_rules_cited"):
         print("[warn] 這行沒有 playbook_rules_cited——超參決策應引用出處",
               file=sys.stderr)
+    if not str(row.get("purpose") or "").strip():
+        print("[warn] 這行沒有 purpose（本列要驗證什麼）——report 的「驗證目標」"
+              "欄與 experiment hover 都靠它區別同 rung 的多列", file=sys.stderr)
+    if len(str(row.get("decision") or "")) < 60:
+        print("[warn] decision 過短——請寫成自足可讀的敘事（結論＋關鍵數字＋"
+              "與上一列的脈絡承接），別只留一句縮寫結論", file=sys.stderr)
     with open(os.path.join(root, "ledger.jsonl"), "a") as f:
         f.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
     print(json.dumps({"appended": row["experiment"]}, ensure_ascii=False))
@@ -1111,9 +1117,10 @@ def cmd_report(args):
         return best
 
     parts.append(f"<h2>Ledger（{len(rows)} rows）</h2>"
-                 "<p class=\"muted\">「驗證目標」＝該列所屬 rung 要驗證的事——"
+                 "<p class=\"muted\">「驗證目標」＝<b>這一列</b>要驗證的事（ledger row 的 "
+                 "purpose 欄位；未標 purpose 的列退回顯示所屬 rung 的 title）——"
                  "significant/decision 都是相對這個目標在說話；experiment 名稱"
-                 "滑過可看 rung 完整內容與 gate。</p>")
+                 "滑過可看所屬 rung 的完整內容與 gate。</p>")
     if rows:
         parts.append("<div class=\"wrap\"><table><tr><th>Experiment</th>"
                      "<th>驗證目標</th><th>Metrics</th>"
@@ -1141,7 +1148,9 @@ def cmd_report(args):
                 tip = "\n".join(lines)
                 expcell = (f"<span class='mchip' data-tip='{H.escape(tip)}'>"
                            f"<b>{H.escape(expid)}</b></span>")
-                goal_cell = H.escape(str((rm or {}).get("title") or "—"))
+                # 驗證目標欄＝與 hover「本列」同源的 per-row purpose——每列可區別；
+                # 未標 purpose 的舊列退回 rung title（rung 級粗粒度）
+                goal_cell = H.escape(sub or str((rm or {}).get("title") or "—"))
             else:
                 expcell, goal_cell = H.escape(expid), "—"
             parts.append(f"<tr><td>{expcell}</td><td>{goal_cell}</td><td>{met}</td>"

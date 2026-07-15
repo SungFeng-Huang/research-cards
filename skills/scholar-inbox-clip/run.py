@@ -32,6 +32,20 @@ os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH"
 # ── Constants ─────────────────────────────────────────────────────────────────
 import shutil as _shutil
 CLAUDE_BIN = _shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+# Model/effort for call_claude() text generation (translate/colorize) — a fast
+# tier on purpose; must stay independent of the user's interactive-session pin.
+GEN_MODEL = os.environ.get("SCHOLAR_CLIP_GEN_MODEL", "claude-sonnet-5")
+GEN_EFFORT = os.environ.get("SCHOLAR_CLIP_GEN_EFFORT", "medium")
+
+# Retryable-failure sentinel: process_one_email returns this instead of an
+# entries list when the email hit what LOOKS transient (lookup / translation /
+# source-read failure). main() then leaves the email unmarked so the next run
+# retries — but only up to RETRY_LIMIT failed runs (tracked in state
+# "retry_counts"): a permanently-unresolvable email (e.g. proceedings-only
+# papers with no arXiv version) must converge instead of re-running expensive
+# lookups forever.
+RETRY = object()
+RETRY_LIMIT = 3
 
 
 def _state_path(name):
@@ -274,6 +288,37 @@ def read_scholar_inbox_source(index=1):
     source = parts[1] if len(parts) > 1 else ""
     return subject, source
 
+def _title_tokens(s):
+    return set(re.findall(r"[a-z0-9]+", (s or "").lower()))
+
+
+def _title_matches(expected, actual, threshold=0.6):
+    """Enough of the expected title's tokens must appear in the candidate's.
+    Guards against search/LLM lookups returning a real-but-unrelated paper
+    (e.g. a wrong-year ID that happens to exist)."""
+    a, b = _title_tokens(expected), _title_tokens(actual)
+    if not a or not b:
+        return False
+    return len(a & b) / len(a) >= threshold
+
+
+def fetch_arxiv_title(arxiv_id):
+    """Title for an arxiv ID via the id_list endpoint (stays fast even when
+    phrase search is degraded). None on failure."""
+    url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            xml = resp.read().decode("utf-8")
+        titles = re.findall(r"<title>(.*?)</title>", xml, re.DOTALL)
+        # titles[0] is the feed's own <title>; the entry title follows
+        if len(titles) >= 2:
+            return re.sub(r"\s+", " ", titles[1]).strip()
+    except Exception as e:
+        log(f"  [arxiv API] title check: {e}")
+    return None
+
+
 def lookup_arxiv_id_via_api(title, authors):
     """
     Query arxiv search API to find an arxiv ID by title. Fast and reliable.
@@ -285,10 +330,17 @@ def lookup_arxiv_id_via_api(title, authors):
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             xml = resp.read().decode("utf-8")
-        # Extract arxiv IDs from <id> tags like http://arxiv.org/abs/2606.11643v1
-        ids = re.findall(r"arxiv\.org/abs/(\d{4}\.\d{4,5})", xml)
-        if ids:
-            return ids[0]
+        # Verify per entry: relevance ranking happily returns an unrelated
+        # paper when the exact title isn't indexed.
+        for ent in xml.split("<entry>")[1:]:
+            m_id = re.search(r"arxiv\.org/abs/(\d{4}\.\d{4,5})", ent)
+            m_ti = re.search(r"<title>(.*?)</title>", ent, re.DOTALL)
+            if not m_id or not m_ti:
+                continue
+            cand_title = re.sub(r"\s+", " ", m_ti.group(1)).strip()
+            if _title_matches(title, cand_title):
+                return m_id.group(1)
+            log(f"  [arxiv API] rejected {m_id.group(1)} (title mismatch: {cand_title[:60]})")
     except Exception as e:
         log(f"  [arxiv API] {e}")
     return None
@@ -303,11 +355,21 @@ def lookup_arxiv_id_via_claude(title, authors):
         f'Use alphaxiv search tools. '
         f'Return ONLY the arxiv ID in format XXXX.XXXXX, nothing else.'
     )
-    output = call_claude(prompt, timeout=180)
+    # Agentic lookup (MCP startup + tool round-trips) is slower than plain
+    # generation; 180s times out intermittently.
+    output = call_claude(prompt, timeout=420)
     if output:
         m = re.search(r"\d{4}\.\d{4,5}", output.strip())
         if m:
-            return m.group()
+            # The model sometimes finds the right paper but transcribes the ID
+            # with a wrong year prefix (a real, unrelated paper) — verify the
+            # ID's actual title before trusting it. Unverifiable → reject.
+            cand = m.group()
+            actual = fetch_arxiv_title(cand)
+            if actual and _title_matches(title, actual):
+                return cand
+            log(f"  [claude lookup] rejected {cand} "
+                f"(title: {(actual or 'unverifiable')[:60]})")
     return None
 
 def lookup_arxiv_id(title, authors):
@@ -441,6 +503,11 @@ def extract_arxiv_ids(body, source=""):
             log(f"        → {aid}")
         else:
             log(f"        → not found")
+    if papers and not arxiv_ids:
+        # Titles were present but none resolved (e.g. arxiv search degraded).
+        # None (≠ []) tells the caller to skip WITHOUT marking processed, so a
+        # later run retries instead of losing the whole digest forever.
+        return None
     return arxiv_ids
 
 # ── Step 2: Fetch alphaXiv content ────────────────────────────────────────────
@@ -1228,7 +1295,17 @@ def _agent_cli():
 
 def call_claude(prompt, timeout=180):
     """Text-in/text-out generation via the configured agent CLI (claude --print
-    or codex exec). Name kept for call-site compatibility. No tool use."""
+    or codex exec). Name kept for call-site compatibility. No tool use.
+    Returns None on timeout — every call site treats None as a soft failure,
+    so one slow generation must not abort the whole pipeline."""
+    try:
+        return _call_claude_inner(prompt, timeout)
+    except subprocess.TimeoutExpired:
+        log(f"  [agent timeout] generation exceeded {timeout}s, giving up on this call")
+        return None
+
+
+def _call_claude_inner(prompt, timeout):
     if _agent_cli() == "codex":
         out = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
         out.close()
@@ -1246,9 +1323,16 @@ def call_claude(prompt, timeout=180):
             return None
         finally:
             os.unlink(out.name)
+    # Pin text generation to a fast model: the user-level settings.json env may
+    # point the CLI at a slow high-effort model (e.g. fable-5 + max), which blows
+    # past the translate timeout. --model overrides settings; the env override
+    # covers effort, which has no CLI flag.
+    gen_env = {**os.environ,
+               "ANTHROPIC_MODEL": GEN_MODEL,
+               "CLAUDE_CODE_EFFORT_LEVEL": GEN_EFFORT}
     result = subprocess.run(
-        [CLAUDE_BIN, "--print", prompt],
-        capture_output=True, text=True, timeout=timeout
+        [CLAUDE_BIN, "--print", "--model", GEN_MODEL, prompt],
+        capture_output=True, text=True, timeout=timeout, env=gen_env
     )
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
@@ -2384,14 +2468,21 @@ def process_one_email(index, processed_keys):
         # source 讀取失敗（空字串）——通用路徑解析不了 HF 連結，若繼續會
         # 以零篇收場並永久 dedup。跳過不標記，保留給下一輪重試。
         log(f"[{index}] [WARN] HF daily 主旨但讀不到 source——本輪跳過不標記")
-        return dedup_key, subject, recv_date, None
+        return dedup_key, subject, recv_date, RETRY
     else:
         arxiv_ids = extract_arxiv_ids(body, source)
+    if arxiv_ids is None:
+        # Had paper titles but resolved zero IDs — could be a transient lookup
+        # failure OR papers that simply have no arXiv version; RETRY lets
+        # main() retry a bounded number of runs before giving up.
+        log(f"[{index}] [WARN] titles present but none resolved — retry pending")
+        return dedup_key, subject, recv_date, RETRY
     log(f"[{index}] Papers found: {arxiv_ids or '(none)'}")
     if not arxiv_ids:
         return dedup_key, subject, recv_date, []
 
     journal_entries = []
+    transient_failures = []
 
     for arxiv_id in arxiv_ids:
         log(f"\n── {arxiv_id} ──")
@@ -2416,7 +2507,12 @@ def process_one_email(index, processed_keys):
         log("  [AI] Translating...")
         translated = translate_content(content, arxiv_id, images=images or None)
         if not translated:
-            log("  [ERR] Translation failed, skipping")
+            # call_claude soft-failure (timeout / API error) — transient. The
+            # paper has no card yet, so the email must NOT be marked processed
+            # or this paper is lost forever (the old code raised here, which
+            # kept the email unmarked; returning None preserves that outcome).
+            log("  [ERR] Translation failed — leaving email unmarked for retry")
+            transient_failures.append(arxiv_id)
             continue
 
         # Title-level duplicate gate (id-notation mismatches slip past the
@@ -2480,6 +2576,22 @@ def process_one_email(index, processed_keys):
         ai_summary = (summary or {}).get("ai_summary", "")
         journal_entries.append((card_id, ai_summary))
 
+    if transient_failures:
+        # Same None contract as the lookup-failure path above: skip WITHOUT
+        # marking processed so the next run retries; already-created cards
+        # dedup-skip, so only the failed papers re-run. Flush the successes'
+        # journal entries NOW — the retry run cannot regenerate them (their
+        # cards get dup-skipped before the journal-append path).
+        if journal_entries:
+            try:
+                update_journal(journal_entries, subject, recv_date)
+                log(f"[JOURNAL] {len(journal_entries)} cards added (partial — retry pending)")
+            except Exception as e:
+                log(f"[ERR] journal: {e}")
+        log(f"[{index}] [WARN] {len(transient_failures)} transient translation "
+            f"failure(s): {', '.join(transient_failures)} — not marking processed")
+        return dedup_key, subject, recv_date, RETRY
+
     return dedup_key, subject, recv_date, journal_entries
 
 
@@ -2489,6 +2601,8 @@ def main():
     state = load_state()
     # Dedup keys are "subject|recv_date" (see process_one_email).
     processed_keys = set(state.get("processed_subjects", []))
+    # Failed-run counts for emails that returned RETRY (bounded retry).
+    retry_counts = dict(state.get("retry_counts", {}))
 
     all_journal_entries = []
     total_cards = 0
@@ -2508,6 +2622,23 @@ def main():
             # OUT_OF_RANGE or read error
             break
 
+        if entries is RETRY:
+            # Retryable failure (lookup / translation / source read): leave
+            # unmarked so the next run retries — but give up after RETRY_LIMIT
+            # failed runs, or a permanently-unresolvable email would re-run
+            # its expensive lookups on every cron forever.
+            n = retry_counts.get(dedup_key, 0) + 1
+            if n >= RETRY_LIMIT:
+                log(f"[{index}] [WARN] failed {n} runs in a row — giving up, "
+                    f"marking processed")
+                processed_keys.add(dedup_key)
+                retry_counts.pop(dedup_key, None)
+            else:
+                retry_counts[dedup_key] = n
+                log(f"[{index}] left unmarked for retry ({n}/{RETRY_LIMIT} failed runs)")
+            index += 1
+            continue
+
         if entries is None:
             # already processed — skip cheaply, keep scanning the window
             index += 1
@@ -2523,13 +2654,20 @@ def main():
             all_journal_entries.extend(entries)
 
         processed_keys.add(dedup_key)
+        retry_counts.pop(dedup_key, None)  # succeeded — clear its retry tally
         index += 1
 
-    # Persist state — keep last 50 keys (preserve order: old entries first)
+    # Persist state — keep last 50 keys (preserve order: old entries first).
+    # retry_counts: drop entries already marked processed (given-up or later
+    # succeeded); what remains is only genuinely pending retries.
     existing = state.get("processed_subjects", [])
     new_keys = [k for k in processed_keys if k not in set(existing)]
     combined = existing + new_keys
-    save_state({"processed_subjects": combined[-50:], "last_date": date.today().isoformat()})
+    pending_retries = {k: v for k, v in retry_counts.items()
+                       if k not in processed_keys}
+    save_state({"processed_subjects": combined[-50:],
+                "retry_counts": pending_retries,
+                "last_date": date.today().isoformat()})
 
     # Retry adding figures to previously image-less cards (e.g. papers whose
     # arxiv HTML version appeared after they were first clipped).

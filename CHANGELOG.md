@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.24.3 — bridge spills seal in real time
+
+- The hb transport now calls the bridge's new `hb seal` verb right after a
+  spill (heptabase-ssh-bridge ≥ the seal-continuation endpoint): the
+  tail→child sentinel becomes a real card node immediately, no Mac-side
+  `repair_chain.py --seal` pass needed. Old bridge clients without the verb
+  degrade gracefully to the previous behavior (`sealed:false` + repair note).
+
 ## 0.24.2 — real card-node sentinels (seal)
 
 - **Root cause**: the heptabase CLI's markdown append does not convert

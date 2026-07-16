@@ -330,10 +330,21 @@ class Transport:
 
     def seal_continuation(self, tail_id, child_id):
         """Rebuild the just-written TEXT-form tail→child sentinel into a real
-        card-mention node (heptabase transport only — needs `note save`; the
-        hb bridge has no overwrite and obsidian never spills). Best-effort:
-        returns True on success, False otherwise — the markdown-level
-        tail-walk still follows a text sentinel either way."""
+        card-mention node. heptabase transport does it locally via `note
+        save`; the hb bridge does it via its `seal` verb (a fixed server-side
+        transform — old clients without the verb just return False, falling
+        back to the repair_chain --seal note). obsidian never spills.
+        Best-effort: returns True on success, False otherwise — the
+        markdown-level tail-walk still follows a text sentinel either way."""
+        if self.kind == "hb":
+            try:
+                r = sh(["hb", "seal", tail_id, child_id])
+                if r.returncode != 0:
+                    return False
+                out = json.loads(r.stdout.strip().splitlines()[-1])
+                return int(out.get("sealed", 0)) > 0
+            except Exception:
+                return False
         if self.kind != "heptabase":
             return False
         try:

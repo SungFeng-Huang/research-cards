@@ -116,8 +116,11 @@ description: >-
 5. **Step-7 掛鉤（job 收尾）**：code/config/ledger push 之前，若有裝
    showcase 層（Mode 4）先 regen report 一起 commit（觸發 Pages 自動
    重新部署）；push 之後把本 job 的 ledger row＋決策＋下一步，經
-   `project-card-log` append 到專案卡（cluster 走 hb bridge、
-   append-only）。整併（project-card-merge）與 `🔍` 折疊留在 Mac 端，
+   `project-card-log` 的 **`append_card.py`** append 到專案卡
+   （`--card` 一律傳 ENTRY 卡 id，script 自己沿續卡鏈走到 tail；
+   **絕不用裸 `hb append <id>` 或 `hb log-exp --to <id>`**——那會直寫
+   entry 卡，內容錯落在續卡 sentinel 之後）。cluster 走 hb bridge、
+   append-only。整併（project-card-merge）與 `🔍` 折疊留在 Mac 端，
    不是 job 的事。
 6. 卡住需要人類決策 → 寫 `runs/auto_research/BLOCKED.md` 並停。
 

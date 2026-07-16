@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.24.0 — chain-safe project-card appends + repair tool
+
+- **Root cause fixed**: cluster-side low-level appends (`hb append <entry>`,
+  `hb log-exp --to`) bypassed `append_card.py`'s tail-walk, landing content
+  AFTER the continuation sentinel on the entry card. The campaign SKILL's
+  step-7 hook now explicitly mandates `append_card.py` (never bare appends),
+  and the project-card-log transport table carries the same warning.
+- **New `repair_chain.py`** (Mac-only): moves content stranded after the
+  sentinel to the real chain tail via `append_card.py` (keeping all
+  capacity/spill guarantees — an oversized move correctly spills into a new
+  continuation card), then truncates the entry back to the sentinel
+  (md5-guarded; move-then-truncate order never loses content).
+  Sentinel detection follows merge_lib's strict rule: the card link must
+  come after the marker text.
+
 ## 0.23.1 — English-first packaging
 
 - Both plugin manifests (`.claude-plugin` / `.codex-plugin`) now carry an

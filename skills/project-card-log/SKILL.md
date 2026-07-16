@@ -30,6 +30,11 @@ command -v hb                                  # 否則走 hb bridge（遠端 se
 | `hb search "<q>"` | `heptabase card list -q "<q>" --limit 5` |
 | `hb log-exp …` | （bridge 專屬離線佇列；直連時用一般 append） |
 
+> ⚠️ 表中的 `append`／`log-exp --to` 都是**單卡低階指令**：卡片有續卡鏈時
+> 它們直寫你給的那張卡（通常是 entry），內容會錯落在 sentinel 之後。
+> 對專案卡寫進度**一律走 `append_card.py`**（自動 tail-walk）；已經錯落
+> 的卡用 `repair_chain.py --card <ENTRY_ID>` 修（Mac-only，先 `--dry-run`）。
+
 兩條路都是 **append-only 的用法**：即使 CLI 支援 overwrite 也不要用——
 enrichment 一律附加帶日期的新段落，合併整理交給 project-card-merge。
 

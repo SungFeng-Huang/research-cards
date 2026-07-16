@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.23.1 — English-first packaging
+
+- Both plugin manifests (`.claude-plugin` / `.codex-plugin`) now carry an
+  English description (what marketplace browsers and `/plugin install` show);
+  the Codex `shortDescription` mentions plain .md first, matching the new
+  obsidian-by-default posture. README default language is English
+  (zh-TW at `README.zh-TW.md`); the wiki's unsuffixed pages are English with
+  a per-language custom sidebar.
+
 ## 0.23.0 — configurable output language + multilingual README/wiki
 
 - Generated card content (scholar-inbox-clip translation / summary /

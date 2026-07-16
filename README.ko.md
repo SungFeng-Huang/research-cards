@@ -1,6 +1,6 @@
 # research-cards — 훙이 리 교수처럼 연구 배우기 📚
 
-[繁體中文](README.md) | [English](README.en.md) | [日本語](README.ja.md) | **한국어**
+[English](README.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | **한국어**
 
 논문 피드를 **여러분을 가르쳐 주는 연구 지식 베이스**로 바꿔 줍니다. 모든 카드는
 훙이 리 교수의 강의 한 편 같습니다 — 먼저 "왜 읽어야 하는지"와 필요한 사전 지식을

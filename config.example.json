@@ -1,6 +1,6 @@
 {
-  "$comment": "Copy to ~/.config/research-cards/config.json and fill in. backend: 'heptabase' (author in Heptabase only), 'obsidian' (author in an Obsidian vault only), or 'both' (Heptabase is canonical, obsidian-sync mirrors to the vault).",
-  "backend": "heptabase",
+  "$comment": "Copy to ~/.config/research-cards/config.json and fill in. backend: 'obsidian' (the DEFAULT — plain .md files in a folder; no note app required, any Obsidian-compatible vault or bare directory works), 'heptabase' (author in Heptabase only), or 'both' (Heptabase is canonical, obsidian-sync mirrors to the vault). Leaving backend unset means 'obsidian'.",
+  "backend": "obsidian",
   "agent": "claude",
   "$agent_comment": "驅動 skills 的 AI agent CLI：'claude'（claude --print）或 'codex'（codex exec）。影響 cron/scripts 的文字生成呼叫；互動 session 由你所在的 agent 本人執行 SKILL.md。",
   "plugin_root": null,

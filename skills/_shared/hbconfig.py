@@ -35,7 +35,12 @@ def load_config():
             f"找不到設定檔 {CONFIG_PATH}。請複製 plugin 根目錄的 "
             "config.example.json 過去並填入你的 backend/vault/tag 設定。")
     cfg = json.load(open(CONFIG_PATH))
-    backend = cfg.get("backend")
+    # Unset backend defaults to obsidian — plain .md in a folder, no note app
+    # required. (A MISSING config file still raises above, and the legacy
+    # "no config at all" fallbacks elsewhere keep meaning heptabase — old
+    # cron setups predate the config file and must not change behavior.)
+    backend = cfg.get("backend") or "obsidian"
+    cfg["backend"] = backend
     if backend not in VALID_BACKENDS:
         raise ConfigError(f"config 的 backend 必須是 {VALID_BACKENDS}，目前是 {backend!r}")
     agent = cfg.get("agent", "claude")

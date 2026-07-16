@@ -84,6 +84,11 @@ class TestOutputLanguage(unittest.TestCase):
         self._cfg(language="Deutsch")  # unknown language → English labels
         self.assertEqual(self.hb.struct_labels()["summary"], "Quick Summary")
 
+    def test_backend_defaults_to_obsidian_when_unset(self):
+        # a minimal plain-markdown config: vault only, no backend key
+        _write(self.cfg, {"obsidian": {"vault": str(self.tmp)}})
+        self.assertEqual(self.hb.load_config()["backend"], "obsidian")
+
     def test_marker_variants_cover_all_languages(self):
         self._cfg()
         ms = self.hb.marker_variants("prereq_marker")

@@ -3,7 +3,7 @@ name: scholar-inbox-clip
 description: >-
   Read all unread Scholar Inbox emails from Mac Mail.app (Scholar Alert Digests
   and Trending Papers), fetch each paper's AI overview from alphaXiv (or fall
-  back to the raw paper), translate to Traditional Chinese, apply color
+  back to the raw paper), translate to the configured output language (default Traditional Chinese), apply color
   highlights, and create Heptabase cards. Use when the user asks to process
   Scholar Inbox papers, clip papers from alphaXiv, or update Heptabase with
   new research. Invoked with NO paper URL, it instead runs a BACKFILL
@@ -43,7 +43,7 @@ obsidian 模式改為「OVERVIEW_TASKS ∪ vault 既有 tasks 值」（無 tag d
    cron 路徑仍走 call_claude，失敗時自動降級為無圖並進 retry 記錄，不會中斷管線。
 
 Automates the full pipeline: read digest emails → fetch alphaXiv AI
-overview per paper → translate to Traditional Chinese → color-highlight key
+overview per paper → translate to the output language → color-highlight key
 text → create Heptabase cards.
 
 **Sources（同一信箱資料夾、逐封自動分流）**：
@@ -348,7 +348,7 @@ If the result is **raw text**: proceed to Step 3b.
 > emitting the baseline translated card below; a later `/research-cards:card-rewrite` retrofit
 > upgrades it. Do not duplicate the style spec here — change it only in card-rewrite.
 
-Translate the full English AI report to Traditional Chinese, preserving:
+Translate the full English AI report to the output language (see the Language rule below; default Traditional Chinese), preserving:
 - All section headings and numbering
 - All numerical results, percentages, model names (keep in original form)
 - Table structure (convert to markdown tables)
@@ -410,7 +410,7 @@ Source: https://www.alphaxiv.org/zh/overview/{arxiv_id}
 general) sometimes ignores the "直接從 # 開始輸出" prompt instruction and
 prepends a preamble line such as:
 
-> *"I have the full report. Now I'll translate it to Traditional Chinese
+> *"I have the full report. Now I'll translate it to the output language
 > following the rules and insert the 4 most important figures."*
 
 If this leaks into the card, it becomes the card **title** (Heptabase derives
@@ -552,7 +552,7 @@ doc["content"] = (
 ```
 
 Generate the summary content based on the translated card content created in
-Step 3a/3b. All content in Traditional Chinese.
+Step 3a/3b. All content in the output language.
 
 ---
 
@@ -1281,9 +1281,13 @@ After all cards are created and linked, report:
   skill should note which papers used the fallback and suggest the user visit
   the alphaXiv page to generate the overview for future runs.
 
-- **Language**: All card content must be in Traditional Chinese (繁體中文),
-  except for model names, benchmark names, and quoted metric values which stay
-  in their original form.
+- **Language**: All card content must be in the **configured output language** —
+  config `profile.language`; when unset, Claude Code's `language` setting
+  (mapped, e.g. chinese→繁體中文); default Traditional Chinese (繁體中文).
+  run.py resolves this via `hbconfig.output_language()`; agent-driven
+  (interactive) runs MUST follow the same resolution. Everything is written
+  in that language, except for model names, benchmark names, and quoted
+  metric values which stay in their original form.
 
 - **Card title format**: Always `[alphaXiv] {Original English Paper Title}`
   (title stays in English, matching the alphaXiv convention).

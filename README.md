@@ -1,5 +1,7 @@
 # research-cards — 宏毅老師教你做研究 📚
 
+**繁體中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
 把論文訊息流變成一座**會教你的研究知識庫**：每張卡片都像一堂宏毅老師的課——
 先告訴你「為什麼該讀」、需要哪些先備知識，再用 WHY 驅動的敘事把方法講懂，
 最後放進主題比較卡與知識地圖的脈絡裡，讓你隨時知道每篇論文在整個領域的位置。
@@ -83,7 +85,7 @@
 | `obsidian-sync` | Heptabase ↔ Obsidian 雙向同步（僅 backend `both`） |
 
 開關歸屬：config `features.study` 蓋剪報＋總覽＋知識圖；`features.project`
-蓋研究專案兩件組；`bib-export` 與 `obsidian-sync` 不吃方向開關（前者跟著
+蓋研究專案三件組（log／merge／campaign）；`bib-export` 與 `obsidian-sync` 不吃方向開關（前者跟著
 你給的錨點卡走，後者跟著 backend 走）。
 
 ## 安裝

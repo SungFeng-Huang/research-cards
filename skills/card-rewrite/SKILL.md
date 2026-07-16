@@ -106,8 +106,11 @@ Follow the MAI-Thinking-1 shape (read it:
   `L.h(2, "4. 發現了什麼（結果）")`, `L.h(2, "5. 為什麼重要（意義）")`
 - `L.hr()`, `L.source(url)`
 
-Match comment density / tone to the example. All prose Traditional Chinese;
-model/benchmark/metric names and the bilingual English terms stay in English.
+Match comment density / tone to the example. All prose in the configured
+output language — config `profile.language`; unset → Claude Code's `language`
+setting (mapped); default Traditional Chinese（`hbconfig.output_language()`
+is the single resolution rule）. Model/benchmark/metric names and the
+bilingual original-language terms stay untranslated.
 
 ### Step 3 — Define color rules + finalize
 ```python

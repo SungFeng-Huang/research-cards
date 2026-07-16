@@ -18,9 +18,10 @@ Typical use (in a per-card rewrite script, or a retrofit subagent):
     C.append(L.h(1, "[alphaXiv] …"))
     C.append(L.pp([("一句話：", True), "…"]))
     C.append(L.hr())
-    C.append(L.h(2, "快速摘要"))
-    C.append(L.toggle("AI 摘要", [L.p("…")]))
-    C.append(L.toggle("問題", [L.bp("…"), L.bp("…")]))
+    LB = L.labels()                    # structural labels in the output language
+    C.append(L.h(2, LB["summary"]))
+    C.append(L.toggle(LB["ai_summary"], [L.p("…")]))
+    C.append(L.toggle(LB["problems"], [L.bp("…"), L.bp("…")]))
     …
     C.append(L.h(3, "3.1 …")); C += L.img(imgs[0]["src"], "圖：…")
     C.append(L.bul("架構", "…"))
@@ -32,9 +33,11 @@ import os, sys, json, subprocess, tempfile, re, copy
 os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 STUDY_PAPER_TAG = SOURCE_TYPE_PROP = ARXIV_PROP = None  # from config below
-# A card counts as "already upgraded" if it carries the teaching-style structural
-# marker — the 先備知識 section (every rewrite adds one). No property/tag needed.
-UPGRADE_MARKER = "先備知識"
+# A card counts as "already upgraded" if it carries the teaching-style
+# structural marker — the prerequisites section (every rewrite adds one; label
+# per hbconfig.STRUCT_LABELS). Detection scans ALL language variants: the
+# library legitimately mixes languages after a profile.language change.
+UPGRADE_MARKERS = {"先備知識"}  # fallback; widened from hbconfig below
 
 # ── read / save (backend-routed: obsidian vault when config says so) ─────────
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
@@ -46,11 +49,25 @@ except Exception:
     OBS = None
 try:
     import hbconfig as _hbc0
+    UPGRADE_MARKERS = _hbc0.marker_variants("prereq_marker")
     STUDY_PAPER_TAG = _hbc0.hb_id("collections", "papers", "tag_id")
     SOURCE_TYPE_PROP = _hbc0.hb_id("props", "source_type")
     ARXIV_PROP = _hbc0.hb_id("props", "arxiv")
 except Exception:
     pass
+
+def labels():
+    """Structural labels in the configured output language — see
+    hbconfig.struct_labels(). Falls back to 繁中 when config is unavailable."""
+    try:
+        return _hbc0.struct_labels()
+    except Exception:
+        return {"summary": "快速摘要", "ai_summary": "AI 摘要",
+                "problems": "問題", "methods": "方法", "results": "結果",
+                "takeaways": "要點",
+                "prereq_heading": "先備知識（名詞快速補帖）",
+                "prereq_marker": "先備知識"}
+
 
 def read_card(cid):
     if OBS:
@@ -169,8 +186,10 @@ def extract_images(doc):
 
 # ── retrofit-status detection ─────────────────────────────────────────────────
 def is_upgraded(doc):
-    """True if the card already has the teaching-style 先備知識 section marker."""
-    return any(n.get("type") == "heading" and UPGRADE_MARKER in _txt(n)
+    """True if the card already has the teaching-style prerequisites marker
+    (any language variant — see UPGRADE_MARKERS)."""
+    return any(n.get("type") == "heading"
+               and any(m in _txt(n) for m in UPGRADE_MARKERS)
                for n in doc["content"])
 
 def list_todo(source_type="alphaXiv"):

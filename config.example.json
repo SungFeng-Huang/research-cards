@@ -6,9 +6,10 @@
   "plugin_root": null,
   "$plugin_root_comment": "選配：plugin 的 live 路徑（如 ~/my-config/plugins/research-cards）。Codex 以靜態 cache 副本執行 plugin，設定此值可讓 topology snapshot、highlights.json 等 repo 狀態讀寫錨定回 live 樹。Claude Code 直接從 live 樹執行者可留 null。",
   "profile": {
-    "$comment": "教學式內容的目標讀者——影響 card-rewrite/clip 的開場段（『為什麼〈讀者〉該讀』）與先備知識的深度假設。reader=讀者身分（用於段落標題），field=讀者的主領域。",
+    "$comment": "教學式內容的目標讀者——影響 card-rewrite/clip 的開場段（『為什麼〈讀者〉該讀』）與先備知識的深度假設。reader=讀者身分（用於段落標題），field=讀者的主領域。language=產出內容的語言（翻譯/摘要/教學改寫）：空字串或省略時先讀 Claude Code settings.json 的 language（chinese→繁體中文、japanese→日本語…），再預設繁體中文；要簡體中文請明確填「简体中文」。",
     "reader": "研究者",
-    "field": "你的研究領域"
+    "field": "你的研究領域",
+    "language": ""
   },
   "features": {
     "$comment": "兩個使用方向的開關（預設皆開）。study=論文管線（scholar-inbox-clip/card-rewrite/overview 家族/obsidian-sync）；project=研究專案卡（project-card-log/project-card-merge）。",

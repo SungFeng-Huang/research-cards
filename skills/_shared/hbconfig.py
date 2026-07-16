@@ -129,6 +129,78 @@ def plugin_root():
         return None
 
 
+def output_language():
+    """Output language for generated card content (translate / summarize /
+    teaching rewrite). Resolution order: config profile.language → Claude
+    Code's user settings.json `language` (best-effort — absent on Codex or
+    headless boxes) → 繁體中文. The Claude Code value is a bare English word
+    ("chinese", "japanese"); common values map to a precise instruction.
+    "chinese" maps to 繁體中文 — this plugin's historical default; simplified-
+    Chinese users set profile.language = "简体中文" explicitly."""
+    try:
+        lang = ((load_config().get("profile") or {}).get("language") or "").strip()
+        if lang:
+            return lang
+    except Exception:
+        pass
+    try:
+        p = os.environ.get("CLAUDE_SETTINGS_PATH",
+                           os.path.expanduser("~/.claude/settings.json"))
+        cc = str(json.load(open(p)).get("language") or "").strip().lower()
+        if cc:
+            return {"chinese": "繁體中文", "taiwanese": "繁體中文",
+                    "japanese": "日本語", "korean": "한국어",
+                    "english": "English"}.get(cc, cc)
+    except Exception:
+        pass
+    return "繁體中文"
+
+
+# Structural labels for generated card sections, per output language. These
+# are PROGRAM-inserted (not LLM prose) and double as detection markers —
+# generation uses the current language, while detection must scan ALL
+# languages (a library legitimately mixes languages after a settings change).
+STRUCT_LABELS = {
+    "繁體中文": {"summary": "快速摘要", "ai_summary": "AI 摘要",
+               "problems": "問題", "methods": "方法", "results": "結果",
+               "takeaways": "要點",
+               "prereq_heading": "先備知識（名詞快速補帖）",
+               "prereq_marker": "先備知識"},
+    "简体中文": {"summary": "快速摘要", "ai_summary": "AI 摘要",
+               "problems": "问题", "methods": "方法", "results": "结果",
+               "takeaways": "要点",
+               "prereq_heading": "先备知识（名词快速补帖）",
+               "prereq_marker": "先备知识"},
+    "English": {"summary": "Quick Summary", "ai_summary": "AI Summary",
+                "problems": "Problems", "methods": "Methods",
+                "results": "Results", "takeaways": "Takeaways",
+                "prereq_heading": "Prerequisites (jargon quick reference)",
+                "prereq_marker": "Prerequisites"},
+    "日本語": {"summary": "クイックサマリー", "ai_summary": "AI サマリー",
+              "problems": "課題", "methods": "手法", "results": "結果",
+              "takeaways": "要点",
+              "prereq_heading": "前提知識（用語クイックリファレンス）",
+              "prereq_marker": "前提知識"},
+    "한국어": {"summary": "빠른 요약", "ai_summary": "AI 요약",
+             "problems": "문제", "methods": "방법", "results": "결과",
+             "takeaways": "핵심 포인트",
+             "prereq_heading": "선행 지식(용어 빠른 참조)",
+             "prereq_marker": "선행 지식"},
+}
+
+
+def struct_labels():
+    """Labels for the current output language. Unknown languages fall back to
+    English labels (the LLM prose still follows the configured language)."""
+    return STRUCT_LABELS.get(output_language(), STRUCT_LABELS["English"])
+
+
+def marker_variants(key):
+    """Every language's variant of one structural marker — detectors must
+    recognize cards generated under ANY past language setting."""
+    return {v[key] for v in STRUCT_LABELS.values()}
+
+
 def journal_dir(cfg):
     """Journal daily-note dir: vault + obsidian.journal.folder (vault-
     relative; empty/absent = vault root, backward compatible). Values

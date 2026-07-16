@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.23.0 — configurable output language + multilingual README/wiki
+
+- Generated card content (scholar-inbox-clip translation / summary /
+  colorize / figure captions, card-rewrite prose) now follows a configurable
+  **output language**: config `profile.language` → Claude Code's `language`
+  setting (best-effort, mapped: chinese→繁體中文, japanese→日本語,
+  korean→한국어, english→English) → Traditional Chinese (the unchanged
+  default). Single resolution rule in `hbconfig.output_language()`; all six
+  generation prompt templates take `{lang}`, and tests assert no hardcoded
+  language survives in any of them.
+- README now ships in four languages — 繁體中文 (canonical) / English /
+  日本語 / 한국어 — with a language switcher bar; the wiki carries the same
+  four languages per page (suffix pages: `-en` / `-ja` / `-ko`).
+- Doc fixes spotted during translation: `features.project` covers three
+  skills (log / merge / campaign), not two; the progress.json template
+  fills four fields, not three.
+
 ## 0.22.0 — per-row verification goals + evals series selector
 
 - Ledger rows carry a per-row `purpose` (what THIS row verifies): the

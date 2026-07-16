@@ -1049,14 +1049,14 @@ def image_health(src, arxiv_id=None):
 # Claude is called ONLY for text → text tasks; no Bash tool needed.
 
 TRANSLATE_PROMPT = """\
-以下是一篇學術論文的 AI 分析報告（英文），請翻譯成繁體中文。
+以下是一篇學術論文的 AI 分析報告（英文），請翻譯成{lang}。
 直接從 # 開始輸出，不要加任何前綴說明文字。
 
 翻譯規則：
-- 保留所有章節標題和編號
+- 保留所有章節標題和編號（標題文字翻譯成{lang}）
 - 數值、百分比、模型名稱、benchmark 名稱保持原文（不翻譯）
 - 表格保持 markdown 格式
-- 技術術語：第一次出現時「英文（中文）」，後續可只用中文
+- 技術術語：第一次出現時「原文（{lang}譯名）」，後續可只用譯名
 - 機構名稱可保留英文
 
 輸出格式：
@@ -1085,21 +1085,21 @@ Source: https://www.alphaxiv.org/zh/overview/{arxiv_id}
 """
 
 TRANSLATE_PROMPT_WITH_IMAGES = """\
-以下是一篇學術論文的 AI 分析報告（英文），請翻譯成繁體中文，並在適合的位置插入論文圖片。
+以下是一篇學術論文的 AI 分析報告（英文），請翻譯成{lang}，並在適合的位置插入論文圖片。
 直接從 # 開始輸出，不要加任何前綴說明文字。
 
 翻譯規則：
-- 保留所有章節標題和編號
+- 保留所有章節標題和編號（標題文字翻譯成{lang}）
 - 數值、百分比、模型名稱、benchmark 名稱保持原文（不翻譯）
 - 表格保持 markdown 格式
-- 技術術語：第一次出現時「英文（中文）」，後續可只用中文
+- 技術術語：第一次出現時「原文（{lang}譯名）」，後續可只用譯名
 - 機構名稱可保留英文
 
 圖片插入規則：
 - 根據圖片 caption 判斷屬於哪個章節，插在該章節內容的適當位置
 - 每張圖使用兩行：先圖片語法，再斜體 caption
   ![](url)
-  _繁體中文 caption（20 字以內）_
+  _{lang} caption（20 字以內）_
 - 每張圖只插一次，最多插入 {max_images} 張
 
 可用圖片（按順序，請從中選擇最重要的）：
@@ -1131,11 +1131,11 @@ Source: https://www.alphaxiv.org/zh/overview/{arxiv_id}
 """
 
 GENERATE_PROMPT = """\
-以下是一篇論文的繁體中文卡片內容，請生成結構化快速摘要。
+以下是一篇論文的{lang}卡片內容，請生成結構化快速摘要（一律使用{lang}）。
 只輸出 JSON，不要其他文字。
 
 {{
-  "ai_summary": "2-3 句話的 AI 摘要（繁體中文，含最重要的數字/結果）",
+  "ai_summary": "2-3 句話的 AI 摘要（{lang}，含最重要的數字/結果）",
   "problems": ["問題1", "問題2"],
   "methods": ["方法1", "方法2", "方法3"],
   "results": ["結果1（含具體數字）", "結果2", "結果3"],
@@ -1147,7 +1147,7 @@ GENERATE_PROMPT = """\
 """
 
 COLORIZE_PROMPT = """\
-以下是一篇論文的繁體中文 Heptabase 卡片內容。
+以下是一篇論文的{lang} Heptabase 卡片內容。
 請找出應該上色標記的片段，只輸出 JSON array，不要其他文字。
 
 上色規則：
@@ -1190,11 +1190,15 @@ def _load_teaching_spec():
         return ""
 
 TEACHING_TRANSLATE_PROMPT = """\
-以下是一篇學術論文的 AI 分析報告（英文）。請**以此報告為唯一依據**，改寫成一張繁體中文「教學式」Heptabase 卡片。
+以下是一篇學術論文的 AI 分析報告（英文）。請**以此報告為唯一依據**，改寫成一張{lang}「教學式」Heptabase 卡片。
 直接從 # 開始輸出，不要加任何前綴說明文字。
 
 === 教學式規格 ===
 {spec}
+
+（規格以中文撰寫；**產出一律使用{lang}**——骨架的固定標題與標籤（一句話、
+為什麼該讀、各章節標題）也譯成{lang}，層級、順序、編號不變；唯
+「{prereq_heading}」這個標題請原樣照用，不要再改動。）
 
 === 輸出骨架 ===
 # [alphaXiv] {{英文論文標題}}
@@ -1209,7 +1213,7 @@ TEACHING_TRANSLATE_PROMPT = """\
 
 ---
 
-## 0. 先備知識（名詞快速補帖）
+## 0. {prereq_heading}
 - **{{術語（中英並列）}}**：{{白話解釋}}
 （列出本篇所有非顯而易見的行話）
 
@@ -1228,15 +1232,19 @@ Source: https://www.alphaxiv.org/zh/overview/{arxiv_id}
 """
 
 TEACHING_TRANSLATE_PROMPT_WITH_IMAGES = """\
-以下是一篇學術論文的 AI 分析報告（英文）。請**以此報告為唯一依據**，改寫成一張繁體中文「教學式」Heptabase 卡片，並在適合的位置插入論文圖片。
+以下是一篇學術論文的 AI 分析報告（英文）。請**以此報告為唯一依據**，改寫成一張{lang}「教學式」Heptabase 卡片，並在適合的位置插入論文圖片。
 直接從 # 開始輸出，不要加任何前綴說明文字。
 
 === 教學式規格 ===
 {spec}
 
+（規格以中文撰寫；**產出一律使用{lang}**——骨架的固定標題與標籤（一句話、
+為什麼該讀、各章節標題）也譯成{lang}，層級、順序、編號不變；唯
+「{prereq_heading}」這個標題請原樣照用，不要再改動。）
+
 圖片插入規則：
 - 根據圖片 caption 判斷屬於哪個章節，插在該章節內容的適當位置。
-- 每張圖兩行：先 `![](url)`，再斜體 `_繁體中文 caption（20 字以內）_`。
+- 每張圖兩行：先 `![](url)`，再斜體 `_{lang} caption（20 字以內）_`。
 - 每張圖只插一次，最多 {max_images} 張。
 
 可用圖片（按順序，挑最重要的）：
@@ -1255,7 +1263,7 @@ TEACHING_TRANSLATE_PROMPT_WITH_IMAGES = """\
 
 ---
 
-## 0. 先備知識（名詞快速補帖）
+## 0. {prereq_heading}
 - **{{術語（中英並列）}}**：{{白話解釋}}
 
 ## 1. 研究背景與定位
@@ -1283,6 +1291,14 @@ def _profile():
 
 def _reader():
     return _profile()[0]
+
+
+def _lang():
+    """Output language for generated content — see hbconfig.output_language()."""
+    try:
+        return _hbconfig.output_language()
+    except Exception:
+        return "繁體中文"
 
 
 def _agent_cli():
@@ -1344,7 +1360,7 @@ def generate_color_rules(card_text):
     """Ask Claude to identify text spans and their colors. Returns list of (text, color)."""
     # 12K so color spans can land in late sections (e.g. TTS results), not just
     # the first ~half of the card.
-    prompt = COLORIZE_PROMPT.format(content=card_text[:12000])
+    prompt = COLORIZE_PROMPT.format(content=card_text[:12000], lang=_lang())
     output = call_claude(prompt, timeout=240)
     if not output:
         return []
@@ -1454,19 +1470,19 @@ def translate_content(content, arxiv_id, images=None):
             )
             kw = dict(arxiv_id=src_id, content=body, image_list=image_list,
                       max_images=min(len(candidates), 4))
-            prompt = p_img.format(spec=spec, reader=_profile()[0], field=_profile()[1], **kw) if spec else p_img.format(reader=_profile()[0], field=_profile()[1], **kw)
+            prompt = p_img.format(spec=spec, reader=_profile()[0], field=_profile()[1], lang=_lang(), prereq_heading=_hbconfig.struct_labels()["prereq_heading"], **kw) if spec else p_img.format(reader=_profile()[0], field=_profile()[1], lang=_lang(), prereq_heading=_hbconfig.struct_labels()["prereq_heading"], **kw)
         else:
-            prompt = p_txt.format(spec=spec, reader=_profile()[0], field=_profile()[1], arxiv_id=src_id, content=body) if spec \
-                     else p_txt.format(reader=_profile()[0], field=_profile()[1], arxiv_id=src_id, content=body)
+            prompt = p_txt.format(spec=spec, reader=_profile()[0], field=_profile()[1], lang=_lang(), prereq_heading=_hbconfig.struct_labels()["prereq_heading"], arxiv_id=src_id, content=body) if spec \
+                     else p_txt.format(reader=_profile()[0], field=_profile()[1], lang=_lang(), prereq_heading=_hbconfig.struct_labels()["prereq_heading"], arxiv_id=src_id, content=body)
     else:
-        prompt = p_txt.format(spec=spec, reader=_profile()[0], field=_profile()[1], arxiv_id=src_id, content=body) if spec \
-                 else p_txt.format(reader=_profile()[0], field=_profile()[1], arxiv_id=src_id, content=body)
+        prompt = p_txt.format(spec=spec, reader=_profile()[0], field=_profile()[1], lang=_lang(), prereq_heading=_hbconfig.struct_labels()["prereq_heading"], arxiv_id=src_id, content=body) if spec \
+                 else p_txt.format(reader=_profile()[0], field=_profile()[1], lang=_lang(), prereq_heading=_hbconfig.struct_labels()["prereq_heading"], arxiv_id=src_id, content=body)
     return _strip_translate_preamble(call_claude(prompt, timeout=300))
 
 def generate_summary(card_text):
     # 12K covers the full translated card so the summary's 結果/要點 reflect
     # late sections (e.g. TTS results) rather than only the first few sections.
-    prompt = GENERATE_PROMPT.format(content=card_text[:12000])
+    prompt = GENERATE_PROMPT.format(content=card_text[:12000], lang=_lang())
     output = call_claude(prompt, timeout=120)
     if output:
         m = re.search(r"\{.*\}", output, re.DOTALL)
@@ -1510,13 +1526,14 @@ def _hr():
     return {"type": "horizontal_rule"}
 
 def build_summary_nodes(s):
+    L = _hbconfig.struct_labels()
     return [
-        _heading(2, "快速摘要"),
-        _toggle("AI 摘要", [_para(s["ai_summary"])]),
-        _toggle("問題",    [_bullet(p) for p in s.get("problems", [])]),
-        _toggle("方法",    [_bullet(m) for m in s.get("methods", [])]),
-        _toggle("結果",    [_bullet(r) for r in s.get("results", [])]),
-        _toggle("要點",    [_bullet(t) for t in s.get("takeaways", [])]),
+        _heading(2, L["summary"]),
+        _toggle(L["ai_summary"], [_para(s["ai_summary"])]),
+        _toggle(L["problems"],  [_bullet(p) for p in s.get("problems", [])]),
+        _toggle(L["methods"],   [_bullet(m) for m in s.get("methods", [])]),
+        _toggle(L["results"],   [_bullet(r) for r in s.get("results", [])]),
+        _toggle(L["takeaways"], [_bullet(t) for t in s.get("takeaways", [])]),
         _hr(),
     ]
 
@@ -1623,11 +1640,13 @@ def save_card(card_id, md5, doc):
 
 def insert_summary(card_id, summary):
     md5, doc = read_card(card_id)
-    # Skip if already present
+    # Skip if already present — recognize the summary heading in ANY language
+    # the library may have been generated under, not just the current one
+    _markers = _hbconfig.marker_variants("summary")
     for n in doc.get("content", []):
         if n.get("type") == "heading":
             for c in n.get("content", []):
-                if "快速摘要" in c.get("text", ""):
+                if any(m in c.get("text", "") for m in _markers):
                     return
     nodes = doc["content"]
     insert_at = next((i + 1 for i, n in enumerate(nodes) if n.get("type") == "heading"), 1)
@@ -1638,12 +1657,12 @@ FIGURE_PLACE_PROMPT = """\
 以下是一篇論文卡片的章節標題清單，以及可用的論文圖片（含英文 caption）。
 請為最重要的 2-4 張圖各選一個最適合插入的章節標題。
 只輸出 JSON array，不要其他文字。格式：
-[{{"image": <圖片編號>, "after_heading": "<完全相符的章節標題>", "caption_zh": "<20字內繁體中文圖說>"}}]
+[{{"image": <圖片編號>, "after_heading": "<完全相符的章節標題>", "caption_zh": "<20字內{lang}圖說>"}}]
 
 規則：
 - after_heading 必須與下列標題清單其中一個**完全相符**
 - 架構/方法圖放方法章節；結果/比較圖放結果章節
-- caption_zh 為繁體中文，20 字以內
+- caption_zh 為{lang}，20 字以內
 
 章節標題清單：
 {headings}
@@ -1725,7 +1744,8 @@ def insert_figures_into_card(card_id, arxiv_id, placements=None):
     if placements is None:
         prompt = FIGURE_PLACE_PROMPT.format(
             headings="\n".join(f"- {h}" for h in headings),
-            images="\n".join(f"{i+1}. {f['caption'][:140]}" for i, f in enumerate(figs)))
+            images="\n".join(f"{i+1}. {f['caption'][:140]}" for i, f in enumerate(figs)),
+            lang=_lang())
         try:
             out = call_claude(prompt, timeout=120)
         except Exception as e:

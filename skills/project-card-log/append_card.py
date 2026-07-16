@@ -144,6 +144,44 @@ def est_stored_len(md):
         return int(len(md) * 1.5) + 200 * lines + inline_cost
 
 
+def seal_sentinel_paragraphs(nodes, child_id=None):
+    """Convert TEXT-form continuation sentinels into real card-mention nodes,
+    in place. The heptabase CLI's markdown append does NOT recognize
+    `[[card:id]]` (verified 2026-07-17) — a spill writes the tail→child link
+    as plain text, which PM-level chain parsers (merge scan, repair, orphan
+    tooling) cannot see. A paragraph qualifies when it carries the LINK_MARK
+    text, has NO card node yet, and its text contains a `[[card:<uuid>]]`
+    literal (matching child_id when given). Returns the number of paragraphs
+    rebuilt into the canonical sentinel form."""
+    pat = re.compile(r"\[\[card:(" + _UUID + r")\]\]")
+    sealed = 0
+    for n in nodes or []:
+        if n.get("type") != "paragraph":
+            continue
+        kids = n.get("content") or []
+        if any(c.get("type") == "card" for c in kids):
+            continue
+        full = "".join(c.get("text", "") for c in kids if c.get("type") == "text")
+        idx = full.find(LINK_MARK)
+        if idx < 0:
+            continue
+        # the card literal must come AFTER the marker — prose like
+        # "[[card:x]] … 續卡（…）" is deliberately NOT a sentinel (same rule
+        # as last_sentinel_idx / the merge parser), and sealing it would
+        # fabricate a bogus chain edge
+        m = pat.search(full, idx + len(LINK_MARK))
+        if not m or (child_id and m.group(1) != child_id):
+            continue
+        n["content"] = [
+            {"type": "text", "text": "▶ "},
+            {"type": "text", "marks": [{"type": "strong"}], "text": LINK_MARK},
+            {"type": "text", "text": "："},
+            {"type": "card", "attrs": {"cardId": m.group(1)}},
+        ]
+        sealed += 1
+    return sealed
+
+
 def continuation_block(child_id):
     return f"\n\n---\n▶ **{LINK_MARK}**：[[card:{child_id}]]\n"
 
@@ -289,6 +327,40 @@ class Transport:
             return self._obe.read_card(card_id).title or ""
         m = re.match(r"#\s+(.+)", self.read(card_id).lstrip())
         return m.group(1).strip() if m else ""
+
+    def seal_continuation(self, tail_id, child_id):
+        """Rebuild the just-written TEXT-form tail→child sentinel into a real
+        card-mention node (heptabase transport only — needs `note save`; the
+        hb bridge has no overwrite and obsidian never spills). Best-effort:
+        returns True on success, False otherwise — the markdown-level
+        tail-walk still follows a text sentinel either way."""
+        if self.kind != "heptabase":
+            return False
+        try:
+            # NOT _hepta_read(): that helper sys.exit()s on failure, which
+            # `except Exception` cannot catch — and a transient read error
+            # here must never fail a spill that already landed (a retried
+            # spill would create a duplicate child). Best-effort means False.
+            r = sh(["heptabase", "note", "read", tail_id])
+            if r.returncode != 0:
+                return False
+            note = json.loads(r.stdout)
+            doc = json.loads(note["content"])
+            if not seal_sentinel_paragraphs(doc.get("content"), child_id):
+                return False
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                             encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False)
+                tmp = f.name
+            try:
+                r = sh(["heptabase", "note", "save", tail_id,
+                        "--content-md5", note.get("contentMd5") or "",
+                        "--content-file", tmp])
+            finally:
+                os.unlink(tmp)
+            return r.returncode == 0
+        except Exception:
+            return False
 
     def size(self, card_id):
         """Serialized-payload length for the capacity decision. `read()` returns
@@ -502,13 +574,27 @@ def append_or_spill(t, entry_id, new_md, dry_run=False):
                  f"（Mac/tunnel 可能剛斷）：{(linkr.stderr or '')[:150]}。"
                  f"→ link 內容已存 {rec}，恢復後手動補：{fix}"
                  f"（不補則子卡 {child_id} 成孤兒）。")
-    return {"entry": entry_id, "tail": child_id, "appended_to": child_id,
-            "overflowed": True, "child": child_id, "chain_len": len(chain) + 1,
-            "dry_run": False, "tagged": tagged,
-            "note": None if tagged else
+    # The markdown append above lands the sentinel as PLAIN TEXT (the CLI does
+    # not convert [[card:id]] to a mention node) — PM-level parsers (merge
+    # scan, repair, orphan tooling) would not see the edge. Seal it into a
+    # real card node where we can (Mac); on the bridge, flag for a Mac-side
+    # `repair_chain.py --seal` pass.
+    sealed = t.seal_continuation(tail, child_id)
+    notes = []
+    if not tagged:
+        notes.append(
             f"子卡 {child_id} 未上 tag（bridge 無 tag 能力）——回 Mac 跑 "
             f"`heptabase tag add --card-id {child_id} --tag-name {t.tag}`，"
-            f"或由 project-card-merge 整併時處理"}
+            f"或由 project-card-merge 整併時處理")
+    if not sealed:
+        notes.append(
+            f"tail {tail} 的續卡 link 是文字型（此傳輸層無法轉真 card 節點）——"
+            f"回 Mac 跑 `repair_chain.py --card {entry_id} --seal` 收斂，"
+            f"merge／orphan 掃描前必須先 seal")
+    return {"entry": entry_id, "tail": child_id, "appended_to": child_id,
+            "overflowed": True, "child": child_id, "chain_len": len(chain) + 1,
+            "dry_run": False, "tagged": tagged, "sealed": sealed,
+            "note": "；".join(notes) if notes else None}
 
 
 # ---- self-test (pure logic; no network / no CLI) -----------------------------

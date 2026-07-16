@@ -22,8 +22,18 @@ two cards instead of losing it; if step 4 fails, DO NOT blindly re-run —
 the stranded copy is already on the tail. Inspect, truncate by hand (or
 re-run with --truncate-only).
 
+⚠️ Forensics caveat (learned 2026-07-17): `heptabase note read` succeeds on a
+TRASHED card and its response carries no trashed flag — a chain edge can
+therefore point at a card that only LOOKS alive. Before rebuilding a missing
+sentinel by hand, verify the target is not trashed (`heptabase tag add` is
+the only reliable probe: it errors with "Card is trashed"). A parallel
+session may have deliberately folded + trashed a continuation card; re-linking
+it corrupts the chain's terminal state.
+
 Usage:
     python3 repair_chain.py --card <ENTRY_ID> [--dry-run]
+    python3 repair_chain.py --card <ENTRY_ID> --seal            # convert
+        text-form sentinels (bridge/CLI spills) into real card nodes
     python3 repair_chain.py --card <ENTRY_ID> --truncate-only   # after a
         previous run moved content but failed to truncate
 
@@ -88,14 +98,55 @@ def stranded_to_markdown(nodes, entry_id):
     return re.sub(r"%%HEPTA-CARD:([0-9a-f-]{36})%%", r"[[card:\1]]", md)
 
 
+def seal_chain(entry_id, dry_run=False):
+    """Walk the chain from the entry, converting TEXT-form sentinels (a bridge
+    or Mac spill writes `[[card:id]]` as plain text — the heptabase CLI does
+    not convert it) into real card-mention nodes so PM-level parsers (merge
+    scan, orphan tooling, this repair tool) can see the edges again. Follows
+    the freshly-sealed edge each hop, so a fully text-linked chain is walked
+    end to end in one pass."""
+    cur, chain, sealed_per_card = entry_id, [], {}
+    seen = set()
+    while cur and cur not in seen and len(chain) < AC.CHAIN_MAX:
+        seen.add(cur)
+        chain.append(cur)
+        md5, doc = L.read_card(cur)
+        nodes = doc["content"]
+        n_sealed = AC.seal_sentinel_paragraphs(nodes)
+        if n_sealed and not dry_run:
+            L.save_card(cur, md5, doc)
+        if n_sealed:
+            sealed_per_card[cur] = n_sealed
+        # follow the (now real, or already-real) sentinel to the next card —
+        # last match, same rule as parse_continuation
+        nxt = None
+        for n in nodes:
+            c = _sentinel_child(n)
+            if c:
+                nxt = c
+        cur = nxt
+    return {"entry": entry_id, "chain": chain, "chain_len": len(chain),
+            "sealed": sealed_per_card, "dry_run": dry_run}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--card", required=True, help="ENTRY card id")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--seal", action="store_true",
+                    help="walk the whole chain converting text-form "
+                         "continuation sentinels into real card nodes "
+                         "(fixes bridge/CLI spills; run before merge or "
+                         "orphan scans)")
     ap.add_argument("--truncate-only", action="store_true",
                     help="skip the move (content already on the tail from a "
                          "previous partial run); just truncate after the sentinel")
     args = ap.parse_args()
+
+    if args.seal:
+        print(json.dumps(seal_chain(args.card, dry_run=args.dry_run),
+                         ensure_ascii=False))
+        return
 
     md5, doc = L.read_card(args.card)
     nodes = doc["content"]

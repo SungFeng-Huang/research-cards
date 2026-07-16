@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.24.2 — real card-node sentinels (seal)
+
+- **Root cause**: the heptabase CLI's markdown append does not convert
+  `[[card:id]]` into a card-mention node — every spill (Mac CLI and hb bridge
+  alike) wrote the tail→child link as plain text, invisible to PM-level chain
+  parsers (merge scan, orphan tooling, repair) while the markdown-level
+  tail-walk still followed it: half-visible chains.
+- Spills now **seal** the sentinel into a real card node right after linking
+  (Mac transport; best-effort — a transient failure never fails a landed
+  spill). Bridge spills report `sealed:false` with a pointer to
+  `repair_chain.py --card <entry> --seal`, which walks the chain converting
+  text-form sentinels (following each freshly sealed edge).
+- Seal strictly requires the card literal AFTER the marker text (prose
+  mentioning both is not a sentinel), matching the chain parsers' rule.
+- Forensics caveat documented: `note read` succeeds on trashed cards with no
+  flag — verify with `tag add` before hand-rebuilding a chain edge.
+
 ## 0.24.1 — overflow_spill on by default
 
 - `overflow_spill` now defaults to **true**: a full tail card automatically

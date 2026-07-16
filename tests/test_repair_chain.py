@@ -82,6 +82,35 @@ class TestSentinelDetection(unittest.TestCase):
                  _para(_t("stranded"))]
         self.assertEqual(RC.last_sentinel_idx(nodes), 2)
 
+    def test_seal_converts_text_sentinel(self):
+        # a bridge/CLI spill writes the sentinel as plain text — seal must
+        # rebuild it into the canonical form with a REAL card node
+        n = _para(_t("▶ "), _t(AC.LINK_MARK, strong=True),
+                  _t(f"：[[card:{UUID}]]"))
+        nodes = [_para(_t("body")), n]
+        self.assertIsNone(RC.last_sentinel_idx(nodes))  # invisible before seal
+        self.assertEqual(AC.seal_sentinel_paragraphs(nodes), 1)
+        self.assertEqual(RC.last_sentinel_idx(nodes), 1)  # visible after
+        self.assertEqual(RC._sentinel_child(nodes[1]), UUID)
+
+    def test_seal_ignores_prose_and_real_sentinels(self):
+        real = self._sentinel()
+        prose = _para(_t(f"內文提到 [[card:{UUID}]] 但不是 sentinel"))
+        nodes = [real, prose]
+        self.assertEqual(AC.seal_sentinel_paragraphs(nodes), 0)
+
+    def test_seal_ignores_card_literal_before_marker(self):
+        # review P2: "[[card:x]] … LINK_MARK" prose must NOT be sealed —
+        # the literal has to come AFTER the marker to count
+        n = _para(_t(f"[[card:{UUID}]] 這段 prose 提到{AC.LINK_MARK}的機制"))
+        self.assertEqual(AC.seal_sentinel_paragraphs([n]), 0)
+
+    def test_seal_child_id_filter(self):
+        other = "99999999-9999-4999-8999-999999999999"
+        n = _para(_t(AC.LINK_MARK + f"：[[card:{UUID}]]"))
+        self.assertEqual(AC.seal_sentinel_paragraphs([n], child_id=other), 0)
+        self.assertEqual(AC.seal_sentinel_paragraphs([n], child_id=UUID), 1)
+
     def test_stranded_markdown_normalizes_card_links(self):
         stranded = [_para(_t("見："), _card(UUID))]
         md = RC.stranded_to_markdown(stranded, "entry-id")

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.24.1 — overflow_spill on by default
+
+- `overflow_spill` now defaults to **true**: a full tail card automatically
+  opens a continuation card instead of dead-ending. The old fail-fast default
+  guarded a prerequisite (chain-aware merge) that shipped back in 0.16.0 —
+  and a config-less box (the cluster driving the hb bridge has no
+  `~/.config/research-cards/config.json`) could not opt in at all. Both reads
+  of the key (the spill gate and the bridge-offline fail-closed guard) flip
+  together; set `overflow_spill=false` explicitly to restore fail-fast.
+  Runtime docs (SKILL.md / CARD-OVERFLOW.md) updated to match.
+
 ## 0.24.0 — chain-safe project-card appends + repair tool
 
 - **Root cause fixed**: cluster-side low-level appends (`hb append <entry>`,

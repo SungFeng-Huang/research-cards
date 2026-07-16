@@ -47,7 +47,7 @@
         "hub_card": "<research-projects-hub-card-uuid>",
         "tag_name": "project",
         "tag_id": "<tag-uuid-optional>",
-        "$overflow_comment": "續卡鏈（CARD-OVERFLOW.md）：char_cap=Heptabase 卡上限；spill_threshold=append/merge 觸發溢位的門檻（量測 stored 表示，需 < cap）；overflow_spill=append 側滿卡時自動建續卡（merge 側 finalize_chain 不受此鍵控制，超限一律 spill 不濃縮）。啟用順序：project-card-merge 需為 chain-aware 版（已是）。",
+        "$overflow_comment": "續卡鏈（CARD-OVERFLOW.md）：char_cap=Heptabase 卡上限；spill_threshold=append/merge 觸發溢位的門檻（量測 stored 表示，需 < cap）；overflow_spill=append 側滿卡時自動建續卡——**預設即開**（0.24.1 起；無 config 的機器如 cluster bridge 也適用），顯式設 false 可改回滿卡 fail-fast。merge 側 finalize_chain 不受此鍵控制，超限一律 spill 不濃縮。",
         "char_cap": 100000,
         "spill_threshold": 80000,
         "overflow_spill": true

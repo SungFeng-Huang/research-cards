@@ -432,13 +432,16 @@ def append_or_spill(t, entry_id, new_md, dry_run=False):
                          else None)}
     # tail would overflow. Spilling MOVES this append out of the entry into a
     # child card — safe only once project-card-merge follows the 續卡 chain (see
-    # CARD-OVERFLOW.md). Gated OFF by default so a Mac merge that isn't yet
-    # chain-aware can't silently drop the spilled 📥 content.
-    spill_enabled = bool(_projects_cfg(t.cfg).get("overflow_spill", False))
+    # CARD-OVERFLOW.md). That prerequisite shipped in 0.16.0, so spill is ON by
+    # default since 0.24.1 — critically, a config-less box (the cluster runs
+    # through the hb bridge with no ~/.config/research-cards/config.json) must
+    # still be able to open a continuation card instead of dead-ending a full
+    # tail. Set overflow_spill=false explicitly to restore the old fail-fast.
+    spill_enabled = bool(_projects_cfg(t.cfg).get("overflow_spill", True))
     if not spill_enabled:
         msg = (f"卡 {tail} 接近容量上限（+本次 append 會超過 {threshold}）、overflow_spill "
-               f"未啟用——請先在 Mac 用 project-card-merge 整併母卡（且 merge 需 chain-aware），"
-               f"或於 config 設 heptabase.collections.projects.overflow_spill=true。")
+               f"被 config 顯式關閉——請先在 Mac 用 project-card-merge 整併母卡，"
+               f"或移除／改回 config 的 heptabase.collections.projects.overflow_spill=true。")
         if dry_run:
             return {"entry": entry_id, "tail": tail, "appended_to": None,
                     "overflowed": True, "child": None, "chain_len": len(chain),
@@ -615,8 +618,11 @@ def main():
             sys.exit(f"bridge 離線，無法確認續卡鏈 tail 與容量：{e}\n"
                      f"→ 恢復連線後重跑；或確定母卡單卡且離上限遠時，"
                      f"用 --queue-offline 明確跳過檢查排入 outbox。")
-        if bool(_projects_cfg(t.cfg).get("overflow_spill", False)):
-            sys.exit(f"bridge 離線且 overflow_spill=true（可能存在續卡鏈）——"
+        if bool(_projects_cfg(t.cfg).get("overflow_spill", True)):
+            # same default as the spill gate above — the two reads of this key
+            # MUST agree, or a config-less box would spill online but skip this
+            # offline guard
+            sys.exit(f"bridge 離線且 overflow_spill 啟用（可能存在續卡鏈）——"
                      f"--queue-offline 也不允許，恢復連線後再 append：{e}")
         landed = t.append(args.card, new_md)   # allow_queue：離線落 outbox
         out = {"entry": args.card, "tail": args.card,

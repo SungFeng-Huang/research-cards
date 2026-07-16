@@ -111,11 +111,12 @@ python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> --content-file 
 ```
 - `--card` 一律傳 **Step 1 的 ENTRY 卡**（母卡）。script 自己沿鏈走到 tail——**絕不傳子卡 id**。
 - **卡沒滿**（常態）：`overflowed:false` → 內容直接 append 到 tail。
-- **卡接近容量上限**：**預設 `overflow_spill=false` → fail-fast**（不 spill、不移內容），
-  訊息叫你**先回 Mac 用 project-card-merge 整併母卡**再續。只有 config 設
-  `heptabase.collections.projects.overflow_spill=true`（且 merge 已 chain-aware）時，
-  才會**建續卡子卡**並在 tail 補 `▶ 續卡…[[card:<id>]]`（`overflowed:true, child:<id>`）；
-  此時 cluster 建的子卡未上 tag（bridge 無 tag 能力）→ 讀輸出 `note` 回 Mac 補 tag。
+- **卡接近容量上限**：**預設（0.24.1 起）自動 spill**——建續卡子卡並在 tail 補
+  `▶ 續卡…[[card:<id>]]`（`overflowed:true, child:<id>`）；無 config 的機器
+  （cluster bridge）同樣適用。cluster 建的子卡未上 tag（bridge 無 tag 能力）
+  → 讀輸出 `note` 回 Mac 補 tag。config 顯式設
+  `heptabase.collections.projects.overflow_spill=false` 可改回滿卡 fail-fast
+  （不 spill、不移內容，訊息叫你先回 Mac 用 project-card-merge 整併）。
 - 想先看會不會溢位：加 `--dry-run`（只讀，回報 `dry_run:true`＋是否 would-block/would-spill）。
 - 把一條鏈**整併回一張卡**是 **Mac-only 的 project-card-merge** 的事（需 overwrite/
   delete，append-only 的 bridge 做不到）——完整規格與 `overflow_spill` 啟用順序見

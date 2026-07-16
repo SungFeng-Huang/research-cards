@@ -32,19 +32,19 @@ bridge lacks.
 - Transports: obsidian (files, no cap → always plain append) / heptabase CLI
   (child tagged) / hb bridge (child **untagged** → flagged in output `note`).
 - Config: `heptabase.collections.projects.{char_cap,spill_threshold,overflow_spill}`
-  (defaults 100000 / 80000 / **false**). Sizes are measured in the STORED
+  (defaults 100000 / 80000 / **true** since 0.24.1). Sizes are measured in the STORED
   (ProseMirror-serialized) representation: the append side estimates it from
   markdown via `est_stored_len()`（deliberately errs high）, the merge side
   measures the as-built PM JSON directly; threshold < cap leaves headroom for
   UUID assignment on save and future appends.
 
-> ⚠️ **Enablement order.** `overflow_spill` is **OFF by default**. While off,
-> an append that WOULD overflow fails fast with "整併母卡 on the Mac first" and
-> **moves no content out of the entry** — because a `project-card-merge` that
-> isn't yet chain-aware would drop a child's `📥` content when it rewrites the
-> entry. Turn `overflow_spill=true` **only after** the merge side below is
-> implemented and shipped. (append_card.py is safe to land now; the spill just
-> stays dormant until then.)
+> ℹ️ **Enablement history.** `overflow_spill` was OFF by default until the
+> merge side below shipped (0.16.0) — a non-chain-aware `project-card-merge`
+> would have dropped a child's `📥` content when rewriting the entry. That
+> prerequisite has long been met, so **since 0.24.1 spill is ON by default**
+> (config-less boxes like the cluster bridge included). Set
+> `overflow_spill=false` explicitly to restore the fail-fast behavior
+> ("整併母卡 on the Mac first", no content moved).
 
 ## Merge side (DONE — `project-card-merge`, Mac-only)
 

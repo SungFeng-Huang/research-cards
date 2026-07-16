@@ -34,9 +34,8 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 [Installation](#installation) ·
 [Configuration](#configuration) ·
 [Quick Start (plain .md)](#quick-start-a--a-plain-folder-of-md-files-no-note-app-needed) ·
-[Quick Start (Heptabase)](#quick-start-b--heptabase--both) ·
+[Quick Start (note app)](#quick-start-b--using-a-note-app) ·
 [Daily Usage](#daily-usage) ·
-[Heptabase ↔ Obsidian Sync](#heptabase--obsidian-sync) ·
 [Research Experiment Campaign](#research-experiment-campaign) ·
 [Unattended Scheduling](#unattended-scheduling-clipping-pipeline) ·
 [Integrations](#integrations-optional) ·
@@ -46,7 +45,8 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 > 📖 **Usage-scenario guides live in the [Wiki](https://github.com/SungFeng-Huang/research-cards/wiki)**:
 > [Daily Research Pipeline](https://github.com/SungFeng-Huang/research-cards/wiki/Daily-Research-Pipeline) (which skill to use at which moment, and how to chain them) ·
 > [Ecosystem Integration](https://github.com/SungFeng-Huang/research-cards/wiki/Ecosystem-Integration) (division of labor and mix-and-match recipes with ARS / experiment-agent) ·
-> [the full Campaign handbook](https://github.com/SungFeng-Huang/research-cards/wiki/Research-Campaign).
+> [the full Campaign handbook](https://github.com/SungFeng-Huang/research-cards/wiki/Research-Campaign) ·
+> [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends) (Heptabase / Obsidian setup and the bidirectional sync).
 > The README covers installation, configuration, and the command reference; for "which scenario calls for what", see the wiki.
 
 ## Skills Overview
@@ -212,21 +212,21 @@ in ten minutes:
 
    From then on `overview` / `overview-daodu` / `overview-graph` maintain this topic.
 
-**Bonus — open the same folder in a note app.** Everything above keeps
-working; a note app just makes it nicer to read:
+## Quick Start B — Using a Note App
 
-- **Obsidian**: point a vault at the folder — `[[wikilinks]]` become
-  clickable, frontmatter gets a Properties UI, and the knowledge map
-  (a JSON Canvas file the graph skills maintain) renders as an actual canvas.
-- **Heptabase**: the full block-level bidirectional sync — see Quick Start B and the wiki's [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).
+The same folder — and the same pipeline — pairs with a note app at any
+time, before or after Quick Start A:
 
-## Quick Start B — Heptabase / both
+- **Obsidian**: open the folder as a vault — clickable `[[wikilinks]]`, a
+  Properties UI, and the knowledge map rendered as a real canvas. Zero
+  migration, zero config changes.
+- **Heptabase**: author in Heptabase (`backend: heptabase`), or run
+  `backend: both` for the full block-level **bidirectional sync** between
+  Heptabase and your folder — write-back, adoption of hand-made .md files,
+  a conflict ledger, three-way property sync.
 
-Heptabase brings the full block-level **bidirectional sync** (`backend: both`
-keeps Heptabase canonical and mirrors into your folder, writing vault-side
-edits back). Setup is the same flow plus an id-lookup step (tags, property
-UUIDs) — the complete walkthrough lives in the wiki:
-[Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).
+Setup for either app, and the complete sync mechanics for `both`, live in
+the wiki: [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).
 
 ## Daily Usage
 
@@ -339,16 +339,8 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | "Dry-run first to see which cards would change" | `/research-cards:obsidian-sync --dry-run` |
 | "Any conflicts? Walk me through Sync Conflicts" | `/research-cards:obsidian-sync show conflicts` |
 
-Mechanism details in the next section; after a run the agent reads the JSON report and lays the
+Mechanism details in the wiki's [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends); after a run the agent reads the JSON report and lays the
 conflicts and follow-ups out for you.
-
-## Heptabase ↔ Obsidian Sync
-
-`backend: both` = Heptabase as source of truth, mirrored into the vault, with
-block-level write-back, adoption of hand-made .md files, a conflict ledger,
-and three-way property sync. Mechanics, the round-trip-safe markdown dialect,
-and the command reference are in the wiki:
-[Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends#heptabase--obsidian-sync-backend-both).
 
 ## Research Experiment Campaign
 

@@ -37,9 +37,8 @@
 [설치](#설치) ·
 [설정](#설정) ·
 [빠른 시작(순수 .md)](#빠른-시작-a--순수-md-폴더노트-앱-불필요) ·
-[빠른 시작(Heptabase)](#빠른-시작-b--heptabase--both) ·
+[빠른 시작(노트 앱)](#빠른-시작-b--노트-앱-사용하기) ·
 [일상 사용법](#일상-사용법) ·
-[Heptabase ↔ Obsidian 동기화](#heptabase--obsidian-동기화) ·
 [연구 실험 Campaign](#연구-실험-campaign) ·
 [무인 스케줄링](#무인-스케줄링클리핑-파이프라인) ·
 [통합](#통합선택-사항) ·
@@ -49,7 +48,8 @@
 > 📖 **사용 시나리오 가이드는 [Wiki](https://github.com/SungFeng-Huang/research-cards/wiki)에 있습니다**:
 > [일상 연구 pipeline](https://github.com/SungFeng-Huang/research-cards/wiki/Daily-Research-Pipeline-ko)(어느 시점에 어떤 skill을 어떻게 이어 쓰는지) ·
 > [생태계 통합](https://github.com/SungFeng-Huang/research-cards/wiki/Ecosystem-Integration-ko)(ARS / experiment-agent와의 역할 분담과 혼용 recipes) ·
-> [Campaign 완전 매뉴얼](https://github.com/SungFeng-Huang/research-cards/wiki/Research-Campaign-ko).
+> [Campaign 완전 매뉴얼](https://github.com/SungFeng-Huang/research-cards/wiki/Research-Campaign-ko) ·
+> [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko)(Heptabase／Obsidian 설정과 양방향 동기화).
 > README는 설치·설정과 명령 대조표를 다루고, "어떤 상황에 무엇을 쓰는지"는 wiki를 보세요.
 
 ## Skills 개요
@@ -217,20 +217,19 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
 
    이후에는 `overview` / `overview-daodu` / `overview-graph`가 이 토픽을 유지 관리합니다.
 
-**보너스 — 같은 폴더를 노트 앱으로 열기.** 위의 모든 것은 그대로
-동작합니다; 노트 앱은 그저 더 읽기 좋게 만들어 줄 뿐입니다:
+## 빠른 시작 B — 노트 앱 사용하기
 
-- **Obsidian**: vault를 이 폴더로 지정하세요 — `[[wikilinks]]`가 클릭
-  가능해지고, frontmatter에 Properties UI가 생기며, 지식 맵(graph skills가
-  유지 관리하는 JSON Canvas 파일)이 진짜 canvas로 렌더링됩니다.
-- **Heptabase**: 완전한 블록 단위 양방향 동기화 — 빠른 시작 B와 wiki의 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko)를 보세요.
+같은 폴더와 같은 파이프라인이 언제든 — 빠른 시작 A 전이든 후든 —
+노트 앱과 짝을 이룹니다:
 
-## 빠른 시작 B — Heptabase / both
+- **Obsidian**: 폴더를 vault로 여세요 — `[[wikilinks]]`가 클릭 가능해지고,
+  Properties UI가 생기며, 지식 맵이 진짜 canvas로 렌더링됩니다.
+  마이그레이션 제로, config 변경 제로.
+- **Heptabase**: Heptabase에서 작성하거나(`backend: heptabase`), `backend: both`로
+  Heptabase와 폴더 간의 완전한 블록 단위 **양방향 동기화**를 돌리세요 —
+  라이트백, 직접 만든 .md 파일의 입양, 충돌 원장, 속성 3-way 동기화.
 
-Heptabase는 완전한 블록 단위 **양방향 동기화**를 가져다줍니다(`backend: both`는
-Heptabase를 기준으로 여러분의 폴더에 미러링하고, vault 쪽 편집을 라이트백합니다).
-설정은 같은 흐름에 id 조회 단계(tags, 속성 UUID)가 하나 더 붙을 뿐입니다 —
-완전한 단계별 안내는 wiki에 있습니다:
+두 앱의 설정 방법과 `both`의 완전한 동기화 메커니즘은 wiki에 있습니다:
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko).
 
 ## 일상 사용법
@@ -344,16 +343,8 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | "먼저 dry-run으로 어떤 카드가 바뀔지 보여 줘" | `/research-cards:obsidian-sync --dry-run` |
 | "충돌 있어? Sync Conflicts 좀 같이 봐 줘" | `/research-cards:obsidian-sync 충돌 보기` |
 
-메커니즘 세부 사항은 다음 절을 보세요; agent는 실행 후 JSON 리포트를 읽고
+메커니즘 세부 사항은 wiki의 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko)를 보세요; agent는 실행 후 JSON 리포트를 읽고
 충돌과 할 일을 여러분 앞에 펼쳐 보여 줍니다.
-
-## Heptabase ↔ Obsidian 동기화
-
-`backend: both` = Heptabase를 기준으로 vault에 미러링하며, 블록 단위
-라이트백, 직접 만든 .md 파일의 입양, 충돌 원장, 속성 3-way 동기화까지
-포함합니다. 메커니즘, round-trip이 안전한 markdown 방언, 명령 대조표는
-wiki에 있습니다:
-[Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko).
 
 ## 연구 실험 Campaign
 

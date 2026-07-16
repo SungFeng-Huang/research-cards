@@ -33,9 +33,8 @@
 [安裝](#安裝) ·
 [設定](#設定) ·
 [快速上手（純 .md）](#快速上手-a--純-md-資料夾不需要任何筆記-app) ·
-[快速上手（Heptabase）](#快速上手-b--heptabase--both) ·
+[快速上手（筆記 app）](#快速上手-b--使用筆記-app) ·
 [日常使用](#日常使用) ·
-[Heptabase ↔ Obsidian 同步](#heptabase--obsidian-同步) ·
 [研究實驗 Campaign](#研究實驗-campaign) ·
 [無人值守排程](#無人值守排程剪報管線) ·
 [整合](#整合選用) ·
@@ -45,7 +44,8 @@
 > 📖 **使用情境導覽在 [Wiki](https://github.com/SungFeng-Huang/research-cards/wiki)**：
 > [日常研究 pipeline](https://github.com/SungFeng-Huang/research-cards/wiki/Daily-Research-Pipeline-zh-TW)（什麼時刻用哪個 skill、怎麼串）·
 > [生態整合](https://github.com/SungFeng-Huang/research-cards/wiki/Ecosystem-Integration-zh-TW)（與 ARS／experiment-agent 的分工與混用 recipes）·
-> [Campaign 完整手冊](https://github.com/SungFeng-Huang/research-cards/wiki/Research-Campaign-zh-TW)。
+> [Campaign 完整手冊](https://github.com/SungFeng-Huang/research-cards/wiki/Research-Campaign-zh-TW) ·
+> [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)（Heptabase／Obsidian 設定與雙向同步）。
 > README 管安裝設定與指令對照；「什麼情境用什麼」看 wiki。
 
 ## Skills 總覽
@@ -208,19 +208,19 @@ app，十分鐘建起論文管線：
 
    之後 `overview` / `overview-daodu` / `overview-graph` 就會維護這個主題。
 
-**加分——用筆記 app 開同一個資料夾。**上面的一切照常運作，筆記 app
-只是讓它更好讀：
+## 快速上手 B — 使用筆記 app
 
-- **Obsidian**：把 vault 指到這個資料夾——`[[wikilinks]]` 變可點、
-  frontmatter 有 Properties 介面、知識地圖（graph skills 維護的 JSON
-  Canvas 檔）以真正的 canvas 呈現。
-- **Heptabase**：完整的區塊級雙向同步——見快速上手 B 與 wiki 的 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)。
+同一個資料夾、同一條管線，隨時可以配上筆記 app——在快速上手 A 之前
+或之後都行：
 
-## 快速上手 B — Heptabase / both
+- **Obsidian**：把資料夾當 vault 開——`[[wikilinks]]` 可點、frontmatter
+  有 Properties 介面、知識地圖以真正的 canvas 呈現。零遷移、零 config
+  變更。
+- **Heptabase**：在 Heptabase 裡寫作（`backend: heptabase`），或用
+  `backend: both` 得到 Heptabase 與資料夾之間完整的區塊級**雙向同步**
+  ——寫回、手建 .md 收養、衝突總帳、屬性三方同步。
 
-Heptabase 帶來完整的區塊級**雙向同步**（`backend: both` 以 Heptabase 為
-準鏡像進你的資料夾、vault 端編輯寫回）。設定＝同樣流程多一步查 id
-（tags、屬性 UUID）——完整步驟在 wiki：
+兩種 app 的設定步驟、以及 `both` 的完整同步機制，都在 wiki：
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)。
 
 ## 日常使用
@@ -332,14 +332,7 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | 「先 dry-run 看一下要動哪些卡」 | `/research-cards:obsidian-sync --dry-run` |
 | 「有衝突嗎？帶我看 Sync Conflicts」 | `/research-cards:obsidian-sync 看衝突` |
 
-機制細節見下一節；agent 跑完會讀 JSON 報告、把衝突與待辦攤給你。
-
-## Heptabase ↔ Obsidian 同步
-
-`backend: both`＝以 Heptabase 為準鏡像進 vault，含區塊級寫回、手建 .md
-收養、衝突總帳、屬性三方同步。機制、round-trip 安全的 markdown 方言與
-指令對照都在 wiki：
-[Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)。
+機制細節見 wiki 的 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)；agent 跑完會讀 JSON 報告、把衝突與待辦攤給你。
 
 ## 研究實驗 Campaign
 

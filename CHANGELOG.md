@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.25.0 — interactive setup wizard
+
+- New `setup` skill: an interview-style config wizard that creates, inspects,
+  or adjusts `~/.config/research-cards/config.json` against
+  `config.example.json`'s inline docs — minimal-config-first (plain-.md mode
+  needs only `obsidian.vault`), never guesses Heptabase UUIDs, and knows the
+  cluster limitation (the hb bridge cannot look up tag properties).
+- `skills/setup/check_config.py`: a read-only health check — where the config
+  lives, whether it loads (with the exact error), backend reachability
+  (vault dir / heptabase CLI / optional `--probe` app test), and **upgrade
+  hints** (settings the example documents that your config hasn't opted
+  into). Example placeholders (`<...>`) count as unset, and any recorded
+  error fails the exit code.
+- The README's Configuration section slims to the wizard one-liner; the full
+  field map moves to the wiki's new Configuration page (four languages).
+
 ## 0.24.3 — bridge spills seal in real time
 
 - The hb transport now calls the bridge's new `hb seal` verb right after a

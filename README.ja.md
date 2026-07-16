@@ -86,6 +86,12 @@
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian 双方向同期（backend `both` のみ） |
 
+**⚙️ セットアップ**
+
+| Skill | 何をするか |
+|---|---|
+| `setup` | 対話式 config ウィザード：example のインラインドキュメントに沿って `config.json` を作成／点検／調整。ヘルスチェック検証器（`check_config.py`）つき |
+
 スイッチの対応関係：config の `features.study` はクリッピング＋オーバービュー＋ナレッジグラフを、`features.project`
 は研究プロジェクトの 3 点セット（log／merge／campaign）をカバーします。`bib-export` と `obsidian-sync` は方向スイッチの影響を受けません
 （前者はあなたが渡すアンカーカードに、後者は backend に従います）。
@@ -143,30 +149,16 @@ Codex が実行するのは**静的な cache コピー**です：config に `plu
 
 ## 設定
 
-`config.example.json` を `~/.config/research-cards/config.json` にコピーして
-記入します——各フィールドの説明は example の中にインラインで書かれています。全体マップ：
+最速の道は、**「research-cards をセットアップして」**と言うだけです——`setup` skill が
+`config.example.json` のインラインドキュメントに沿ってあなたにインタビューし、
+最小構成の config を書き（純粋 .md モードに必要なのは `obsidian.vault` だけ）、
+`skills/setup/check_config.py` で検証します（レポートには **upgrade hints**——
+あなたの config がまだ opt-in していない新しめの設定——も含まれます）。あとからの調整も
+同じやり方です：「出力言語を切り替えて」「Heptabase をつないで」——名指ししたキーだけを
+編集し、そのうえで再検証します。
 
-| フィールド | 何を制御するか |
-|---|---|
-| `backend` | `heptabase` \| `obsidian` \| `both`。`both` は Heptabase を正とし、`obsidian-sync` が vault へミラーリング。`obsidian` は純粋な `.md`＋frontmatter で、Heptabase 不要 |
-| `agent` | `claude` \| `codex`——無人実行スクリプトがテキスト生成にどちらの CLI を使うか（`claude --print` / `codex exec`） |
-| `plugin_root` | 生きている plugin のパス——Codex 駆動時は必須（cache のアンカー） |
-| `profile` | `reader` / `field`——カードが「誰に」教えるか（例：音声研究者）。各カードへ流れ込む「なぜ読むべきか」の素になります |
-| `features` | `{"study": bool, "project": bool}`——方向まるごとのスイッチ |
-| `email` | クリッピングパイプライン用の Mail.app `account`＋`mailbox` |
-| `heptabase` | workspace id、各 collection の tag id／filter（`collections`）、プロパティ UUID（`props`）、コーパスの `scan_tags`、`graph` の ids（ルート目次カード、ナレッジマップ whiteboard、Level プロパティ、topology `hubs`）。id は `heptabase tag list` / `heptabase tag properties <tagId>` で調べます |
-| `obsidian` | vault のパス、各 collection のフォルダ（`folders`）、`graph`（`.canvas` マップ、ルート目次ノート、`hubs` は `Folder/Name` id） |
-| `integrations` | オプションの外部 skill——[連携](#連携オプション)を参照 |
-| `gold_cards` | オプションのスタイル見本カード（card-rewrite / overview-daodu 用。未設定なら組み込み仕様を使用） |
-
-知っておく価値のある 2 つの原則：
-
-- **すべての id は必ずあなたの config 由来です。**heptabase モードのコマンドは、id が欠けていると
-  どの key が未記入かを名指しして終了します——決して推測しません。
-- **Topics はユーザーデータであり、plugin データではありません。**オーバービューのトピック設定は
-  `~/.config/research-cards/topics/<key>/` に住んでいます（テンプレート：
-  `skills/overview/topics/_example/`）。`aliases.json` と `projects.json`
-  もその隣にあります。repo 自体には個人の分類法は一切含まれません。
+フィールドの全体マップと設計原則（id は決して推測しない、topics はユーザーデータ）は
+wiki にあります：[Configuration](https://github.com/SungFeng-Huang/research-cards/wiki/Configuration-ja)。
 
 ## クイックスタート A — 純粋な .md フォルダ（ノートアプリ不要）
 

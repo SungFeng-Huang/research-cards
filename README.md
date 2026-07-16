@@ -86,6 +86,12 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync (backend `both` only) |
 
+**⚙️ Setup**
+
+| Skill | What it does |
+|---|---|
+| `setup` | Interactive config wizard: create / inspect / adjust `config.json` against the example's inline docs, with a health-check verifier (`check_config.py`) |
+
 Switch ownership: config `features.study` covers clipping + overviews + knowledge graph; `features.project`
 covers the three research-project skills (log / merge / campaign); `bib-export` and `obsidian-sync` ignore the direction switches (the former
 follows whichever anchor card you give it, the latter follows the backend).
@@ -143,30 +149,16 @@ get anchored back to the live repo), and after a plugin update remember to refre
 
 ## Configuration
 
-Copy `config.example.json` to `~/.config/research-cards/config.json` and fill it
-in — every field carries inline documentation in the example. The overall map:
+The fastest path: say **"set up research-cards for me"** — the `setup` skill
+interviews you against `config.example.json`'s inline docs, writes a minimal
+config (plain-.md mode needs just `obsidian.vault`), and verifies it with
+`skills/setup/check_config.py` (which also reports **upgrade hints** — newer
+settings your config hasn't opted into). Adjusting later works the same way:
+"switch the output language", "hook up Heptabase" — it edits only what you
+name, then re-verifies.
 
-| Field | What it controls |
-|---|---|
-| `backend` | `heptabase` \| `obsidian` \| `both`. `both` treats Heptabase as the source of truth and mirrors to the vault via `obsidian-sync`; `obsidian` is pure `.md` + frontmatter, no Heptabase needed |
-| `agent` | `claude` \| `codex` — which CLI the unattended scripts use to generate text (`claude --print` / `codex exec`) |
-| `plugin_root` | Path to the live plugin — required when driven by Codex (cache anchoring) |
-| `profile` | `reader` / `field` — "whom" the cards teach (e.g. a speech researcher); feeds into every card's "why you should read this" |
-| `features` | `{"study": bool, "project": bool}` — whole-direction switches |
-| `email` | The Mail.app `account` + `mailbox` used by the clipping pipeline |
-| `heptabase` | workspace id, per-collection tag ids / filters (`collections`), property UUIDs (`props`), corpus `scan_tags`, `graph` ids (root index card, knowledge-map whiteboard, Level property, topology `hubs`). Look ids up with `heptabase tag list` / `heptabase tag properties <tagId>` |
-| `obsidian` | vault path, per-collection folders (`folders`), `graph` (`.canvas` map, root index note, `hubs` with `Folder/Name` ids) |
-| `integrations` | Optional external skills — see [Integrations](#integrations-optional) |
-| `gold_cards` | Optional gold-standard style cards (used by card-rewrite / overview-daodu; falls back to the built-in specs when unset) |
-
-Two principles worth knowing:
-
-- **Every id comes from your config.** In heptabase mode, a command missing an id names
-  the exact unfilled key and exits — it never guesses.
-- **Topics are user data, not plugin data.** Overview topic settings live in
-  `~/.config/research-cards/topics/<key>/` (template:
-  `skills/overview/topics/_example/`), with `aliases.json` and `projects.json`
-  right alongside. The repo itself contains no personal taxonomy.
+The full field map and design principles (ids are never guessed; topics are
+user data) live in the wiki: [Configuration](https://github.com/SungFeng-Huang/research-cards/wiki/Configuration).
 
 ## Quick Start A — a Plain Folder of .md Files (no note app needed)
 

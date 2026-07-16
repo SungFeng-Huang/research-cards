@@ -89,6 +89,12 @@
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화(backend `both` 전용) |
 
+**⚙️ 설정**
+
+| Skill | 하는 일 |
+|---|---|
+| `setup` | 대화형 config 마법사: example의 인라인 문서를 따라 `config.json`을 생성 / 점검 / 조정하며, 헬스 체크 검증기(`check_config.py`) 포함 |
+
 스위치 소속: config `features.study`는 클리핑 + 오버뷰 + 지식 그래프를,
 `features.project`는 연구 프로젝트 3종 세트(log／merge／campaign)를 관할합니다. `bib-export`와
 `obsidian-sync`는 방향 스위치의 영향을 받지 않습니다(전자는 여러분이 준
@@ -148,30 +154,17 @@ Codex가 실행하는 것은 **정적 cache 사본**입니다: config에 `plugin
 
 ## 설정
 
-`config.example.json`을 `~/.config/research-cards/config.json`으로 복사해
-채워 넣으세요 — 모든 필드에 example 안 인라인 설명이 있습니다. 전체 지도:
+가장 빠른 길: **"research-cards 설정해 줘"** 한마디면 됩니다 — `setup`
+skill이 `config.example.json`의 인라인 문서를 따라 여러분을 인터뷰하고,
+최소 config를 작성하고(순수 .md 모드는 `obsidian.vault` 하나면 충분),
+`skills/setup/check_config.py`로 검증합니다 — 이 검증기는 **upgrade
+hints**(여러분의 config가 아직 옵트인하지 않은 새 설정)도 함께 보고합니다.
+나중의 조정도 같은 방식입니다: "출력 언어를 바꿔 줘", "Heptabase를 연결해
+줘" — 지목한 것만 고치고, 고친 뒤 다시 검증합니다.
 
-| 필드 | 제어 대상 |
-|---|---|
-| `backend` | `heptabase` \| `obsidian` \| `both`. `both`는 Heptabase를 기준으로 삼고 `obsidian-sync`가 vault로 미러링합니다; `obsidian`은 순수 `.md` + frontmatter이며 Heptabase가 필요 없습니다 |
-| `agent` | `claude` \| `codex` — 무인 스크립트가 텍스트 생성에 쓸 CLI(`claude --print` / `codex exec`) |
-| `plugin_root` | 살아 있는 plugin 경로 — Codex 구동 시 필수(cache 앵커링) |
-| `profile` | `reader` / `field` — 카드가 "누구를" 가르치는가(예: 음성 연구자); 모든 카드의 "왜 읽어야 하는가"에 흘러 들어갑니다 |
-| `features` | `{"study": bool, "project": bool}` — 방향 전체 스위치 |
-| `email` | 클리핑 파이프라인이 쓰는 Mail.app `account` + `mailbox` |
-| `heptabase` | workspace id, 각 collection의 tag id/filter(`collections`), 속성 UUID(`props`), 코퍼스 `scan_tags`, `graph` ids(루트 목차 카드, 지식 맵 whiteboard, Level 속성, topology `hubs`). id는 `heptabase tag list` / `heptabase tag properties <tagId>`로 조회합니다 |
-| `obsidian` | vault 경로, 각 collection 폴더(`folders`), `graph`(`.canvas` 맵, 루트 목차 노트, `hubs`는 `Folder/Name` id 사용) |
-| `integrations` | 선택형 외부 skill — [통합](#통합선택-사항) 참고 |
-| `gold_cards` | 선택형 스타일 골드 레퍼런스 카드(card-rewrite / overview-daodu 용; 설정하지 않으면 내장 스펙 사용) |
-
-알아 두면 좋은 두 가지 원칙:
-
-- **모든 id는 예외 없이 여러분의 config에서 옵니다.** heptabase 모드의 명령은
-  id가 빠져 있으면 어느 key가 비었는지 지목하고 종료합니다 — 절대 추측하지 않습니다.
-- **Topics는 사용자 데이터이지 plugin 데이터가 아닙니다.** 오버뷰 토픽 설정은
-  `~/.config/research-cards/topics/<key>/`에 살고(템플릿:
-  `skills/overview/topics/_example/`), `aliases.json`, `projects.json`도
-  그 옆에 있습니다. repo 자체에는 어떤 개인 분류 체계도 들어 있지 않습니다.
+전체 필드 지도와 설계 원칙(id는 절대 추측하지 않음, topics는 사용자
+데이터)은 wiki에 있습니다:
+[Configuration](https://github.com/SungFeng-Huang/research-cards/wiki/Configuration-ko).
 
 ## 빠른 시작 A — 순수 .md 폴더(노트 앱 불필요)
 

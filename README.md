@@ -11,8 +11,10 @@ and finally places the paper in the context of topic comparison cards and the kn
 > [hung-yi-lee skill](https://github.com/voidful/hung-yi-lee-skill)
 > — installing both together is recommended (see [Integrations](#integrations-optional)).
 
-Supports **Heptabase** and **Obsidian** as note backends (with bidirectional sync) and
-**Claude Code** and **Codex** as AI agents, in any combination. It helps you with:
+Works out of the box on a **plain folder of .md files** — no note app
+required. **Obsidian** and **Heptabase** are optional upgrades (nicer
+reading, and full bidirectional sync respectively); **Claude Code** and
+**Codex** both drive it, in any combination. It helps you with:
 
 - **Clipping**: digest emails (or a single arxiv link) → teaching-style cards — quick-summary
   toggle, semantic colorization, figures, and property fields, all in one pass.
@@ -31,7 +33,7 @@ Supports **Heptabase** and **Obsidian** as note backends (with bidirectional syn
 [Skills Overview](#skills-overview) ·
 [Installation](#installation) ·
 [Configuration](#configuration) ·
-[Quick Start (Obsidian)](#quick-start-a--obsidian-from-scratch) ·
+[Quick Start (plain .md)](#quick-start-a--a-plain-folder-of-md-files-no-note-app-needed) ·
 [Quick Start (Heptabase)](#quick-start-b--heptabase--both) ·
 [Daily Usage](#daily-usage) ·
 [Heptabase ↔ Obsidian Sync](#heptabase--obsidian-sync) ·
@@ -96,7 +98,7 @@ follows whichever anchor card you give it, the latter follows the backend).
 |---|---|
 | Basics | Python 3.10+, `pip install pyyaml`, an agent CLI (**Claude Code** or **Codex**) |
 | `backend: heptabase` / `both` | macOS + the **Heptabase desktop app** + the `heptabase` CLI **≥ 0.4.0** (local API `127.0.0.1:21210`) |
-| `backend: obsidian` / `both` | An **Obsidian vault** (if it lives in iCloud, your terminal needs **Full Disk Access**) |
+| `backend: obsidian` / `both` (the default) | **Just a folder of .md files** — any directory works; opening it as an **Obsidian vault** is optional polish (iCloud vaults need **Full Disk Access**) |
 | Email clipping (`scholar-inbox-clip`) | macOS **Mail.app** + a dedicated mailbox folder (use a Mail rule to route digests into it) + `osascript` automation permission |
 | Card figures | `pip install pymupdf` (PDF pages) + `brew install librsvg` (SVG) |
 | Claude Code extras | **alphaXiv MCP** (content grounding for clipping / rewriting) and **heptabase MCP** (resolving highlight embeds during sync). Optional — Codex falls back to built-in HTTP fetching, and highlights are instead listed for you to patch manually |
@@ -166,26 +168,32 @@ Two principles worth knowing:
   `skills/overview/topics/_example/`), with `aliases.json` and `projects.json`
   right alongside. The repo itself contains no personal taxonomy.
 
-## Quick Start A — Obsidian, from Scratch
+## Quick Start A — a Plain Folder of .md Files (no note app needed)
 
-No Heptabase needed. A paper pipeline up and running in ten minutes:
+This is the **basic default**: all you need is a directory. Cards are plain
+Markdown files with YAML frontmatter — readable in any editor, greppable,
+versionable with git. No note app required; a paper pipeline up and running
+in ten minutes:
 
 1. **Install** the plugin (see above) + `pip install pyyaml`
    (add `pymupdf` and `librsvg` if you want figures).
-2. **Create a vault** (anywhere; iCloud works, but the terminal needs Full Disk Access).
-3. **Configure** — minimal `~/.config/research-cards/config.json`:
+2. **Create a folder** (anywhere on disk; if you put it in iCloud, the
+   terminal needs Full Disk Access).
+3. **Configure** — minimal `~/.config/research-cards/config.json`
+   (`backend` defaults to this plain-.md mode, so you can omit it):
 
    ```json
    {
-     "backend": "obsidian",
      "agent": "claude",
      "plugin_root": "/path/to/research-cards",
      "profile": { "reader": "your reader identity", "field": "your field" },
-     "obsidian": { "vault": "~/Documents/MyVault",
+     "obsidian": { "vault": "~/Documents/ResearchCards",
                    "folders": { "papers": "Papers", "overviews": "Overviews" } }
    }
    ```
 
+   (The config section is called `obsidian` for historical reasons — the
+   `vault` is just your folder.)
 4. **Your first card** — in an agent session, say:
    "Use scholar-inbox-clip to make a card from https://arxiv.org/abs/XXXX.XXXXX".
    The card appears under `Papers/` with frontmatter properties, a quick summary, and semantic colorization.
@@ -202,27 +210,23 @@ No Heptabase needed. A paper pipeline up and running in ten minutes:
       python3 /path/to/research-cards/skills/_shared/topology.py refresh <your-topic>
       ```
 
-   From then on `overview` / `overview-daodu` / `overview-graph` maintain this topic;
-   the knowledge map is an Obsidian Canvas you lay out yourself.
+   From then on `overview` / `overview-daodu` / `overview-graph` maintain this topic.
+
+**Bonus — open the same folder in a note app.** Everything above keeps
+working; a note app just makes it nicer to read:
+
+- **Obsidian**: point a vault at the folder — `[[wikilinks]]` become
+  clickable, frontmatter gets a Properties UI, and the knowledge map
+  (a JSON Canvas file the graph skills maintain) renders as an actual canvas.
+- **Heptabase**: the full block-level bidirectional sync — see Quick Start B and the wiki's [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).
 
 ## Quick Start B — Heptabase / both
 
-Same flow, with one extra id-lookup step up front:
-
-1. Install the **Heptabase desktop app** and the `heptabase` CLI (≥ 0.4.0).
-2. Create your tags in Heptabase (e.g. `study/paper`, `study/overview`,
-   `project`) and properties, then collect the ids:
-
-   ```bash
-   heptabase tag list                      # tag ids
-   heptabase tag properties <tagId>       # property UUIDs
-   ```
-
-3. Fill in the config's `heptabase` section (workspace id, `collections` with tag
-   ids, `props`, `graph`). Set `backend` to `heptabase` — or
-   `both` to additionally get [bidirectional vault sync](#heptabase--obsidian-sync)
-   (fill in the `obsidian` section too).
-4. Clip your first card as in Quick Start A, step 4.
+Heptabase brings the full block-level **bidirectional sync** (`backend: both`
+keeps Heptabase canonical and mirrors into your folder, writing vault-side
+edits back). Setup is the same flow plus an id-lookup step (tags, property
+UUIDs) — the complete walkthrough lives in the wiki:
+[Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).
 
 ## Daily Usage
 
@@ -340,39 +344,11 @@ conflicts and follow-ups out for you.
 
 ## Heptabase ↔ Obsidian Sync
 
-`backend: both` treats Heptabase as the source of truth and mirrors card collections into the
-vault — edits made on the vault side are written back too:
-
-```bash
-cd skills/obsidian-sync
-python3 sync.py --dry-run     # preview
-python3 sync.py               # real run — read the JSON report it outputs
-python3 verify.py             # vault integrity check; expect CLEAN
-```
-
-- **Collections are config-driven**: every `heptabase.collections.<key>` entry with a `tag_id`
-  filled in mirrors to `obsidian.folders.<key>`
-  (an optional `filter` filters by property — e.g. papers → Source Type=alphaXiv).
-  Typical setup: papers → `Papers/`, overviews → `Overviews/`, projects →
-  `Projects/`.
-- **Forward** (Heptabase → vault): incremental — unchanged cards are skipped via `lastEditedTime` +
-  content hash. Changing a title renames the file and rewrites the wikilinks along with it.
-- **Write-back** (vault → Heptabase): a **block-level** merge against the cached ProseMirror
-  snapshot; untouched blocks stay exactly as they were. Anything the dialect can't represent
-  losslessly (highlight embeds, complex tables, custom image sizes) → the whole card
-  **reports a conflict and is not written back** — all-or-nothing per card.
-- **Adoption**: a `.md` you create directly in a managed folder becomes a new Heptabase card and
-  gets that collection's tag.
-- **Conflict ledger**: every real run regenerates `Sync Conflicts.md` at the vault root
-  (unresolved + auto-archived resolved). Don't edit this file by hand.
-- **Properties**: snapshot-based three-way sync — changed on one side → propagate; changed on both
-  sides → report a conflict, don't write.
-
-The markdown dialect that keeps round-trips safe: text color via `<span style="color:…">`,
-underline via `<u>`, Heptabase toggles as a `- ⏵ ` prefix (deliberately not a checkbox — nothing
-clickable can break the marker), same-card anchors as Obsidian block references
-(`[[#^id]]`), card links as `[[wikilinks]]`. Details in
-`skills/obsidian-sync/SKILL.md`.
+`backend: both` = Heptabase as source of truth, mirrored into the vault, with
+block-level write-back, adoption of hand-made .md files, a conflict ledger,
+and three-way property sync. Mechanics, the round-trip-safe markdown dialect,
+and the command reference are in the wiki:
+[Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends#heptabase--obsidian-sync-backend-both).
 
 ## Research Experiment Campaign
 

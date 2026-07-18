@@ -85,7 +85,7 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 | Skill | What it does |
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync (backend `both` only) |
-| `hackmd-sync` | One-way incremental mirror of selected collections to **HackMD** (sharing/publishing): real note-to-note links, change detection on the HackMD side (edited notes conflict, never overwritten), declarative read permission |
+| `hackmd-sync` | Incremental mirror of selected collections to **HackMD** (sharing/publishing): real note-to-note links, declarative permissions (per-collection overrides), and opt-in **two-way sync** (`write_back`) — HackMD-side edits on owner-writable notes merge back paragraph-level; shared-writable notes and two-sided edits stay conflicts |
 
 **⚙️ Setup**
 
@@ -218,9 +218,10 @@ time, before or after Quick Start A:
   `backend: both` for the full block-level **bidirectional sync** between
   Heptabase and your folder — write-back, adoption of hand-made .md files,
   a conflict ledger, three-way property sync.
-- **HackMD** (publishing, not authoring): `hackmd-sync` mirrors selected
-  collections one-way as HackMD notes with real note-to-note links — built
-  for sharing overviews with collaborators.
+- **HackMD** (publishing-first): `hackmd-sync` mirrors selected collections
+  as HackMD notes with real note-to-note links — built for sharing overviews
+  with collaborators. Opt-in `write_back` makes it two-way for notes only
+  you can edit on HackMD (shared-writable notes never write back).
 
 Setup for either app, and the complete sync mechanics for `both`, live in
 the wiki: [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).

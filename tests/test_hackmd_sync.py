@@ -110,8 +110,11 @@ class TestSyncFlow(unittest.TestCase):
             if method == "GET" and path.startswith("/notes/"):
                 nid = path.split("/")[-1]
                 v = self.notes[nid]
+                if getattr(self, "on_note_get", None):
+                    self.on_note_get(nid)
                 return {"id": nid, "lastChangedAt": v["lastChangedAt"],
                         "readPermission": v["readPermission"],
+                        "writePermission": v.get("writePermission", "owner"),
                         "content": v["content"]}
             if method == "PATCH":
                 nid = path.split("/")[-1]
@@ -132,7 +135,8 @@ class TestSyncFlow(unittest.TestCase):
             # so per-collection wiring is assertable
             self.notes[nid] = {"content": content,
                                "lastChangedAt": 100 + self.nid_seq,
-                               "readPermission": "owner", "title": title,
+                               "readPermission": "owner",
+                               "writePermission": "owner", "title": title,
                                "created_read": S.perm(cfg, "read_permission",
                                                       "owner", cc),
                                "folder": folder_id}
@@ -140,6 +144,7 @@ class TestSyncFlow(unittest.TestCase):
 
         S.api = self._fake_api = fake_api
         S.note_create = self._fake_create = fake_create
+        S.BASE_DIR = str(self.tmp / "hackmd-base")
 
     def tearDown(self):
         for k, v in self._env.items():
@@ -213,6 +218,7 @@ class TestSyncFlow(unittest.TestCase):
         global S
         S = load_hackmd_sync(); S.STATE_PATH = str(self.tmp / "hackmd-state.json")
         S.api, S.note_create = self._fake_api, self._fake_create
+        S.BASE_DIR = str(self.tmp / "hackmd-base")
 
     def test_per_collection_permission_override(self):
         # global signed_in; the projects-like collection pins itself private
@@ -256,6 +262,183 @@ class TestSyncFlow(unittest.TestCase):
         self.assertEqual(S.perm(cfg, "read_permission", "owner", {}), "signed_in")
         with self.assertRaises(SystemExit):
             S.perm(cfg, "read_permission", "owner", {"read_permission": "everyone"})
+
+    # ── level 2: write-back ──────────────────────────────────────────────
+    HEPTA_URL = ("https://app.heptabase.com/w/card/"
+                 "99999999-9999-4999-8999-999999999999")
+
+    def _wb_fixture(self, mutate_cfg=None):
+        (self.tmp / "Overviews" / "W 卡.md").write_text(
+            "---\nheptabase_id: wwww\n---\n段落一。\n\n"
+            f"段落二含[舊連結]({self.HEPTA_URL})。\n", encoding="utf-8")
+        def mutate(c):
+            c["hackmd"]["write_back"] = True
+            if mutate_cfg:
+                mutate_cfg(c)
+        self._reload_with_config(mutate)
+        S.sync()                                 # forward pass + base snapshots
+        nid = next(n for n, v in self.notes.items() if v["title"] == "W 卡")
+        return nid
+
+    def test_reverse_links(self):
+        m = {"n1": {"card": "c1", "title": "目標卡"}}
+        self.assertEqual(S.reverse_links("見 [目標卡](https://hackmd.io/n1)", m),
+                         "見 [[目標卡]]")
+        self.assertEqual(S.reverse_links("見 [別名](https://hackmd.io/n1)", m),
+                         "見 [[目標卡|別名]]")
+        foreign = "見 [外部](https://hackmd.io/zzz) 與 [站外](https://x.io/a)"
+        self.assertEqual(S.reverse_links(foreign, m), foreign)
+
+    def test_write_back_edited_paragraph(self):
+        nid = self._wb_fixture()
+        edited = self.notes[nid]["content"].replace("段落一。", "段落一（改）。")
+        self.notes[nid]["content"] = edited
+        self.notes[nid]["lastChangedAt"] += 500
+        rep = S.sync()
+        self.assertEqual(len(rep["written_back"]), 1)
+        self.assertFalse(rep["conflicts"])
+        body = (self.tmp / "Overviews" / "W 卡.md").read_text()
+        self.assertIn("段落一（改）。", body)
+        self.assertIn(self.HEPTA_URL, body)      # untouched paragraph intact
+        self.assertEqual(self.notes[nid]["content"], edited)  # note not clobbered
+        rep = S.sync()                           # converged
+        self.assertFalse(rep["written_back"])
+        self.assertFalse(rep["conflicts"])
+
+    def test_write_back_three_way_conflict(self):
+        nid = self._wb_fixture()
+        self.notes[nid]["content"] = \
+            self.notes[nid]["content"].replace("段落一。", "遠端改。")
+        self.notes[nid]["lastChangedAt"] += 500
+        p = self.tmp / "Overviews" / "W 卡.md"
+        p.write_text(p.read_text().replace("段落一。", "本地改。"),
+                     encoding="utf-8")
+        rep = S.sync()
+        self.assertFalse(rep["written_back"])
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertIn("真三方衝突", rep["conflicts"][0]["why"])
+        self.assertIn("本地改。", p.read_text())          # vault untouched
+
+    def test_write_back_gate_shared_writable(self):
+        nid = self._wb_fixture(
+            lambda c: c["hackmd"]["collections"]["overviews"].update(
+                {"write_permission": "signed_in"}))
+        self.notes[nid]["content"] = \
+            self.notes[nid]["content"].replace("段落一。", "路人改。")
+        self.notes[nid]["lastChangedAt"] += 500
+        rep = S.sync()
+        self.assertFalse(rep["written_back"])    # shared-writable → never back
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertNotIn("路人改。",
+                         (self.tmp / "Overviews" / "W 卡.md").read_text())
+
+    def test_write_back_round_trip_freeze(self):
+        nid = self._wb_fixture()
+        # an edit that renders differently after reversal ([[X]] of an
+        # unmirrored title degrades to plain text) must freeze the card
+        self.notes[nid]["content"] = self.notes[nid]["content"].replace(
+            "段落一。", "段落一 [[不存在的卡]]。")
+        self.notes[nid]["lastChangedAt"] += 500
+        rep = S.sync()
+        self.assertFalse(rep["written_back"])
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertIn("round-trip", rep["conflicts"][0]["why"])
+
+    def test_write_back_gate_remote_write_permission(self):
+        # config says owner, but the note was opened up ON hackmd.io —
+        # the remote's actual writePermission is the authority
+        nid = self._wb_fixture()
+        self.notes[nid]["writePermission"] = "signed_in"
+        self.notes[nid]["content"] = \
+            self.notes[nid]["content"].replace("段落一。", "路人改。")
+        self.notes[nid]["lastChangedAt"] += 500
+        rep = S.sync()
+        self.assertFalse(rep["written_back"])
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertIn("遠端實際寫權限非 owner", rep["conflicts"][0]["why"])
+        self.assertNotIn("路人改。",
+                         (self.tmp / "Overviews" / "W 卡.md").read_text())
+
+    def test_write_back_degraded_paragraph_freezes(self):
+        # editing the paragraph whose vault original holds an unmirrored
+        # Heptabase URL (degraded to plain text on HackMD) must freeze
+        nid = self._wb_fixture()
+        self.notes[nid]["content"] = \
+            self.notes[nid]["content"].replace("段落二含", "段落二（改）含")
+        self.notes[nid]["lastChangedAt"] += 500
+        rep = S.sync()
+        self.assertFalse(rep["written_back"])
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertIn("已降級的連結", rep["conflicts"][0]["why"])
+        self.assertIn(self.HEPTA_URL,
+                      (self.tmp / "Overviews" / "W 卡.md").read_text())
+
+    def test_write_back_concurrent_vault_edit(self):
+        nid = self._wb_fixture()
+        self.notes[nid]["content"] = \
+            self.notes[nid]["content"].replace("段落一。", "遠端改。")
+        self.notes[nid]["lastChangedAt"] += 500
+        p = self.tmp / "Overviews" / "W 卡.md"
+        def racy(_nid):   # vault edited between src read and save
+            p.write_text(p.read_text().replace("段落一。", "並發改。"),
+                         encoding="utf-8")
+        self.on_note_get = racy
+        rep = S.sync()
+        self.on_note_get = None
+        self.assertFalse(rep["written_back"])
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertIn("並發改。", p.read_text())   # concurrent edit survives
+
+    def test_no_remote_index_defers_content_update(self):
+        S.sync()
+        (self.tmp / "Overviews" / "A 卡.md").write_text(
+            "---\nheptabase_id: aaaa\n---\n# A 卡\n\n內容二\n", encoding="utf-8")
+        real_api = S.api
+        def flaky(method, path, body=None, timeout=60):
+            if method == "GET" and path == "/notes":
+                raise RuntimeError("HTTP Error 429")
+            return real_api(method, path, body, timeout)
+        S.api = flaky
+        nid = next(iter(self.notes))
+        before = self.notes[nid]["content"]
+        rep = S.sync()
+        S.api = real_api
+        self.assertFalse(rep["updated"])
+        self.assertEqual(self.notes[nid]["content"], before)  # not clobbered
+        self.assertTrue(any("remote index 不可用" in e["err"]
+                            for e in rep["errors"]))
+
+    def test_state_key_migration_no_duplicates(self):
+        S.sync()                                     # state keyed by uuid
+        import json as _j
+        st = _j.load(open(S.STATE_PATH))
+        rec = st["cards"].pop("aaaa")
+        st["cards"]["Overviews/A 卡"] = rec          # simulate old vault-id key
+        _j.dump(st, open(S.STATE_PATH, "w"))
+        rep = S.sync()
+        self.assertFalse(rep["created"])             # migrated, not re-created
+        st = _j.load(open(S.STATE_PATH))
+        self.assertIn("aaaa", st["cards"])
+        self.assertNotIn("Overviews/A 卡", st["cards"])
+
+    def test_only_card_accepts_uuid(self):
+        rep = S.sync(only_card="aaaa")
+        self.assertEqual(len(rep["created"]), 1)
+
+    def test_quota_streak_aborts_run(self):
+        S._429_STREAK[0] = 0
+        for _ in range(S._429_STREAK_LIMIT - 1):
+            S._note_429(True)
+        with self.assertRaises(S.QuotaExhausted):
+            S._note_429(True)
+        S._429_STREAK[0] = 0
+        (self.tmp / "Overviews" / "B 卡.md").write_text(
+            "---\nheptabase_id: bbbb\n---\nB 內容\n", encoding="utf-8")
+        def broke_create(*a, **k):
+            raise S.QuotaExhausted("連續 429")
+        S.note_create = broke_create
+        rep = S.sync()
+        self.assertEqual(rep["aborted"], "連續 429")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.28.0 — HackMD two-way sync (level 2)
+
+- `hackmd-sync` write-back (opt-in `hackmd.write_back`): HackMD-side edits
+  merge back into the vault. Trust boundary: only notes whose EFFECTIVE
+  write permission is `owner` — checked against the REMOTE's actual
+  writePermission, not just config — ever write back; shared-writable notes
+  and two-sided edits stay conflicts. Paragraph-level merge against a base
+  snapshot: untouched paragraphs keep the vault original, edited paragraphs
+  are link-reversed (HackMD links → wikilinks) and must round-trip; editing
+  a paragraph containing degraded (unmirrored) links freezes the card.
+  Concurrent vault edits are detected before save.
+- backend `both` now sources hackmd-sync from the obsidian vault side, so
+  write-back lands in plain .md and obsidian-sync's block-level level 2
+  carries it on to Heptabase (state keys anchored to `heptabase_id`, with
+  automatic migration; `--card` accepts either id).
+- Rate-limit resilience: exponential 429 backoff (60/120/240s) on both the
+  API and CLI paths; runs abort early after a streak of exhausted retries
+  (report `aborted`) instead of burning the queue — state resumes next run.
+  When the remote index is unavailable, existing notes are never content-
+  PATCHed (an undetected HackMD edit could be clobbered) — deferred instead.
+
 ## 0.27.0 — per-collection HackMD permissions
 
 - `hackmd-sync`: a collection entry may now carry its own `read_permission` /

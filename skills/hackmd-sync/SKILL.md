@@ -1,21 +1,30 @@
 ---
 name: hackmd-sync
-description: "Mirror research-cards collections to HackMD (the plugin's third note surface, aimed at sharing/publishing): one-way incremental sync from the active backend (heptabase/obsidian/both) into HackMD folders, with real note-to-note links for mirrored cards and change DETECTION on the HackMD side (edited notes are reported as conflicts, never overwritten). Use when the user asks to sync/publish cards to HackMD, 同步到 HackMD、把總覽卡發到 HackMD、鏡像到 hackmd、check HackMD drift, or set up the hackmd section of the config."
+description: "Mirror research-cards collections to HackMD (the plugin's third note surface, aimed at sharing/publishing): incremental forward sync from the active backend (heptabase/obsidian/both) into HackMD folders with real note-to-note links, plus OPTIONAL level-2 write-back (config hackmd.write_back) — HackMD-side edits on owner-writable notes merge back into the vault paragraph-by-paragraph; shared-writable notes and two-sided edits stay conflicts. Use when the user asks to sync/publish cards to HackMD, 同步到 HackMD、把總覽卡發到 HackMD、鏡像到 hackmd、雙向同步 hackmd、check HackMD drift, or set up the hackmd section of the config."
 ---
 
 # hackmd-sync — 把卡片庫鏡像到 HackMD
 
 第三個筆記介面，定位是**分享**：把選定的 collection（典型是 overviews）
-發佈成 HackMD notes，互連卡變成真的 note-to-note 連結。第一級語義
+發佈成 HackMD notes，互連卡變成真的 note-to-note 連結。語義
 （與 obsidian-sync 的演進史同款）：
 
-- **單向增量**：本地 backend（heptabase／obsidian／both 的正本側）為準；
-  來源 markdown md5 沒變就跳過。
-- **變更偵測、不寫回**：HackMD 端的 `lastChangedAt` 在上次同步後動了
-  → 該卡報 conflict、**不覆蓋**——手動合併後重跑（或刪 state 條目強制
-  覆蓋）。寫回是 level 2 的課題，刻意不在此版。
-- **連結改寫**：`[[wikilink]]`／card mention 的目標若也在鏡像集合裡
-  → 改成 `[標題](https://hackmd.io/<noteId>)`；不在 → 退化成純文字標題。
+- **前向增量**：本地 backend 為準；來源 markdown md5 沒變就跳過。
+  `both` 時來源刻意取 **obsidian 側**（vault）而非 Heptabase——寫回落在
+  純 .md，再由 obsidian-sync 的區塊級二級送回 Heptabase（相鄰兩兩雙向
+  的鏈，不重複造引擎）。
+- **變更偵測**：HackMD 端的 `lastChangedAt` 在上次同步後動了 → 進入
+  level 2 判定（下條）或報 conflict、**不覆蓋**。
+- **Level 2 寫回（選配，config `hackmd.write_back: true`）**：HackMD 端
+  的編輯寫回 vault。**信任邊界＝只寫回有效 `write_permission` 為 owner
+  的 note**（HackMD 上只有你能編輯的）；開放編輯的 note 永遠只報衝突。
+  兩邊都改＝真三方衝突不動。合併是**段落級**：沒動的段落保留 vault
+  原文（降級成純文字的 mention 不會被固化），動過的段落連結逆向
+  （HackMD 連結→wikilink）＋round-trip 驗證，會變形就**整卡凍結**報
+  conflict。寫回需要 base 快照（前向時自動維護；升級後先跑一輪前向）。
+- **連結改寫**：`[[wikilink]]`／card mention／Heptabase URL 的目標若也
+  在鏡像集合裡 → 改成 `[標題](https://hackmd.io/<noteId>)`；不在 →
+  退化成純文字標題。
 
 ## 前置
 
@@ -34,12 +43,14 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
                       "read_permission": "owner", "write_permission": "owner" }
      },
      "read_permission": "owner",
-     "write_permission": "owner"
+     "write_permission": "owner",
+     "write_back": false
    }
    ```
 
    collection 條目內的 `read_permission`／`write_permission` 覆蓋全域——
-   典型用法：全域開分享（signed_in）但 projects 釘死私密。
+   典型用法：全域開分享（signed_in／guest）但 projects 釘死私密。
+   `write_back` 開 level 2（需 backend obsidian／both）。
 
 ## 日常
 
@@ -64,7 +75,10 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
   對外連結是 `https://hackmd.io/<noteId>`。讀權限是**宣告式**的：每輪
   sync 把遠端漂移校正回 config 值（連 conflict 卡也校——內容凍結、
   權限照管）。
-- **刪除**：本地刪卡不會刪 HackMD note（level 1 不做刪除傳播）；
+- **刪除**：本地刪卡不會刪 HackMD note（刪除不傳播，兩個方向都是）；
   `verify` 的 `missing_remote` 反向列出 HackMD 端被刪的 note。
+- **限流**：HackMD 基礎設施有短視窗 429（付費方案也有）——內建指數退避
+  （60/120/240s）；連續多卡重試仍失敗＝長視窗，本輪提前收尾（報告
+  `aborted` 欄），重跑即續傳。大量首發分幾輪磨完是正常的。
 - Agent（claude／codex）皆可；無 MCP 依賴。cluster 亦可跑（hackmd-cli
   走網路、不依賴 Mac）——但來源 backend 是 heptabase 時要 Mac（CLI 讀卡）。

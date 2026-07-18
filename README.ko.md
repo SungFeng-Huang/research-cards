@@ -88,7 +88,7 @@
 | Skill | 하는 일 |
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화(backend `both` 전용) |
-| `hackmd-sync` | 선택한 collection을 **HackMD**로 단방향 증분 미러링(공유/게시): 진짜 노트 간 링크, HackMD 쪽 변경 감지(편집된 노트는 충돌로 보고되고 절대 덮어쓰이지 않습니다), 선언형 읽기 권한 |
+| `hackmd-sync` | 선택한 collection을 **HackMD**로 증분 미러링(공유/게시): 진짜 노트 간 링크, 선언형 권한(collection 단위 재정의 가능), 옵트인 **양방향 동기화**(`write_back`) — HackMD 쪽에서 "나만 편집할 수 있는" 노트의 편집은 문단 단위로 병합되어 되돌아옵니다. 공동 편집 가능한 노트와 양쪽 모두 수정된 경우는 충돌 보고로 남습니다 |
 
 **⚙️ 설정**
 
@@ -223,9 +223,11 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
 - **Heptabase**: Heptabase에서 작성하거나(`backend: heptabase`), `backend: both`로
   Heptabase와 폴더 간의 완전한 블록 단위 **양방향 동기화**를 돌리세요 —
   라이트백, 직접 만든 .md 파일의 입양, 충돌 원장, 속성 3-way 동기화.
-- **HackMD**(게시용이지 작성용이 아닙니다): `hackmd-sync`가 선택한 collection을
-  진짜 노트 간 링크가 달린 HackMD 노트로 단방향 미러링합니다 —
-  오버뷰를 협업자와 공유하기 위해 만들어졌습니다.
+- **HackMD**(게시 우선): `hackmd-sync`가 선택한 collection을 진짜 노트 간
+  링크가 달린 HackMD 노트로 미러링합니다 — 오버뷰를 협업자와 공유하기
+  위해 만들어졌습니다. 옵트인 `write_back`으로 "HackMD에서 나만 편집할 수
+  있는" 노트는 양방향이 됩니다(공동 편집 가능한 노트는 절대 되돌려 쓰지
+  않습니다).
 
 두 앱의 설정 방법과 `both`의 완전한 동기화 메커니즘은 wiki에 있습니다:
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko).

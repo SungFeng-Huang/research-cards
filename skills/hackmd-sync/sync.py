@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
-"""hackmd-sync — level-1 mirror of research-cards collections to HackMD.
+"""hackmd-sync — mirror of research-cards collections to HackMD.
 
 HackMD is the plugin's third note surface, aimed at SHARING: publish selected
 collections (typically overviews) as HackMD notes with real note-to-note
-links. Level 1 semantics, mirroring obsidian-sync's own history:
+links. Semantics, mirroring obsidian-sync's own history:
 
-  - one-way, incremental: the active backend (heptabase / obsidian / both's
-    canonical side) is the source of truth; unchanged cards are skipped via a
-    source-markdown md5 recorded in the state file.
+  - forward, incremental: the local backend is the source of truth;
+    unchanged cards are skipped via a rendered-markdown md5 recorded in the
+    state file. backend='both' sources from the OBSIDIAN side (see
+    load_source) so write-back lands in plain .md.
   - change DETECTION on the HackMD side: if a mirrored note's lastChangedAt
-    moved since we last wrote it, the card is reported as a conflict and NOT
-    overwritten (write-back is a deliberate non-goal of level 1 — edits made
-    on HackMD flow back by hand).
-  - card links: `[[Title]]` / card mentions whose target is itself mirrored
-    become real HackMD note links; anything else degrades to plain text of
-    the title (readable, just not clickable).
+    moved since we last wrote it, the card enters level-2 write-back (below)
+    or is reported as a conflict and NOT overwritten.
+  - level 2 write-back (opt-in, config hackmd.write_back): HackMD-side edits
+    flow back into the vault — ONLY for notes whose effective
+    write_permission is "owner" (nobody but the user can edit them there);
+    shared-writable notes always stay conflicts. Two-sided edits are true
+    conflicts. The merge is paragraph-level against a base snapshot:
+    untouched paragraphs keep the vault original (degraded mentions never
+    get fossilized), edited paragraphs are link-reversed and must
+    round-trip, else the whole card freezes.
+  - card links: `[[Title]]` / card mentions / Heptabase URLs whose target is
+    itself mirrored become real HackMD note links; anything else degrades to
+    plain text of the title (readable, just not clickable).
 
 Auth: the hackmd-cli's own login (`hackmd-cli login`) or the
 HMD_API_ACCESS_TOKEN env var — the token never lives in config.json.
@@ -76,26 +84,61 @@ def _token():
 
 
 _LAST_CALL = [0.0]
+# rate-limit bookkeeping: HackMD's infra throttles in short windows even on
+# paid plans (observed HTTP 429 with empty body from the load balancer).
+# Per-call exponential backoff rides out short windows; a run of cards that
+# ALL exhaust their retries means a long window — stop burning the rest of
+# the run (incremental state resumes next time).
+_BACKOFFS = (60, 120, 240)
+_429_STREAK = [0]
+_429_STREAK_LIMIT = 5
+
+
+class QuotaExhausted(RuntimeError):
+    pass
+
+
+def _note_429(failed):
+    if failed:
+        _429_STREAK[0] += 1
+        if _429_STREAK[0] >= _429_STREAK_LIMIT:
+            raise QuotaExhausted(
+                f"連續 {_429_STREAK[0]} 張卡重試後仍 429——限流視窗較長，"
+                "本輪提前收尾（state 已記帳，重跑即續傳）")
+    else:
+        _429_STREAK[0] = 0
 
 
 def api(method, path, body=None, timeout=60):
+    import urllib.error
     import urllib.request
     import time
-    # gentle throttle — bursts of PATCHes get 202-Accepted then silently
-    # dropped by HackMD's async pipeline (observed 2026-07-18)
-    wait = 0.4 - (time.monotonic() - _LAST_CALL[0])
-    if wait > 0:
-        time.sleep(wait)
-    _LAST_CALL[0] = time.monotonic()
-    req = urllib.request.Request(
-        API + path, method=method,
-        data=json.dumps(body).encode() if body is not None else None)
-    req.add_header("Authorization", "Bearer " + _token())
-    if body is not None:
-        req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        raw = r.read().decode("utf-8")
-    return json.loads(raw) if raw.strip() else {}
+    for attempt in range(len(_BACKOFFS) + 1):
+        # gentle throttle — bursts of PATCHes get 202-Accepted then silently
+        # dropped by HackMD's async pipeline (observed 2026-07-18)
+        wait = 0.4 - (time.monotonic() - _LAST_CALL[0])
+        if wait > 0:
+            time.sleep(wait)
+        _LAST_CALL[0] = time.monotonic()
+        req = urllib.request.Request(
+            API + path, method=method,
+            data=json.dumps(body).encode() if body is not None else None)
+        req.add_header("Authorization", "Bearer " + _token())
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8")
+            _note_429(False)
+            return json.loads(raw) if raw.strip() else {}
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                raise
+            if attempt < len(_BACKOFFS):
+                time.sleep(_BACKOFFS[attempt])
+                continue
+            _note_429(True)
+            raise
 
 
 def perm(cfg, key, default, cc=None):
@@ -127,6 +170,7 @@ def fetch_remote_index():
 def note_create(title, content, folder_id, cfg, cc=None):
     """CLI create — the API cannot place a note in a folder. Returns note id
     (lastChangedAt is backfilled from a post-run index refresh)."""
+    import time
     args = ["hackmd-cli", "notes", "create", "--title", title,
             "--content", content,
             "--readPermission", perm(cfg, "read_permission", "owner", cc),
@@ -134,12 +178,21 @@ def note_create(title, content, folder_id, cfg, cc=None):
             "--output", "json"]
     if folder_id:
         args += ["--parentFolderId", folder_id]
-    r = subprocess.run(args, capture_output=True, text=True, timeout=120)
-    if r.returncode != 0:
-        raise RuntimeError(f"create failed: {(r.stderr or r.stdout)[:200]}")
-    out = json.loads(r.stdout)
-    row = out[0] if isinstance(out, list) else out
-    return row["id"]
+    for attempt in range(len(_BACKOFFS) + 1):
+        r = subprocess.run(args, capture_output=True, text=True, timeout=600)
+        blob = (r.stderr or "") + (r.stdout or "")
+        if r.returncode != 0:
+            limited = "429" in blob or "Too many requests" in blob \
+                or "Retrying request" in blob
+            if limited and attempt < len(_BACKOFFS):
+                time.sleep(_BACKOFFS[attempt])
+                continue
+            _note_429(limited)
+            raise RuntimeError(f"create failed: {blob[:200]}")
+        _note_429(False)
+        out = json.loads(r.stdout)
+        row = out[0] if isinstance(out, list) else out
+        return row["id"]
 
 
 def note_get(note_id):
@@ -148,6 +201,8 @@ def note_get(note_id):
     r = api("GET", f"/notes/{note_id}")
     return {"last_changed_at": r.get("lastChangedAt"),
             "read_permission": r.get("readPermission"),
+            "write_permission": r.get("writePermission"),
+            "content": r.get("content") or "",
             "content_md5": content_md5(r.get("content") or "")}
 
 
@@ -163,10 +218,27 @@ def note_set_read_permission(note_id, value):
 def load_source():
     """The plugin's backend abstraction already speaks markdown for both
     heptabase and obsidian: list_cards(collection) -> [{id,title,…}],
-    read_card(id).md -> markdown."""
+    read_card(id).md -> markdown.
+
+    backend='both' deliberately uses the OBSIDIAN side as hackmd's source
+    (unlike get_backend(), which returns the Heptabase canonical): write-back
+    then targets plain .md files, and the vault's own block-level level-2
+    sync (obsidian-sync) carries the change on to Heptabase with all its
+    safety machinery. Chain of adjacent two-way syncs, no duplicated engine.
+    """
     import backend as B
     cfg = hbconfig.load_config()
+    if cfg.get("backend") == "both":
+        return cfg, B.ObsidianBackend(cfg)
     return cfg, B.get_backend(cfg)
+
+
+def card_key(card):
+    """Stable identity for state/link maps: the Heptabase uuid when the
+    vault file carries one (frontmatter heptabase_id — survives file renames
+    and stays aligned with state written when heptabase was the source),
+    else the backend id."""
+    return (card.get("props") or {}).get("heptabase_id") or card["id"]
 
 
 # ── link rewriting (pure) ─────────────────────────────────────────────────────
@@ -207,6 +279,110 @@ def content_md5(md):
     return hashlib.md5(md.encode("utf-8")).hexdigest()
 
 
+# ── write-back (level 2, opt-in) ──────────────────────────────────────────────
+# Trust boundary per the user's rule: only notes whose EFFECTIVE
+# write_permission is "owner" (nobody but the user can edit them on HackMD)
+# are written back; shared-writable notes keep level-1 conflict semantics.
+BASE_DIR = os.path.join(hbconfig.user_data_dir(), "hackmd-base")
+
+
+def base_path(key):
+    return os.path.join(BASE_DIR, key.replace("/", "%2F") + ".md")
+
+
+def save_base(key, md):
+    os.makedirs(BASE_DIR, exist_ok=True)
+    tmp = base_path(key) + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(md)
+    os.replace(tmp, base_path(key))
+
+
+def load_base(key):
+    try:
+        return open(base_path(key)).read()
+    except OSError:
+        return None
+
+
+def reverse_links(md, note_to_card):
+    """Inverse of rewrite_links for edited regions: HackMD note links whose
+    note belongs to the mirror become [[Title]] / [[Title|alias]] wikilinks
+    (the vault-side lingua franca — obsidian-sync rebuilds them as native
+    mentions). Foreign HackMD links stay untouched."""
+    def unlink(m):
+        label, nid = m.group(1), m.group(2)
+        info = note_to_card.get(nid)
+        if not info:
+            return m.group(0)
+        title = info["title"]
+        return f"[[{title}]]" if label == title else f"[[{title}|{label}]]"
+    return re.sub(r"\[([^\]]+)\]\(" + re.escape(HACKMD_URL) + r"([A-Za-z0-9_-]+)\)",
+                  unlink, md)
+
+
+def split_paras(md):
+    return [p for p in re.split(r"\n[ \t]*\n", md) if p.strip()]
+
+
+def para_degrades(vault_para, title_to_note, id_to_note):
+    """True when the paragraph contains a link the forward render degrades
+    to plain text (unmirrored wikilink / card mention / Heptabase URL) —
+    such a paragraph is NOT reversible from the HackMD side: editing or
+    deleting it there would fossilize the degraded text into the vault."""
+    for m in re.finditer(r"\[\[([^\]\|]+)(?:\|[^\]]+)?\]\]", vault_para):
+        if not title_to_note.get(m.group(1)):
+            return True
+    for m in re.finditer(r"%%HEPTA-CARD:([0-9a-f-]{36})%%", vault_para):
+        info = id_to_note.get(m.group(1))
+        if not (info and info.get("note_id")):
+            return True
+    for m in re.finditer(
+            r"https://app\.heptabase\.com/[^\)\s]*?"
+            r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", vault_para):
+        info = id_to_note.get(m.group(1))
+        if not (info and info.get("note_id")):
+            return True
+    return False
+
+
+def write_back(vault_md, base_md, hackmd_md, note_to_card, render,
+               degrades=None):
+    """Paragraph-level HackMD -> vault merge. rewrite_links is inline-only,
+    so the vault body and its rendered base have the SAME paragraph
+    sequence; diff(base, now) opcodes therefore map 1:1 onto vault
+    paragraphs. Unchanged paragraphs keep the vault original (mentions that
+    degraded to plain text on HackMD stay intact); edited paragraphs are
+    link-reversed and must round-trip (render(reversed) == region) or the
+    whole card conflicts. Editing/deleting a paragraph whose vault original
+    contains degraded (irreversible) links also conflicts — writing the
+    HackMD text back would fossilize the degradation. Returns new vault
+    body, or raises ValueError."""
+    import difflib
+    vault_paras = split_paras(vault_md)
+    base_paras = split_paras(base_md)
+    now_paras = split_paras(hackmd_md)
+    if len(vault_paras) != len(base_paras):
+        raise ValueError("base 與 vault 段落數不一致（base 過期？重跑一輪前向後再試）")
+    out = []
+    sm = difflib.SequenceMatcher(None, base_paras, now_paras, autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            out += vault_paras[i1:i2]
+            continue
+        for k in range(i1, i2):
+            if degrades and degrades(vault_paras[k]):
+                raise ValueError(
+                    "被編輯/刪除的段落含 HackMD 端已降級的連結（未鏡像卡的"
+                    f" mention／URL）——寫回會固化損耗：{vault_paras[k][:80]!r}")
+        for region in now_paras[j1:j2]:
+            reversed_md = reverse_links(region, note_to_card)
+            if render(reversed_md).strip() != region.strip():
+                raise ValueError(f"round-trip 不一致（寫回後會變形）：{region[:80]!r}")
+            out.append(reversed_md)
+    return "\n\n".join(out)
+
+
 # ── state ─────────────────────────────────────────────────────────────────────
 def load_state():
     try:
@@ -234,7 +410,8 @@ def sync(collections=None, only_card=None, dry=False):
     state = load_state()
     cards_state = state.setdefault("cards", {})
     report = {"created": [], "updated": [], "skipped": 0,
-              "conflicts": [], "errors": []}
+              "written_back": [], "conflicts": [], "errors": [],
+              "aborted": None}
 
     # gather the full mirror set, plus an id→title map over EVERY configured
     # collection (not just mirrored ones) so mentions of unmirrored cards
@@ -244,38 +421,49 @@ def sync(collections=None, only_card=None, dry=False):
         if collections and key not in collections:
             continue
         for card in list_cards(key):
-            if only_card and card["id"] != only_card:
+            if only_card and only_card not in (card["id"], card_key(card)):
                 continue
             targets.append((key, cc, card))
+
+    # key migration: state written when the OTHER id space was the source
+    # (vault id ↔ heptabase uuid) moves to the current card_key — otherwise
+    # every known card would be treated as new and duplicated on HackMD
+    for _, _, c in targets:
+        ck = card_key(c)
+        if ck != c["id"] and c["id"] in cards_state and ck not in cards_state:
+            cards_state[ck] = cards_state.pop(c["id"])
     all_titles = {}
     for key in hbconfig.collections(cfg):
         try:
             for card in list_cards(key):
-                all_titles[card["id"]] = card["title"]
+                all_titles[card_key(card)] = card["title"]
         except Exception:                                    # noqa: BLE001
             pass  # a collection that doesn't resolve just loses title fallback
 
-    known_titles = {c["title"]: cards_state.get(c["id"], {}).get("note_id")
+    known_titles = {c["title"]: cards_state.get(card_key(c), {}).get("note_id")
                     for _, _, c in targets}
 
     # phase A: create every brand-new card FIRST so the link map is complete
     # before any content is finalized — first publication already carries the
     # promised note-to-note links (no second-run convergence needed)
     for key, cc, card in targets:
-        cid, title = card["id"], card["title"]
-        if (cards_state.get(cid) or {}).get("note_id"):
+        ck, title = card_key(card), card["title"]
+        if (cards_state.get(ck) or {}).get("note_id"):
             continue
         try:
             if dry:
-                report["created"].append({"card": cid, "title": title})
+                report["created"].append({"card": ck, "title": title})
                 continue
             nid = note_create(title, "（同步中…）", cc.get("folder_id"), cfg, cc)
-            cards_state[cid] = {"note_id": nid, "md5": None,
-                                "last_changed_at": None, "title": title}
+            cards_state[ck] = {"note_id": nid, "md5": None,
+                               "last_changed_at": None, "title": title}
             known_titles[title] = nid
-            report["created"].append({"card": cid, "note": nid, "title": title})
+            report["created"].append({"card": ck, "note": nid, "title": title})
+        except QuotaExhausted as e:
+            report["aborted"] = str(e)
+            break
         except Exception as e:                               # noqa: BLE001
-            report["errors"].append({"card": cid, "title": title,
+            report["errors"].append({"card": ck, "title": title,
                                      "err": str(e)[:200]})
 
     # index AFTER the creates so brand-new notes are covered in the same run
@@ -284,7 +472,8 @@ def sync(collections=None, only_card=None, dry=False):
     # unavailable (rate limit): skip remote missing/conflict/permission
     # checks, keep the md5-incremental part.
     remote_index = None
-    if any((cards_state.get(c["id"]) or {}).get("note_id") for _, _, c in targets):
+    if any((cards_state.get(card_key(c)) or {}).get("note_id")
+           for _, _, c in targets):
         try:
             remote_index = fetch_remote_index()
         except Exception as e:                               # noqa: BLE001
@@ -293,30 +482,35 @@ def sync(collections=None, only_card=None, dry=False):
                  "err": f"HackMD note list 失敗（rate limit？稍後重跑）——本輪"
                         f"跳過遠端 missing/conflict/權限檢查：{str(e)[:120]}"})
 
-    known_ids = {c["id"]: {"note_id": cards_state.get(c["id"], {}).get("note_id"),
-                           "title": c["title"]}
-                 for _, _, c in targets if cards_state.get(c["id"], {}).get("note_id")}
+    known_ids = {card_key(c): {"note_id": cards_state.get(card_key(c), {}).get("note_id"),
+                               "title": c["title"]}
+                 for _, _, c in targets
+                 if cards_state.get(card_key(c), {}).get("note_id")}
     mention_map = dict(known_ids)
     for cid2, title2 in all_titles.items():
         mention_map.setdefault(cid2, {"note_id": None, "title": title2})
+    note_to_card = {v["note_id"]: {"card": k, "title": v["title"]}
+                    for k, v in mention_map.items() if v.get("note_id")}
 
     # phase B: render + write content (freshly created notes always update:
     # their md5 is None)
+    title_map = {t: n for t, n in known_titles.items() if n}
+    render = lambda m: rewrite_links(m, title_map, mention_map)  # noqa: E731
+    wb_enabled = bool(hk.get("write_back")) and be.name == "obsidian"
     for key, cc, card in targets:
-        cid, title = card["id"], card["title"]
+        cid, ck, title = card["id"], card_key(card), card["title"]
         want_read = perm(cfg, "read_permission", "owner", cc)
-        prev = cards_state.get(cid) or {}
+        prev = cards_state.get(ck) or {}
         if not prev.get("note_id"):
             continue  # dry-run create, or create failed above
         try:
-            md = read_md(cid)
-            md = rewrite_links(md, {t: n for t, n in known_titles.items() if n},
-                               mention_map)
+            src_md = read_md(cid)
+            md = render(src_md)
             digest = content_md5(md)
             if remote_index is not None and prev["note_id"] not in remote_index \
                     and prev.get("md5") is not None:
                 report["errors"].append(
-                    {"card": cid, "title": title,
+                    {"card": ck, "title": title,
                      "err": "HackMD note 不存在（遠端被刪？）——刪 state 條目後"
                             "重跑即重建"})
                 continue
@@ -330,10 +524,62 @@ def sync(collections=None, only_card=None, dry=False):
                     remote.get("last_changed_at") != prev.get("last_changed_at"):
                 if perm_drift and not dry:
                     note_set_read_permission(prev["note_id"], want_read)
+                # level 2 (opt-in): the HackMD-side edit flows back — but ONLY
+                # for notes nobody else can edit (effective write_permission
+                # owner), never when the source moved too, and only with a
+                # base snapshot to diff against.
+                why_extra = ""
+                if wb_enabled and \
+                        perm(cfg, "write_permission", "owner", cc) == "owner":
+                    source_moved = prev.get("md5") is not None \
+                        and prev["md5"] != digest
+                    base_md = load_base(ck)
+                    if source_moved:
+                        why_extra = "；write-back 中止：本地端也改了（真三方衝突）"
+                    elif base_md is None:
+                        why_extra = "；write-back 中止：無 base 快照（先跑一輪前向）"
+                    elif dry:
+                        why_extra = "；dry-run（實跑會 write-back）"
+                    else:
+                        info = note_get(prev["note_id"])
+                        try:
+                            # the REMOTE's actual write permission is the
+                            # authority, not the config value — a note opened
+                            # up on hackmd.io means someone else may have
+                            # made this edit
+                            if info.get("write_permission") != "owner":
+                                raise ValueError(
+                                    "遠端實際寫權限非 owner（此編輯可能出自"
+                                    "他人）——先在 HackMD 收回寫權限")
+                            new_vault = write_back(
+                                src_md, base_md, info["content"],
+                                note_to_card, render,
+                                degrades=lambda p: para_degrades(
+                                    p, title_map, mention_map))
+                            # narrow re-check: the vault file must not have
+                            # moved since we read it at the top of this card
+                            if read_md(cid) != src_md:
+                                raise ValueError(
+                                    "vault 檔在同步過程中被改動——下輪重試")
+                        except ValueError as e:
+                            why_extra = f"；write-back 中止（整卡凍結）：{e}"
+                        else:
+                            be.save_card(cid, new_vault)
+                            new_render = render(new_vault)
+                            cards_state[ck] = {
+                                "note_id": prev["note_id"],
+                                "md5": content_md5(new_render),
+                                "last_changed_at": info["last_changed_at"],
+                                "title": title}
+                            save_base(ck, new_render)
+                            report["written_back"].append(
+                                {"card": ck, "note": prev["note_id"],
+                                 "title": title})
+                            continue
                 report["conflicts"].append(
-                    {"card": cid, "note": prev["note_id"], "title": title,
-                     "why": "HackMD 端在上次同步後被編輯——level 1 不寫回，"
-                            "手動合併後重跑（或刪 state 條目強制覆蓋）"})
+                    {"card": ck, "note": prev["note_id"], "title": title,
+                     "why": "HackMD 端在上次同步後被編輯——不覆蓋，"
+                            "手動合併後重跑（或刪 state 條目強制覆蓋）" + why_extra})
                 continue
             # ONE PATCH per card: content and the declarative read
             # permission ride together — two rapid PATCHes to the same note
@@ -341,20 +587,35 @@ def sync(collections=None, only_card=None, dry=False):
             if prev.get("md5") == digest:
                 if perm_drift and not dry:
                     note_set_read_permission(prev["note_id"], want_read)
+                if not dry and load_base(ck) is None:
+                    save_base(ck, md)   # backfill for pre-level-2 states
                 report["skipped"] += 1
+                continue
+            if remote_index is None and prev.get("md5") is not None:
+                # no remote visibility (rate limit): updating an existing
+                # note here could silently clobber an undetected HackMD-side
+                # edit — defer to a run that can see the remote state
+                report["errors"].append(
+                    {"card": ck, "title": title,
+                     "err": "remote index 不可用——跳過內容更新以免蓋掉"
+                            " HackMD 端未偵測的編輯（下輪重試）"})
                 continue
             if not dry:
                 body = {"content": md}
                 if perm_drift:
                     body["readPermission"] = want_read
                 api("PATCH", f"/notes/{prev['note_id']}", body)
-                cards_state[cid] = {"note_id": prev["note_id"], "md5": digest,
-                                    "last_changed_at": None,  # backfilled below
-                                    "title": title}
-            report["updated"].append({"card": cid, "note": prev["note_id"],
+                cards_state[ck] = {"note_id": prev["note_id"], "md5": digest,
+                                   "last_changed_at": None,  # backfilled below
+                                   "title": title}
+                save_base(ck, md)
+            report["updated"].append({"card": ck, "note": prev["note_id"],
                                       "title": title})
+        except QuotaExhausted as e:
+            report["aborted"] = str(e)
+            break
         except Exception as e:                               # noqa: BLE001
-            report["errors"].append({"card": cid, "title": title,
+            report["errors"].append({"card": ck, "title": title,
                                      "err": str(e)[:200]})
 
     # post-write pass over JUST the cards written this run: a single-note GET
@@ -380,6 +641,9 @@ def sync(collections=None, only_card=None, dry=False):
                         {"card": cid2, "title": rec.get("title"),
                          "err": "寫入未落地（202 被異步丟棄）——已標記重送，"
                                 "重跑 sync 收斂"})
+            except QuotaExhausted as e:
+                report["aborted"] = str(e)
+                break
             except Exception as e:                           # noqa: BLE001
                 report["errors"].append(
                     {"card": cid2, "title": rec.get("title"),

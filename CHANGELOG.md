@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.30.1 — seal the continuation back-ref too
+
+- A spill's child card opens with a back-reference to its entry card
+  (`母卡：[[card:<entry>]]`) that landed as plain text and was never
+  sealed — the chain PARSED fine (the sentinel edge was sealed since
+  0.24.2), but the in-app link back to the parent wasn't clickable.
+  `seal_backref_paragraphs` now rebuilds it into a real card node by
+  splitting the text node (prose around it is kept verbatim); wired into
+  the spill's automatic seal (heptabase + hb transports; `hb seal` gains
+  an optional third entry-id argument with graceful old-client fallback)
+  and into `repair_chain.py --seal`. Guard rails: only a paragraph whose
+  `母卡：` marker precedes the literal qualifies, first match only —
+  prose quoting `[[card:id]]` is never rewritten.
+
 ## 0.30.0 — the backends list
 
 - New config key `backends`: a LIST of note surfaces — the FIRST entry is

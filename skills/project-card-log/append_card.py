@@ -182,6 +182,64 @@ def seal_sentinel_paragraphs(nodes, child_id=None):
     return sealed
 
 
+BACKREF_MARK = "母卡："
+
+
+def seal_backref_paragraphs(nodes, parent_id=None):
+    """Convert the TEXT-form parent back-reference at the top of a child card
+    (`…母卡：[[card:<entry>]]。…` from child_header) into a real card-mention
+    node, in place — the sentinel seal fixes the tail→child edge, but the
+    child→parent link the UI navigates by was still plain text (gap observed
+    2026-07-18). Unlike the sentinel rebuild, the surrounding prose is kept:
+    the matching text node is SPLIT into text + card + text. Paragraphs that
+    carry the sentinel LINK_MARK are left to seal_sentinel_paragraphs; ones
+    that already contain a card node are done (idempotent). Returns the
+    number of paragraphs sealed."""
+    pat = re.compile(r"\[\[card:(" + _UUID + r")\]\]")
+    sealed = 0
+    for n in nodes or []:
+        if sealed:
+            break                         # a card has exactly one back-ref
+        if n.get("type") != "paragraph":
+            continue
+        kids = n.get("content") or []
+        if any(c.get("type") == "card" for c in kids):
+            continue
+        full = "".join(c.get("text", "") for c in kids
+                       if c.get("type") == "text")
+        if LINK_MARK in full:
+            continue                      # a sentinel — not ours to touch
+        # only the child_header back-ref qualifies: the BACKREF_MARK must
+        # precede the literal IN THE SAME paragraph — user prose merely
+        # quoting [[card:id]] must never be rewritten
+        if BACKREF_MARK not in full.split(f"[[card:", 1)[0]:
+            continue
+        for i, c in enumerate(kids):
+            if c.get("type") != "text":
+                continue
+            m = pat.search(c.get("text", ""))
+            if not m or (parent_id and m.group(1) != parent_id):
+                continue
+            marks = c.get("marks")
+            pieces = []
+            before, after = c["text"][:m.start()], c["text"][m.end():]
+            if before:
+                t = {"type": "text", "text": before}
+                if marks:
+                    t["marks"] = marks
+                pieces.append(t)
+            pieces.append({"type": "card", "attrs": {"cardId": m.group(1)}})
+            if after:
+                t = {"type": "text", "text": after}
+                if marks:
+                    t["marks"] = marks
+                pieces.append(t)
+            n["content"] = kids[:i] + pieces + kids[i + 1:]
+            sealed += 1
+            break
+    return sealed
+
+
 def continuation_block(child_id):
     return f"\n\n---\n▶ **{LINK_MARK}**：[[card:{child_id}]]\n"
 
@@ -328,17 +386,51 @@ class Transport:
         m = re.match(r"#\s+(.+)", self.read(card_id).lstrip())
         return m.group(1).strip() if m else ""
 
-    def seal_continuation(self, tail_id, child_id):
-        """Rebuild the just-written TEXT-form tail→child sentinel into a real
-        card-mention node. heptabase transport does it locally via `note
-        save`; the hb bridge does it via its `seal` verb (a fixed server-side
-        transform — old clients without the verb just return False, falling
-        back to the repair_chain --seal note). obsidian never spills.
-        Best-effort: returns True on success, False otherwise — the
-        markdown-level tail-walk still follows a text sentinel either way."""
+    def _seal_card(self, card_id, seal_fn):
+        """read → transform(doc content nodes) → optimistic-locked save.
+        NOT _hepta_read(): that helper sys.exit()s on failure, which
+        `except Exception` cannot catch — and a transient read error here
+        must never fail a spill that already landed (a retried spill would
+        create a duplicate child). Best-effort: bool."""
+        try:
+            r = sh(["heptabase", "note", "read", card_id])
+            if r.returncode != 0:
+                return False
+            note = json.loads(r.stdout)
+            doc = json.loads(note["content"])
+            if not seal_fn(doc.get("content")):
+                return False
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                             encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False)
+                tmp = f.name
+            try:
+                r = sh(["heptabase", "note", "save", card_id,
+                        "--content-md5", note.get("contentMd5") or "",
+                        "--content-file", tmp])
+            finally:
+                os.unlink(tmp)
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def seal_continuation(self, tail_id, child_id, entry_id=None):
+        """Rebuild the just-written TEXT-form links into real card-mention
+        nodes: the tail→child sentinel, AND (given entry_id) the child's
+        opening back-reference to the entry card — both land as plain text
+        because the CLI's markdown append doesn't parse [[card:id]].
+        heptabase transport does it locally via `note save`; the hb bridge
+        via its `seal` verb (server-side fixed transform; clients/servers
+        without the third arg gracefully degrade to sentinel-only).
+        obsidian never spills. Best-effort: the return value reports the
+        SENTINEL seal (the chain-parser-critical edge); the back-ref is
+        UI-navigation polish and never fails the spill."""
         if self.kind == "hb":
             try:
-                r = sh(["hb", "seal", tail_id, child_id])
+                args = ["hb", "seal", tail_id, child_id]
+                r = sh(args + ([entry_id] if entry_id else []))
+                if r.returncode != 0 and entry_id:
+                    r = sh(args)          # old client: no third positional
                 if r.returncode != 0:
                     return False
                 out = json.loads(r.stdout.strip().splitlines()[-1])
@@ -347,31 +439,12 @@ class Transport:
                 return False
         if self.kind != "heptabase":
             return False
-        try:
-            # NOT _hepta_read(): that helper sys.exit()s on failure, which
-            # `except Exception` cannot catch — and a transient read error
-            # here must never fail a spill that already landed (a retried
-            # spill would create a duplicate child). Best-effort means False.
-            r = sh(["heptabase", "note", "read", tail_id])
-            if r.returncode != 0:
-                return False
-            note = json.loads(r.stdout)
-            doc = json.loads(note["content"])
-            if not seal_sentinel_paragraphs(doc.get("content"), child_id):
-                return False
-            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
-                                             encoding="utf-8") as f:
-                json.dump(doc, f, ensure_ascii=False)
-                tmp = f.name
-            try:
-                r = sh(["heptabase", "note", "save", tail_id,
-                        "--content-md5", note.get("contentMd5") or "",
-                        "--content-file", tmp])
-            finally:
-                os.unlink(tmp)
-            return r.returncode == 0
-        except Exception:
-            return False
+        ok = self._seal_card(tail_id,
+                             lambda ns: seal_sentinel_paragraphs(ns, child_id))
+        if entry_id:
+            self._seal_card(child_id,
+                            lambda ns: seal_backref_paragraphs(ns, entry_id))
+        return ok
 
     def size(self, card_id):
         """Serialized-payload length for the capacity decision. `read()` returns
@@ -590,7 +663,7 @@ def append_or_spill(t, entry_id, new_md, dry_run=False):
     # scan, repair, orphan tooling) would not see the edge. Seal it into a
     # real card node where we can (Mac); on the bridge, flag for a Mac-side
     # `repair_chain.py --seal` pass.
-    sealed = t.seal_continuation(tail, child_id)
+    sealed = t.seal_continuation(tail, child_id, entry_id)
     notes = []
     if not tagged:
         notes.append(

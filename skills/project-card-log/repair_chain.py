@@ -102,9 +102,11 @@ def seal_chain(entry_id, dry_run=False):
     """Walk the chain from the entry, converting TEXT-form sentinels (a bridge
     or Mac spill writes `[[card:id]]` as plain text — the heptabase CLI does
     not convert it) into real card-mention nodes so PM-level parsers (merge
-    scan, orphan tooling, this repair tool) can see the edges again. Follows
-    the freshly-sealed edge each hop, so a fully text-linked chain is walked
-    end to end in one pass."""
+    scan, orphan tooling, this repair tool) can see the edges again. Also
+    seals each continuation card's opening back-reference to the entry (the
+    child→parent link the UI navigates by — plain text for the same reason).
+    Follows the freshly-sealed edge each hop, so a fully text-linked chain
+    is walked end to end in one pass."""
     cur, chain, sealed_per_card = entry_id, [], {}
     seen = set()
     while cur and cur not in seen and len(chain) < AC.CHAIN_MAX:
@@ -113,6 +115,8 @@ def seal_chain(entry_id, dry_run=False):
         md5, doc = L.read_card(cur)
         nodes = doc["content"]
         n_sealed = AC.seal_sentinel_paragraphs(nodes)
+        if cur != entry_id:
+            n_sealed += AC.seal_backref_paragraphs(nodes, entry_id)
         if n_sealed and not dry_run:
             L.save_card(cur, md5, doc)
         if n_sealed:

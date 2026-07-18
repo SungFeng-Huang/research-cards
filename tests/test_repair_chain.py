@@ -111,6 +111,49 @@ class TestSentinelDetection(unittest.TestCase):
         self.assertEqual(AC.seal_sentinel_paragraphs([n], child_id=other), 0)
         self.assertEqual(AC.seal_sentinel_paragraphs([n], child_id=UUID), 1)
 
+    def test_seal_backref_splits_text_keeping_prose(self):
+        # child_header writes 「（<title> 的續卡 N…；母卡：[[card:entry]]。…）」
+        # as ONE text node — seal must split it into text + card + text,
+        # keeping the surrounding prose intact
+        n = _para(_t(f"（軸卡 的續卡 2／append 溢位；母卡：[[card:{UUID}]]。"
+                     "整併請用 project-card-merge。）"))
+        self.assertEqual(AC.seal_backref_paragraphs([n], UUID), 1)
+        kids = n["content"]
+        self.assertEqual([k["type"] for k in kids], ["text", "card", "text"])
+        self.assertEqual(kids[1]["attrs"]["cardId"], UUID)
+        self.assertTrue(kids[0]["text"].endswith("母卡："))
+        self.assertTrue(kids[2]["text"].startswith("。整併請用"))
+        # idempotent: a card node is present now
+        self.assertEqual(AC.seal_backref_paragraphs([n], UUID), 0)
+
+    def test_seal_backref_never_touches_prose(self):
+        # review P2: user prose merely QUOTING [[card:id]] must not be
+        # rewritten — the BACKREF_MARK must precede the literal
+        p1 = _para(_t(f"筆記正文引用了 [[card:{UUID}]] 這個寫法"))
+        self.assertEqual(AC.seal_backref_paragraphs([p1], UUID), 0)
+        p2 = _para(_t(f"[[card:{UUID}]] 之後才提到母卡：如何如何"))
+        self.assertEqual(AC.seal_backref_paragraphs([p2], UUID), 0)
+        # and only the FIRST back-ref paragraph seals (a card has one)
+        a = _para(_t(f"母卡：[[card:{UUID}]]。"))
+        b = _para(_t(f"母卡：[[card:{UUID}]]。"))
+        self.assertEqual(AC.seal_backref_paragraphs([a, b], UUID), 1)
+        self.assertEqual([k["type"] for k in b["content"]], ["text"])
+
+    def test_seal_backref_filters_and_boundaries(self):
+        other = "99999999-9999-4999-8999-999999999999"
+        n = _para(_t(f"母卡：[[card:{UUID}]]。"))
+        self.assertEqual(AC.seal_backref_paragraphs([n], other), 0)  # id filter
+        # sentinel paragraphs belong to seal_sentinel_paragraphs, not here
+        s = _para(_t(AC.LINK_MARK + f"：[[card:{UUID}]]"))
+        self.assertEqual(AC.seal_backref_paragraphs([s], UUID), 0)
+        # marks on the original text survive on both split halves
+        m = _para(_t(f"母卡：[[card:{UUID}]] 完", strong=True))
+        self.assertEqual(AC.seal_backref_paragraphs([m], UUID), 1)
+        self.assertEqual(m["content"][0].get("marks"),
+                         [{"type": "strong"}])
+        self.assertEqual(m["content"][2].get("marks"),
+                         [{"type": "strong"}])
+
     def test_stranded_markdown_normalizes_card_links(self):
         stranded = [_para(_t("見："), _card(UUID))]
         md = RC.stranded_to_markdown(stranded, "entry-id")

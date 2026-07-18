@@ -4,10 +4,14 @@
 Location: ~/.config/research-cards/config.json (legacy dir/env still
 honored; override with RESEARCH_CARDS_CONFIG). See config.example.json at the plugin root.
 
-backend modes:
-  "heptabase" - author in Heptabase only (no vault)
-  "obsidian"  - author in an Obsidian vault only (no Heptabase app needed)
-  "both"      - Heptabase is canonical; the obsidian-sync skill mirrors it
+note surfaces — the "backends" list (0.30.0):
+  "backends": ["heptabase", "local"]   # first entry = canonical (authoring)
+  values: "local" (plain .md in a folder — no note app required; the value
+  formerly named "obsidian", which is still accepted as an alias),
+  "heptabase", "hackmd" (publish surface — never first).
+  The legacy single-value "backend" key (obsidian|heptabase|both) keeps
+  working; load_config() normalizes either spelling and keeps BOTH keys
+  populated, so internal code may keep reading cfg["backend"].
 """
 import json, os
 
@@ -22,9 +26,6 @@ CONFIG_PATH = (os.environ.get("RESEARCH_CARDS_CONFIG")
                or os.environ.get("HEPTABASE_CARDS_CONFIG")  # legacy env
                or _default_config_path())
 
-VALID_BACKENDS = ("heptabase", "obsidian", "both")
-
-
 class ConfigError(RuntimeError):
     pass
 
@@ -35,14 +36,58 @@ def load_config():
             f"找不到設定檔 {CONFIG_PATH}。請複製 plugin 根目錄的 "
             "config.example.json 過去並填入你的 backend/vault/tag 設定。")
     cfg = json.load(open(CONFIG_PATH))
-    # Unset backend defaults to obsidian — plain .md in a folder, no note app
+    # ── note-surface list (0.30.0) ─────────────────────────────────────
+    # "backends": ["heptabase", "local"] — first entry is the canonical
+    # (authoring) side, the rest are mirrors. "local" = plain .md in a
+    # folder (the value formerly named "obsidian"; alias still accepted).
+    # The legacy single-value "backend" key keeps working, and BOTH keys
+    # are kept in sync so existing code reading cfg["backend"] is
+    # untouched. Unset everything defaults to ["local"] — no note app
     # required. (A MISSING config file still raises above, and the legacy
     # "no config at all" fallbacks elsewhere keep meaning heptabase — old
     # cron setups predate the config file and must not change behavior.)
-    backend = cfg.get("backend") or "obsidian"
+    _ALIAS = {"obsidian": "local"}
+    _LEGACY = {"both": ["heptabase", "local"],
+               "heptabase": ["heptabase"],
+               "obsidian": ["local"]}
+    raw = cfg.get("backends")
+    explicit_list = raw is not None
+    if raw is None:
+        legacy = cfg.get("backend") or "obsidian"
+        if legacy not in _LEGACY:
+            raise ConfigError(f"config 的 backend 必須是 obsidian|heptabase|both，"
+                              f"目前是 {legacy!r}（或改用新式 backends list）")
+        raw = list(_LEGACY[legacy])
+    if not isinstance(raw, list) or not raw or \
+            not all(isinstance(b, str) for b in raw):
+        raise ConfigError('config 的 backends 必須是非空字串 list，'
+                          '例如 ["heptabase", "local"]')
+    backends = []
+    for b in raw:
+        b = _ALIAS.get(b, b)
+        if b not in ("local", "heptabase", "hackmd"):
+            raise ConfigError(f"backends 含未知項 {b!r}——可用：local（純 .md 資料夾；"
+                              "舊名 obsidian）、heptabase、hackmd")
+        if b not in backends:
+            backends.append(b)
+    if backends[0] == "hackmd":
+        raise ConfigError("hackmd 是發佈面、不能當正本——backends 首位要是 "
+                          "local 或 heptabase")
+    core = [b for b in backends if b != "hackmd"]
+    if core == ["local", "heptabase"]:
+        raise ConfigError('backends: ["local", "heptabase"]（local 為正本、'
+                          'heptabase 為鏡像）尚未支援——現行引擎以 Heptabase 為'
+                          '正本鏡像到 vault；要雙庫請寫 ["heptabase", "local"]')
+    # legacy spelling never mentioned hackmd — infer it from an enabled
+    # hackmd.collections so behavior doesn't change; an EXPLICIT list is
+    # taken at face value (omit "hackmd" there to disable the mirror)
+    if not explicit_list and (cfg.get("hackmd") or {}).get("collections") \
+            and "hackmd" not in backends:
+        backends.append("hackmd")
+    cfg["backends"] = backends
+    backend = ("both" if {"heptabase", "local"} <= set(core)
+               else ("heptabase" if core == ["heptabase"] else "obsidian"))
     cfg["backend"] = backend
-    if backend not in VALID_BACKENDS:
-        raise ConfigError(f"config 的 backend 必須是 {VALID_BACKENDS}，目前是 {backend!r}")
     agent = cfg.get("agent", "claude")
     if agent not in ("claude", "codex"):
         raise ConfigError(f"config 的 agent 必須是 claude|codex，目前是 {agent!r}")

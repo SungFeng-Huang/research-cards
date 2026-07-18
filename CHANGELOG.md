@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.30.0 — the backends list
+
+- New config key `backends`: a LIST of note surfaces — the FIRST entry is
+  the canonical (authoring) side, the rest are mirrors. `"local"` is the
+  new name for plain .md in a folder (no note app required); `"obsidian"`
+  is kept as an alias. Append `"hackmd"` to enable the publish mirror.
+  Typical values: `["local"]` (default), `["heptabase"]`,
+  `["heptabase", "local"]`, plus `"hackmd"` anywhere after the first slot.
+- The legacy single-value `backend` key (obsidian|heptabase|both) keeps
+  working: load_config() normalizes either spelling and keeps both keys
+  populated. Legacy configs with hackmd.collections get "hackmd" inferred
+  into the list; an EXPLICIT backends list is taken at face value (omit
+  "hackmd" there to disable the mirror — hackmd-sync now checks).
+- Guard rails: hackmd can never be canonical; the ["local", "heptabase"]
+  order (vault-canonical mirrored to Heptabase) is rejected as not yet
+  supported; unknown values name the accepted set.
+
 ## 0.29.1 — index-card link resolution + book sidebar cleanup
 
 - Wikilink resolution also indexes the vault FILENAME: cards whose title

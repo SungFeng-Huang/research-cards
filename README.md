@@ -84,7 +84,7 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 
 | Skill | What it does |
 |---|---|
-| `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync (backend `both` only) |
+| `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync (needs both stores in `backends`) |
 | `hackmd-sync` | Incremental mirror of selected collections to **HackMD** (sharing/publishing): real note-to-note links, declarative permissions (per-collection overrides), and opt-in **two-way sync** (`write_back`) — HackMD-side edits on owner-writable notes merge back paragraph-level; shared-writable notes and two-sided edits stay conflicts |
 
 **⚙️ Setup**
@@ -104,8 +104,8 @@ follows whichever anchor card you give it, the latter follows the backend).
 | To use | You need |
 |---|---|
 | Basics | Python 3.10+, `pip install pyyaml`, an agent CLI (**Claude Code** or **Codex**) |
-| `backend: heptabase` / `both` | macOS + the **Heptabase desktop app** + the `heptabase` CLI **≥ 0.4.0** (local API `127.0.0.1:21210`) |
-| `backend: obsidian` / `both` (the default) | **Just a folder of .md files** — any directory works; opening it as an **Obsidian vault** is optional polish (iCloud vaults need **Full Disk Access**) |
+| `backends` incl. `"heptabase"` | macOS + the **Heptabase desktop app** + the `heptabase` CLI **≥ 0.4.0** (local API `127.0.0.1:21210`) |
+| `backends` incl. `"local"` (the default) | **Just a folder of .md files** — any directory works; opening it as an **Obsidian vault** is optional polish (iCloud vaults need **Full Disk Access**) |
 | HackMD mirroring (`hackmd-sync`) | `npm install -g @hackmd/hackmd-cli` + one `hackmd-cli login` (API token from hackmd.io → Settings → API; never stored in the plugin config) |
 | Email clipping (`scholar-inbox-clip`) | macOS **Mail.app** + a dedicated mailbox folder (use a Mail rule to route digests into it) + `osascript` automation permission |
 | Card figures | `pip install pymupdf` (PDF pages) + `brew install librsvg` (SVG) |
@@ -174,7 +174,7 @@ in ten minutes:
 2. **Create a folder** (anywhere on disk; if you put it in iCloud, the
    terminal needs Full Disk Access).
 3. **Configure** — minimal `~/.config/research-cards/config.json`
-   (`backend` defaults to this plain-.md mode, so you can omit it):
+   (`backends` defaults to `["local"]` — this plain-.md mode — so you can omit it):
 
    ```json
    {
@@ -214,8 +214,8 @@ time, before or after Quick Start A:
 - **Obsidian**: open the folder as a vault — clickable `[[wikilinks]]`, a
   Properties UI, and the knowledge map rendered as a real canvas. Zero
   migration, zero config changes.
-- **Heptabase**: author in Heptabase (`backend: heptabase`), or run
-  `backend: both` for the full block-level **bidirectional sync** between
+- **Heptabase**: author in Heptabase (`backends: ["heptabase"]`), or run
+  `backends: ["heptabase", "local"]` for the full block-level **bidirectional sync** between
   Heptabase and your folder — write-back, adoption of hand-made .md files,
   a conflict ledger, three-way property sync.
 - **HackMD** (publishing-first): `hackmd-sync` mirrors selected collections
@@ -496,7 +496,7 @@ Not installed → the export feature is unavailable; everything else works as us
 | `Operation not permitted` when touching an iCloud vault | Grant the terminal (or the scheduler's interpreter) **Full Disk Access** |
 | A scheduled run can't read Mail | Automation permission follows "the launching executable" — run once interactively with the same interpreter and approve the prompt |
 | Codex runs an old plugin version | It executes a static cached copy — refresh with `codex plugin remove` + `add`, and confirm `plugin_root` points at your live clone |
-| `obsidian-sync` refuses to run | It only makes sense with `backend: "both"` — with a single backend there is nothing to sync |
+| `obsidian-sync` refuses to run | It only makes sense with `backends: ["heptabase", "local"]` — with a single store there is nothing to sync |
 | Sync reports a conflict | Feature, not a bug: that card has a lossy edit or divergence on both sides. Check the block and reason in the report / `Sync Conflicts.md`, fix the side you want to keep, and rerun |
 
 ## License

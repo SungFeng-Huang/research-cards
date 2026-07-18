@@ -83,7 +83,7 @@
 
 | Skill | 做什麼 |
 |---|---|
-| `obsidian-sync` | Heptabase ↔ Obsidian 雙向同步（僅 backend `both`） |
+| `obsidian-sync` | Heptabase ↔ Obsidian 雙向同步（需 `backends` 同時含兩庫） |
 | `hackmd-sync` | 選定 collection 增量鏡像到 **HackMD**（分享／發佈）：真 note-to-note 連結、宣告式權限（per-collection 可覆蓋）、選配**雙向同步**（`write_back`）——HackMD 端對「只有你能編輯」的 note 的修改會段落級合併寫回；開放編輯的 note 與兩邊都改的情況維持衝突報告 |
 
 **⚙️ 設定**
@@ -103,8 +103,8 @@
 | 你要用 | 你需要 |
 |---|---|
 | 基本 | Python 3.10+、`pip install pyyaml`、一個 agent CLI（**Claude Code** 或 **Codex**） |
-| `backend: heptabase` / `both` | macOS＋**Heptabase 桌面版**＋`heptabase` CLI **≥ 0.4.0**（本機 API `127.0.0.1:21210`） |
-| `backend: obsidian` / `both`（預設） | **一個 .md 資料夾就好**——任何目錄都行；用 **Obsidian** 開它是選配加分（iCloud vault 需要**完整磁碟取用權限**） |
+| `backends` 含 `"heptabase"` | macOS＋**Heptabase 桌面版**＋`heptabase` CLI **≥ 0.4.0**（本機 API `127.0.0.1:21210`） |
+| `backends` 含 `"local"`（預設） | **一個 .md 資料夾就好**——任何目錄都行；用 **Obsidian** 開它是選配加分（iCloud vault 需要**完整磁碟取用權限**） |
 | HackMD 鏡像（`hackmd-sync`） | `npm install -g @hackmd/hackmd-cli`＋跑一次 `hackmd-cli login`（API token 在 hackmd.io → Settings → API 生成；絕不存進 plugin config） |
 | 信件剪報（`scholar-inbox-clip`） | macOS **Mail.app**＋專用信箱資料夾（用 Mail 規則把 digest 導進去）＋`osascript` 自動化權限 |
 | 卡片圖片 | `pip install pymupdf`（PDF 頁面）＋`brew install librsvg`（SVG） |
@@ -169,7 +169,7 @@ app，十分鐘建起論文管線：
    （要圖片再加 `pymupdf` 與 `librsvg`）。
 2. **建一個資料夾**（位置隨意；放 iCloud 的話終端機要有完整磁碟取用權限）。
 3. **設定**——最小 `~/.config/research-cards/config.json`
-   （`backend` 預設就是這個純 .md 模式，可以不填）：
+   （`backends` 預設就是 `["local"]`——這個純 .md 模式——可以不填）：
 
    ```json
    {
@@ -208,8 +208,8 @@ app，十分鐘建起論文管線：
 - **Obsidian**：把資料夾當 vault 開——`[[wikilinks]]` 可點、frontmatter
   有 Properties 介面、知識地圖以真正的 canvas 呈現。零遷移、零 config
   變更。
-- **Heptabase**：在 Heptabase 裡寫作（`backend: heptabase`），或用
-  `backend: both` 得到 Heptabase 與資料夾之間完整的區塊級**雙向同步**
+- **Heptabase**：在 Heptabase 裡寫作（`backends: ["heptabase"]`），或用
+  `backends: ["heptabase", "local"]` 得到 Heptabase 與資料夾之間完整的區塊級**雙向同步**
   ——寫回、手建 .md 收養、衝突總帳、屬性三方同步。
 - **HackMD**（發佈優先）：`hackmd-sync` 把選定 collection 鏡像成
   HackMD notes、互連卡變真連結——為「把總覽分享給協作者」而生。選配
@@ -478,7 +478,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | 碰 iCloud vault 出現 `Operation not permitted` | 給終端機（或排程器的直譯器）**完整磁碟取用權限** |
 | 排程跑起來讀不到 Mail | 自動化權限跟著「發動的執行檔」走——用同一個直譯器互動式跑一次並核准提示 |
 | Codex 跑到舊版 plugin | 它執行靜態 cache 副本——`codex plugin remove`＋`add` 刷新，並確認 `plugin_root` 指向你活的 clone |
-| `obsidian-sync` 拒絕執行 | 它只在 `backend: "both"` 有意義——單一 backend 沒有東西可同步 |
+| `obsidian-sync` 拒絕執行 | 它只在 `backends: ["heptabase", "local"]` 有意義——單一庫沒有東西可同步 |
 | 同步報 conflict | 特性不是 bug：該卡有有損編輯或雙邊分歧。看報告／`Sync Conflicts.md` 裡的區塊與原因，修你要保留的那邊，重跑 |
 
 ## License

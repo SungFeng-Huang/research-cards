@@ -485,6 +485,9 @@ def _sync_locked(collections=None, only_card=None, dry=False):
     if not conf_cols:
         sys.exit("config 沒有 hackmd.collections——setup skill 可帶你設定"
                  "（hackmd-cli folders 查 folder id）")
+    if "hackmd" not in (cfg.get("backends") or ["hackmd"]):
+        sys.exit('backends 未含 "hackmd"——顯式 backends list 模式下，'
+                 '把 "hackmd" 加進 list 才會啟用 HackMD 鏡像')
     state = load_state()
     cards_state = state.setdefault("cards", {})
     report = {"created": [], "adopted": [], "updated": [], "skipped": 0,

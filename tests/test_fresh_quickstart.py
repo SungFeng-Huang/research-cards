@@ -107,7 +107,8 @@ print(SO.TOPIC_KEYS)
     def test_3_placeholder_ids_error_clearly(self):
         cfgp = self.home / ".config/research-cards/hb.json"
         cfg = json.load(open(self.home / ".config/research-cards/config.json"))
-        cfg["backend"] = "heptabase"
+        cfg["backends"] = ["heptabase"]      # explicit list wins over legacy
+        cfg.pop("backend", None)
         json.dump(cfg, open(cfgp, "w"), ensure_ascii=False)
         r = sh(f"""
 import sys; sys.path.insert(0, r"{REPO}/skills/scholar-inbox-clip")

@@ -85,6 +85,7 @@ def main():
             cfg = hbconfig.load_config()
             out["loads"] = True
             out["backend"] = cfg["backend"]
+            out["backends"] = cfg["backends"]
             out["profile"] = cfg.get("profile") or {}
             out["features"] = cfg.get("features") or {"study": True, "project": True}
             out["output_language"] = hbconfig.output_language()
@@ -142,8 +143,8 @@ def main():
         if out.get("error"):
             print(f"✗ 載入失敗：{out['error']}")
         elif out["loads"]:
-            print(f"✓ 載入成功  backend={out['backend']}  "
-                  f"language={out.get('output_language')}")
+            print(f"✓ 載入成功  backends={out.get('backends')}"
+                  f"（首位＝正本）  language={out.get('output_language')}")
             for c in out["checks"]:
                 print(f"  {'✓' if c['ok'] else '✗'} {c['name']}"
                       + (f"  ({c['detail']})" if c["detail"] else ""))

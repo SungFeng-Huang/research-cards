@@ -87,7 +87,7 @@
 
 | Skill | 하는 일 |
 |---|---|
-| `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화(backend `both` 전용) |
+| `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화(`backends`에 두 저장소 모두 필요) |
 | `hackmd-sync` | 선택한 collection을 **HackMD**로 증분 미러링(공유/게시): 진짜 노트 간 링크, 선언형 권한(collection 단위 재정의 가능), 옵트인 **양방향 동기화**(`write_back`) — HackMD 쪽에서 "나만 편집할 수 있는" 노트의 편집은 문단 단위로 병합되어 되돌아옵니다. 공동 편집 가능한 노트와 양쪽 모두 수정된 경우는 충돌 보고로 남습니다 |
 
 **⚙️ 설정**
@@ -108,8 +108,8 @@
 | 사용할 기능 | 필요한 것 |
 |---|---|
 | 기본 | Python 3.10+, `pip install pyyaml`, agent CLI 하나(**Claude Code** 또는 **Codex**) |
-| `backend: heptabase` / `both` | macOS + **Heptabase 데스크톱 앱** + `heptabase` CLI **≥ 0.4.0**(로컬 API `127.0.0.1:21210`) |
-| `backend: obsidian` / `both`(기본값) | **.md 폴더 하나면 충분** — 어떤 디렉터리든 됩니다; **Obsidian vault**로 여는 것은 선택형 보너스(iCloud vault는 **전체 디스크 접근 권한** 필요) |
+| `backends`에 `"heptabase"` 포함 | macOS + **Heptabase 데스크톱 앱** + `heptabase` CLI **≥ 0.4.0**(로컬 API `127.0.0.1:21210`) |
+| `backends`에 `"local"` 포함(기본값) | **.md 폴더 하나면 충분** — 어떤 디렉터리든 됩니다; **Obsidian vault**로 여는 것은 선택형 보너스(iCloud vault는 **전체 디스크 접근 권한** 필요) |
 | HackMD 미러링(`hackmd-sync`) | `npm install -g @hackmd/hackmd-cli` + 한 번의 `hackmd-cli login`(API 토큰은 hackmd.io → Settings → API에서 발급; plugin config에는 절대 저장되지 않습니다) |
 | 메일 클리핑(`scholar-inbox-clip`) | macOS **Mail.app** + 전용 메일함 폴더(Mail 규칙으로 digest를 그리로 유도) + `osascript` 자동화 권한 |
 | 카드 그림 | `pip install pymupdf`(PDF 페이지) + `brew install librsvg`(SVG) |
@@ -179,7 +179,7 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
    (그림까지 원하면 `pymupdf`와 `librsvg` 추가).
 2. **폴더 생성**(디스크 어디든 자유; iCloud에 둘 경우 터미널에 전체 디스크 접근 권한이 있어야 합니다).
 3. **설정** — 최소 `~/.config/research-cards/config.json`
-   (`backend`의 기본값이 바로 이 순수 .md 모드라서 생략해도 됩니다):
+   (`backends`의 기본값이 `["local"]` — 바로 이 순수 .md 모드 — 라서 생략해도 됩니다):
 
    ```json
    {
@@ -220,7 +220,7 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
 - **Obsidian**: 폴더를 vault로 여세요 — `[[wikilinks]]`가 클릭 가능해지고,
   Properties UI가 생기며, 지식 맵이 진짜 canvas로 렌더링됩니다.
   마이그레이션 제로, config 변경 제로.
-- **Heptabase**: Heptabase에서 작성하거나(`backend: heptabase`), `backend: both`로
+- **Heptabase**: Heptabase에서 작성하거나(`backends: ["heptabase"]`), `backends: ["heptabase", "local"]`로
   Heptabase와 폴더 간의 완전한 블록 단위 **양방향 동기화**를 돌리세요 —
   라이트백, 직접 만든 .md 파일의 입양, 충돌 원장, 속성 3-way 동기화.
 - **HackMD**(게시 우선): `hackmd-sync`가 선택한 collection을 진짜 노트 간
@@ -502,7 +502,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | iCloud vault를 건드리면 `Operation not permitted`가 남 | 터미널(또는 스케줄러의 인터프리터)에 **전체 디스크 접근 권한**을 주세요 |
 | 스케줄 실행이 Mail을 읽지 못함 | 자동화 권한은 "구동하는 실행 파일"을 따라갑니다 — 같은 인터프리터로 인터랙티브하게 한 번 돌리고 프롬프트를 승인하세요 |
 | Codex가 옛 버전 plugin을 실행함 | 정적 cache 사본을 실행하기 때문입니다 — `codex plugin remove` + `add`로 갱신하고, `plugin_root`가 살아 있는 clone을 가리키는지 확인하세요 |
-| `obsidian-sync`가 실행을 거부함 | `backend: "both"`에서만 의미가 있습니다 — 단일 backend에는 동기화할 대상이 없습니다 |
+| `obsidian-sync`가 실행을 거부함 | `backends: ["heptabase", "local"]`에서만 의미가 있습니다 — 단일 저장소에는 동기화할 대상이 없습니다 |
 | 동기화가 conflict를 보고함 | 버그가 아니라 의도된 동작입니다: 그 카드에 손실성 편집이 있거나 양쪽이 갈라졌습니다. 리포트/`Sync Conflicts.md`에서 해당 블록과 원인을 보고, 남기고 싶은 쪽을 고친 뒤 다시 돌리세요 |
 
 ## License

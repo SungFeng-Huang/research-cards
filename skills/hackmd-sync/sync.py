@@ -243,6 +243,20 @@ def card_key(card):
     return (card.get("props") or {}).get("heptabase_id") or card["id"]
 
 
+def link_names(card):
+    """All names a wikilink may use for this card: the card TITLE plus the
+    vault FILENAME when they differ — safe_filename replaces '/' etc. in
+    filenames, and Obsidian wikilinks target the filename, so an index card
+    saying [[Tokenizer-Codec-… (filename)]] must still resolve to the card
+    titled Tokenizer/Codec/…."""
+    names = [card["title"]]
+    if "/" in card["id"]:
+        base = card["id"].rsplit("/", 1)[-1]
+        if base != card["title"]:
+            names.append(base)
+    return names
+
+
 # ── link rewriting (pure) ─────────────────────────────────────────────────────
 def rewrite_links(md, title_to_note, id_to_note):
     """Mirrored targets become HackMD links; everything else degrades to the
@@ -288,9 +302,12 @@ PLACEHOLDER_MD5 = content_md5(PLACEHOLDER)
 def book_transform(md, title):
     """Shape a rendered index card into HackMD Book-mode form (matching the
     official tutorials book verbatim): a setext H1 title on top, ATX ##
-    sections become setext (`---` underline), and same-site note links
-    become relative `/noteId` paths. Source cards stay in the plugin's
-    ATX/full-URL dialect — this runs at render time only, every sync."""
+    sections become setext (`---` underline), same-site note links become
+    relative `/noteId` paths, and list items are stripped down to just the
+    link — Book mode's sidebar renders any text after the link as a
+    separate same-level unclickable entry, turning descriptions into
+    sidebar noise. Source cards keep their descriptions; this runs at
+    render time only, every sync."""
     md = re.sub(r"\]\(" + re.escape(HACKMD_URL) + r"([A-Za-z0-9_-]+)\)",
                 r"](/\1)", md)
     lines = []
@@ -302,6 +319,10 @@ def book_transform(md, title):
         m = re.match(r"^# (.+)$", line)
         if m:
             lines += [m.group(1), "==="]
+            continue
+        m = re.match(r"^(\s*- .*\]\([^)\s]*\))\s*(?!.*\]\()\S.*$", line)
+        if m:               # strip the trailing text after the LAST link —
+            lines.append(m.group(1))   # the lookahead keeps multi-link lines
             continue
         lines.append(line)
     out = "\n".join(lines)
@@ -497,8 +518,11 @@ def _sync_locked(collections=None, only_card=None, dry=False):
         except Exception:                                    # noqa: BLE001
             pass  # a collection that doesn't resolve just loses title fallback
 
-    known_titles = {c["title"]: cards_state.get(card_key(c), {}).get("note_id")
-                    for _, _, c in targets}
+    known_titles = {}
+    for _, _, c in targets:
+        nid0 = cards_state.get(card_key(c), {}).get("note_id")
+        for name in link_names(c):
+            known_titles[name] = nid0
 
     # index BEFORE the creates: phase A needs it to ADOPT notes that an
     # earlier killed run created but never recorded (matching them by
@@ -553,7 +577,8 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                     continue
                 cards_state[ck] = {"note_id": nid, "md5": None,
                                    "last_changed_at": None, "title": title}
-                known_titles[title] = nid
+                for name in link_names(card):
+                    known_titles[name] = nid
                 report["adopted"].append({"card": ck, "note": nid,
                                           "title": title})
                 save_state(state)
@@ -564,7 +589,8 @@ def _sync_locked(collections=None, only_card=None, dry=False):
             nid = note_create(title, PLACEHOLDER, cc.get("folder_id"), cfg, cc)
             cards_state[ck] = {"note_id": nid, "md5": None,
                                "last_changed_at": None, "title": title}
-            known_titles[title] = nid
+            for name in link_names(card):
+                known_titles[name] = nid
             report["created"].append({"card": ck, "note": nid, "title": title})
             save_state(state)
         except QuotaExhausted as e:

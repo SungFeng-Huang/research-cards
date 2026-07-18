@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.1 — index-card link resolution + book sidebar cleanup
+
+- Wikilink resolution also indexes the vault FILENAME: cards whose title
+  contains `/` live in dash-named files, and Obsidian wikilinks target the
+  filename — 11 index-card links were silently degrading to plain text.
+- `book_transform` strips the description text after a list item's last
+  link: Book mode's sidebar was rendering each description as a separate
+  same-level unclickable entry. Multi-link lines are left intact; source
+  cards keep their descriptions.
+
 ## 0.29.0 — HackMD Book-mode index card
 
 - `hackmd.book_index` (heptabase uuid or vault id): the designated index

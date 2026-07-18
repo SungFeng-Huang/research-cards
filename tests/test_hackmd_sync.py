@@ -429,20 +429,37 @@ class TestSyncFlow(unittest.TestCase):
 
     def test_book_transform(self):
         md = ("開場說明。\n\n---\n\n## 主題階層\n\n"
-              "- [A 卡](https://hackmd.io/n1)　說明\n"
+              "- [A 卡](https://hackmd.io/n1)　說明文字拖尾\n"
               "    - [B 卡](https://hackmd.io/n2)\n"
+              "- [兩連結](https://hackmd.io/n3) 與 [殿後](https://hackmd.io/n4)\n"
               "- [站外](https://x.io/a)\n")
         out = S.book_transform(md, "📚 目錄")
         self.assertTrue(out.startswith("📚 目錄\n===\n"))    # injected title
         self.assertIn("主題階層\n---", out)                  # ## → setext
-        self.assertIn("](/n1)", out)                        # relative links
+        self.assertIn("- [A 卡](/n1)\n", out)               # description stripped
+        self.assertNotIn("說明文字拖尾", out)
         self.assertIn("](/n2)", out)
+        self.assertIn("](/n4)", out)                        # greedy keeps both links
         self.assertIn("https://x.io/a", out)                # foreign untouched
         self.assertIn("\n---\n", out)                       # hr preserved
         # existing H1 becomes the setext title — no double injection
         out2 = S.book_transform("# 我的書\n\n- x\n", "別名")
         self.assertTrue(out2.startswith("我的書\n===\n"))
         self.assertNotIn("別名", out2)
+
+    def test_wikilink_by_filename_resolves(self):
+        # card titled with '/' lives in a dash-named file; wikilinks use the
+        # FILENAME form and must still become real note links
+        (self.tmp / "Overviews" / "X-Y 卡.md").write_text(
+            '---\nheptabase_id: xyxy\ntitle: "X/Y 卡"\n---\n內容\n',
+            encoding="utf-8")
+        (self.tmp / "Overviews" / "A 卡.md").write_text(
+            "---\nheptabase_id: aaaa\n---\n# A 卡\n\n見 [[X-Y 卡]]\n",
+            encoding="utf-8")
+        S.sync()
+        a = next(v for v in self.notes.values() if v["title"] == "A 卡")
+        self.assertIn("[X-Y 卡](https://hackmd.io/note-", a["content"])
+        self.assertNotIn("[[", a["content"])
 
     def test_book_index_card_renders_as_book(self):
         self._reload_with_config(

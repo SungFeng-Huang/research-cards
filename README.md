@@ -223,7 +223,7 @@ time, before or after Quick Start A:
   with collaborators. Opt-in `write_back` makes it two-way for notes only
   you can edit on HackMD (shared-writable notes never write back).
 
-Setup for either app, and the complete sync mechanics for `both`, live in
+Setup for either app, and the complete sync mechanics of the two-store mode (`backends: ["heptabase", "local"]`), live in
 the wiki: [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).
 
 ## Daily Usage

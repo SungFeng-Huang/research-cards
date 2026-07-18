@@ -229,7 +229,7 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
   있는" 노트는 양방향이 됩니다(공동 편집 가능한 노트는 절대 되돌려 쓰지
   않습니다).
 
-두 앱의 설정 방법과 `both`의 완전한 동기화 메커니즘은 wiki에 있습니다:
+두 앱의 설정 방법과 이중 저장소 모드(`backends: ["heptabase", "local"]`)의 완전한 동기화 메커니즘은 wiki에 있습니다:
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko).
 
 ## 일상 사용법

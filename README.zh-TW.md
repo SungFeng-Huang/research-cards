@@ -216,7 +216,7 @@ app，十分鐘建起論文管線：
   `write_back` 對「只有你能在 HackMD 編輯」的 note 開啟雙向（開放編輯
   的 note 永不寫回）。
 
-兩種 app 的設定步驟、以及 `both` 的完整同步機制，都在 wiki：
+兩種 app 的設定步驟、以及雙庫模式（`backends: ["heptabase", "local"]`）的完整同步機制，都在 wiki：
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)。
 
 ## 日常使用

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.33.0 — reverse mode: local canonical, Heptabase as a view
+
+- `backends: ["local", "heptabase"]` is unlocked: the .md store is the
+  canonical and Heptabase becomes a rebuildable VIEW. Same engine, the
+  `canonical` flag (backends[0]) flips the deletion semantics:
+  - deleting a canonical .md trashes the Heptabase card (propagation);
+  - a card removed on the Heptabase side is unbound (heptabase_id
+    stripped) and rebuilt by the next run's adoption — to really delete,
+    delete the .md;
+  - when both the tag entry AND the canonical .md are gone, the deletion
+    signal wins and the card is trashed rather than orphaned.
+- Fail-closed inventory guard for reverse mode: a collection folder that
+  didn't pre-exist, or lost more than half its tracked files in one run
+  (unmounted cloud vault), skips the collection with a loud error instead
+  of mass-trashing the view.
+- Classic heptabase-canonical behavior is byte-for-byte unchanged.
+
 ## 0.32.0 — star topology: local is always the hub
 
 - The sync topology is now formally a STAR: local (the plain-.md data

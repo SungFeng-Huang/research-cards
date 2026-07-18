@@ -28,6 +28,10 @@ if _cfg["backend"] != "both":
     sys.exit("heptabase-sync 只在 backend='both' 模式下有意義"
              f"（目前 config 是 {_cfg['backend']!r}）。單一 backend 不需要同步。")
 VAULT = _cfg["obsidian"]["vault"]
+# canonical side (backends[0]): "heptabase" (classic — Heptabase authors,
+# vault mirrors) or "local" (reverse — the vault authors, Heptabase is a
+# rebuildable VIEW). Deletion direction and view-rebuild flow from this.
+CANONICAL = _cfg.get("canonical", "heptabase")
 WORKSPACE = _cfg["heptabase"]["workspace_id"]
 # A collection syncs only when its tag_id is filled in — entries without one
 # (or with a <placeholder>) are metadata for other skills (e.g. projects'
@@ -309,26 +313,98 @@ def main():
 
     for col in COLLECTIONS:
         folder = os.path.join(VAULT, col["folder"])
+        folder_existed = os.path.isdir(folder)
         att_dir = os.path.join(folder, "attachments")
         os.makedirs(att_dir, exist_ok=True)
         props_by_key = tag_props[col["key"]]
+        # reverse-mode fail-closed: a missing/emptied collection folder
+        # (unmounted cloud vault, mis-set config) must read as "inventory
+        # unavailable", never as "the user deleted every canonical file" —
+        # that would mass-trash the Heptabase view
+        tracked_here = [cid for cid, st in state["cards"].items()
+                        if st.get("collection") == col["key"]]
+        missing_here = [cid for cid in tracked_here
+                        if not os.path.exists(os.path.join(
+                            VAULT, col["folder"],
+                            state["cards"][cid]["file"] + ".md"))]
+        reverse_unsafe = CANONICAL == "local" and tracked_here and (
+            not folder_existed
+            or len(missing_here) > len(tracked_here) / 2)
+        if reverse_unsafe:
+            report["errors"].append(
+                {"card": f"reverse:{col['key']}",
+                 "err": f"local 正本盤點不完整（folder 存在={folder_existed}、"
+                        f"消失 {len(missing_here)}/{len(tracked_here)}）——"
+                        "跳過此 collection 的刪除傳播與同步，防止大規模誤 trash"})
+            continue
 
         for c in col_cards[col["key"]]:
             cid = c["id"]
             try:
+                st = state["cards"].get(cid)
+                if CANONICAL == "local" and st and not bootstrap and \
+                        not os.path.exists(os.path.join(folder,
+                                                        st["file"] + ".md")):
+                    # the canonical .md was deleted — propagate: trash the
+                    # Heptabase card instead of resurrecting the file
+                    if not dry:
+                        cli("card", "trash", cid)
+                        cp = cache_path(cid)
+                        if os.path.exists(cp):
+                            os.remove(cp)
+                        state["cards"].pop(cid)
+                    report["removed_from_tag"].append(
+                        {"card": cid, "file": st["file"],
+                         "propagated": "local 正本檔已刪→Heptabase 卡已 trash"})
+                    continue
                 sync_card(c, col, folder, att_dir, props_by_key, state,
                           resolver, in_set, bootstrap, dry)
             except Exception as e:
                 report["errors"].append({"card": cid, "err": repr(e)[:300]})
 
-        # cards gone from tag — the mirror follows: move the vault file into
-        # Obsidian's native trash (.trash/, recoverable in-app), drop the
-        # ledger entry + pm-cache. Upstream removals (merge finalize, manual
-        # trash) used to be report-only, leaving ghost files behind.
+        # cards gone from tag. Which side follows depends on the canonical:
+        #   heptabase canonical (classic) — the mirror follows: the vault
+        #     file moves into Obsidian's native .trash/ (recoverable).
+        #   local canonical (reverse) — Heptabase is a VIEW: unbind the
+        #     file (strip its heptabase_id) and drop the ledger entry, so
+        #     the next run's adoption pass rebuilds the card. To really
+        #     delete, delete the .md — the canonical.
         for cid, st in list(state["cards"].items()):
             if st.get("collection") == col["key"] and \
                cid not in {c["id"] for c in col_cards[col["key"]]}:
                 entry = {"card": cid, "file": st["file"]}
+                if CANONICAL == "local":
+                    src = os.path.join(folder, st["file"] + ".md")
+                    fm_match = False
+                    if os.path.exists(src):
+                        fm, body = parse_file(src)
+                        fm_match = fm.get("heptabase_id") == cid
+                    if not dry:
+                        if fm_match:
+                            fm.pop("heptabase_id", None)
+                            _atomic_write(src, dump_fm(fm) + "\n\n"
+                                          + body.rstrip("\n") + "\n")
+                        else:
+                            # the canonical .md is gone too (or belongs to
+                            # another card) — the deletion signal wins:
+                            # finish trashing the view card instead of
+                            # silently orphaning it
+                            try:
+                                cli("card", "trash", cid)
+                            except Exception:                # noqa: BLE001
+                                pass                         # already trashed
+                        cp = cache_path(cid)
+                        if os.path.exists(cp):
+                            os.remove(cp)
+                        state["cards"].pop(cid)
+                    entry["view_rebuild"] = (
+                        "Heptabase 端移除了視圖卡——已解除綁定，下輪同步 "
+                        "adoption 會重建；真要刪就刪 .md 正本"
+                        if fm_match else
+                        "正本 .md 也已不在——刪除訊號成立，Heptabase 卡已 "
+                        "trash（或原已在垃圾桶）")
+                    report["removed_from_tag"].append(entry)
+                    continue
                 if not dry:
                     src = os.path.join(folder, st["file"] + ".md")
                     # the file is only OURS to trash when its frontmatter

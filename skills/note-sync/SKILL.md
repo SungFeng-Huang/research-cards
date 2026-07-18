@@ -19,7 +19,7 @@ Heptabase ◀─（heptabase 段）─▶ local ◀─（hackmd 段）─▶ Hac
 |---|---|---|
 | `heptabase`（舊名 `obsidian` 仍相容） | `skills/heptabase-sync/sync.py`——區塊級 level-2 雙向 | `backends` 含 `"heptabase"` |
 | `hackmd` | `skills/hackmd-sync/sync.py`——段落級 write-back、宣告式權限、Book 目錄 | `backends` 含 `"hackmd"` |
-| local 為正本的變體（store 鏡像進 Heptabase） | roadmap——`backends: ["local", "heptabase"]` 在此之前會被 config 明確拒絕 | — |
+| 反向模式：`backends: ["local", "heptabase"]`（local 正本、Heptabase＝可重建視圖） | 同一 heptabase 段引擎——刪 .md 正本→Heptabase 卡自動 trash；Heptabase 端移卡→解除綁定、下輪 adoption 重建 | `backends` 首位＝`"local"` |
 
 ## 日常
 

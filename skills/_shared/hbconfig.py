@@ -74,10 +74,6 @@ def load_config():
         raise ConfigError("hackmd 是發佈面、不能當正本——backends 首位要是 "
                           "local 或 heptabase")
     core = [b for b in backends if b != "hackmd"]
-    if core == ["local", "heptabase"]:
-        raise ConfigError('backends: ["local", "heptabase"]（local 為正本、'
-                          'heptabase 為鏡像）尚未支援——現行引擎以 Heptabase 為'
-                          '正本鏡像到 vault；要雙庫請寫 ["heptabase", "local"]')
     # legacy spelling never mentioned hackmd — infer it from an enabled
     # hackmd.collections so behavior doesn't change; an EXPLICIT list is
     # taken at face value (omit "hackmd" there to disable the mirror)
@@ -115,6 +111,11 @@ def load_config():
             sec["folders"] = {k: k.capitalize() for k in cols}
         core = [b for b in backends if b != "hackmd"]
     cfg["backends"] = backends
+    # canonical = the authoring side (first entry): who wins deletions and
+    # where new cards are born. The hub (local) is a separate, physical
+    # concept — with backends: ["local", "heptabase"] the vault is the
+    # canonical store and Heptabase becomes a rebuildable VIEW.
+    cfg["canonical"] = backends[0]
     backend = ("both" if {"heptabase", "local"} <= set(core)
                else ("heptabase" if core == ["heptabase"] else "obsidian"))
     cfg["backend"] = backend

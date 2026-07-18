@@ -13,8 +13,9 @@ Segments (each an engine skill, runnable standalone):
               skills/heptabase-sync/; "obsidian" is the pre-star alias)
   hackmd    — local ↔ HackMD, paragraph-level write-back (engine:
               skills/hackmd-sync/)
-  (a local-canonical variant — the store mirrored INTO Heptabase — is
-  roadmap; `backends: ["local", "heptabase"]` is rejected until then)
+  Reverse mode: backends: ["local", "heptabase"] makes the store the
+  canonical and Heptabase a rebuildable VIEW — deleting an .md trashes
+  the card; a card removed on Heptabase is rebuilt by adoption.
 
 Without --mode, every applicable segment runs canonical-outward, then a
 convergence pass: if hackmd-sync wrote HackMD edits back into the vault,

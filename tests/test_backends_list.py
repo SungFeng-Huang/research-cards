@@ -77,9 +77,6 @@ class TestBackendsList(unittest.TestCase):
         with self.assertRaises(hb.ConfigError):
             load_cfg({"backends": ["hackmd", "local"]})     # hackmd canonical
         with self.assertRaises(hb.ConfigError):
-            load_cfg({"backends": ["local", "heptabase"],   # unsupported order
-                      "heptabase": HEPTA})
-        with self.assertRaises(hb.ConfigError):
             load_cfg({"backends": ["notion"]})              # unknown value
         with self.assertRaises(hb.ConfigError):
             load_cfg({"backends": []})                      # empty list
@@ -92,6 +89,18 @@ class TestBackendsList(unittest.TestCase):
         _, hb = load_cfg({})
         with self.assertRaises(hb.ConfigError):
             load_cfg({"backends": ["heptabase", "local"]})  # no workspace_id
+
+    def test_canonical_flag(self):
+        cfg, _ = load_cfg({"backends": ["heptabase", "local"],
+                           "heptabase": HEPTA})
+        self.assertEqual(cfg["canonical"], "heptabase")
+        # reverse mode (0.33.0): local canonical, Heptabase as a view
+        cfg, _ = load_cfg({"backends": ["local", "heptabase"],
+                           "heptabase": HEPTA})
+        self.assertEqual(cfg["canonical"], "local")
+        self.assertEqual(cfg["backend"], "both")   # engine still runs
+        cfg, _ = load_cfg({})
+        self.assertEqual(cfg["canonical"], "local")
 
     def test_implicit_local_hub_injection(self):
         # star topology: other surfaces without "local" get the hub injected

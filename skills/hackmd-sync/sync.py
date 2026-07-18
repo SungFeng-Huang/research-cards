@@ -22,6 +22,9 @@ HMD_API_ACCESS_TOKEN env var — the token never lives in config.json.
 Config (config.example.json `hackmd` section):
   collections: {<collection key>: {"folder_id": "..."}}   # folder per collection
   read_permission / write_permission: defaults for newly created notes
+  (a collection entry may carry its own read_permission / write_permission
+  to override the global default — e.g. a projects collection pinned
+  private while overviews are shared)
 
 State: ~/.config/research-cards/hackmd-state.json
   {"cards": {<card_id>: {"note_id", "md5", "last_changed_at", "title"}}}
@@ -95,10 +98,17 @@ def api(method, path, body=None, timeout=60):
     return json.loads(raw) if raw.strip() else {}
 
 
-def perm(cfg, key, default):
-    v = (cfg.get("hackmd") or {}).get(key, default)
+def perm(cfg, key, default, cc=None):
+    """Effective permission for a note: collection-level override (e.g. a
+    projects collection pinned private) falls back to the global hackmd
+    default. Both levels are validated — a typo'd value would otherwise be
+    silently coerced to owner by the API."""
+    if cc and key in cc:
+        v, where = cc[key], "collections.<key>." + key
+    else:
+        v, where = (cfg.get("hackmd") or {}).get(key, default), key
     if v not in VALID_PERMS:
-        sys.exit(f"config hackmd.{key}={v!r} 非法——API 只接受 "
+        sys.exit(f"config hackmd.{where}={v!r} 非法——API 只接受 "
                  f"{'|'.join(VALID_PERMS)}")
     return v
 
@@ -114,13 +124,13 @@ def fetch_remote_index():
             for r in rows if r.get("id")}
 
 
-def note_create(title, content, folder_id, cfg):
+def note_create(title, content, folder_id, cfg, cc=None):
     """CLI create — the API cannot place a note in a folder. Returns note id
     (lastChangedAt is backfilled from a post-run index refresh)."""
     args = ["hackmd-cli", "notes", "create", "--title", title,
             "--content", content,
-            "--readPermission", perm(cfg, "read_permission", "owner"),
-            "--writePermission", perm(cfg, "write_permission", "owner"),
+            "--readPermission", perm(cfg, "read_permission", "owner", cc),
+            "--writePermission", perm(cfg, "write_permission", "owner", cc),
             "--output", "json"]
     if folder_id:
         args += ["--parentFolderId", folder_id]
@@ -236,7 +246,7 @@ def sync(collections=None, only_card=None, dry=False):
         for card in list_cards(key):
             if only_card and card["id"] != only_card:
                 continue
-            targets.append((key, cc.get("folder_id"), card))
+            targets.append((key, cc, card))
     all_titles = {}
     for key in hbconfig.collections(cfg):
         try:
@@ -251,7 +261,7 @@ def sync(collections=None, only_card=None, dry=False):
     # phase A: create every brand-new card FIRST so the link map is complete
     # before any content is finalized — first publication already carries the
     # promised note-to-note links (no second-run convergence needed)
-    for key, folder_id, card in targets:
+    for key, cc, card in targets:
         cid, title = card["id"], card["title"]
         if (cards_state.get(cid) or {}).get("note_id"):
             continue
@@ -259,7 +269,7 @@ def sync(collections=None, only_card=None, dry=False):
             if dry:
                 report["created"].append({"card": cid, "title": title})
                 continue
-            nid = note_create(title, "（同步中…）", folder_id, cfg)
+            nid = note_create(title, "（同步中…）", cc.get("folder_id"), cfg, cc)
             cards_state[cid] = {"note_id": nid, "md5": None,
                                 "last_changed_at": None, "title": title}
             known_titles[title] = nid
@@ -292,9 +302,9 @@ def sync(collections=None, only_card=None, dry=False):
 
     # phase B: render + write content (freshly created notes always update:
     # their md5 is None)
-    want_read = perm(cfg, "read_permission", "owner")
-    for key, folder_id, card in targets:
+    for key, cc, card in targets:
         cid, title = card["id"], card["title"]
+        want_read = perm(cfg, "read_permission", "owner", cc)
         prev = cards_state.get(cid) or {}
         if not prev.get("note_id"):
             continue  # dry-run create, or create failed above
@@ -311,8 +321,15 @@ def sync(collections=None, only_card=None, dry=False):
                             "重跑即重建"})
                 continue
             remote = (remote_index or {}).get(prev["note_id"]) or {}
+            # declarative read permission: computed BEFORE the conflict gate
+            # so even conflicted notes (content frozen) get their permission
+            # migrated — permission is ours to manage, content is theirs
+            perm_drift = bool(remote and remote.get("read_permission")
+                              and remote["read_permission"] != want_read)
             if remote_index is not None and prev.get("last_changed_at") and \
                     remote.get("last_changed_at") != prev.get("last_changed_at"):
+                if perm_drift and not dry:
+                    note_set_read_permission(prev["note_id"], want_read)
                 report["conflicts"].append(
                     {"card": cid, "note": prev["note_id"], "title": title,
                      "why": "HackMD 端在上次同步後被編輯——level 1 不寫回，"
@@ -321,8 +338,6 @@ def sync(collections=None, only_card=None, dry=False):
             # ONE PATCH per card: content and the declarative read
             # permission ride together — two rapid PATCHes to the same note
             # race in HackMD's async pipeline and one gets dropped
-            perm_drift = bool(remote and remote.get("read_permission")
-                              and remote["read_permission"] != want_read)
             if prev.get("md5") == digest:
                 if perm_drift and not dry:
                     note_set_read_permission(prev["note_id"], want_read)

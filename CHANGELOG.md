@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0 — per-collection HackMD permissions
+
+- `hackmd-sync`: a collection entry may now carry its own `read_permission` /
+  `write_permission`, overriding the global `hackmd` default — e.g. pin a
+  projects collection private while overviews are shared. Both levels are
+  validated against the API's accepted values.
+- Fix: notes in conflict (edited on the HackMD side) now still get their read
+  permission migrated — content stays frozen, permission stays managed.
+
 ## 0.26.1 — private by default on HackMD
 
 - `hackmd-sync` now defaults `read_permission` / `write_permission` to

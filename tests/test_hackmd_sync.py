@@ -123,15 +123,19 @@ class TestSyncFlow(unittest.TestCase):
                 return {}
             raise AssertionError((method, path))
 
-        def fake_create(title, content, folder_id, cfg):
+        def fake_create(title, content, folder_id, cfg, cc=None):
             self.nid_seq += 1
             nid = f"note-{self.nid_seq}"
             # the real API silently ignores invalid permission values and
             # defaults to owner — simulate that so the declarative-permission
-            # pass has drift to correct
+            # pass has drift to correct; record what create WOULD have sent
+            # so per-collection wiring is assertable
             self.notes[nid] = {"content": content,
                                "lastChangedAt": 100 + self.nid_seq,
-                               "readPermission": "owner", "title": title}
+                               "readPermission": "owner", "title": title,
+                               "created_read": S.perm(cfg, "read_permission",
+                                                      "owner", cc),
+                               "folder": folder_id}
             return nid
 
         S.api = self._fake_api = fake_api
@@ -200,6 +204,58 @@ class TestSyncFlow(unittest.TestCase):
         self.assertEqual(len(rep["created"]), 1)
         self.assertFalse(os.path.exists(S.STATE_PATH))
         self.assertFalse(self.notes)                 # nothing actually created
+
+    def _reload_with_config(self, mutate):
+        import json as _j
+        cfgp = self.tmp / "config.json"
+        c = _j.loads(cfgp.read_text()); mutate(c)
+        cfgp.write_text(_j.dumps(c, ensure_ascii=False))
+        global S
+        S = load_hackmd_sync(); S.STATE_PATH = str(self.tmp / "hackmd-state.json")
+        S.api, S.note_create = self._fake_api, self._fake_create
+
+    def test_per_collection_permission_override(self):
+        # global signed_in; the projects-like collection pins itself private
+        (self.tmp / "Secret").mkdir()
+        (self.tmp / "Secret" / "P 卡.md").write_text(
+            "---\nheptabase_id: pppp\n---\n# P 卡\n\n機密\n", encoding="utf-8")
+
+        def mutate(c):
+            c["obsidian"]["folders"]["secret"] = "Secret"
+            c["hackmd"]["read_permission"] = "signed_in"
+            c["hackmd"]["collections"]["secret"] = {
+                "folder_id": "F2", "read_permission": "owner"}
+        self._reload_with_config(mutate)
+        S.sync()
+        by_title = {v["title"]: v for v in self.notes.values()}
+        # create-time wiring: collection override reaches note_create
+        self.assertEqual(by_title["A 卡"]["created_read"], "signed_in")
+        self.assertEqual(by_title["P 卡"]["created_read"], "owner")
+        # declarative pass: fake created both as owner → only the global-
+        # default card drifts and is corrected; the pinned one stays owner
+        self.assertEqual(by_title["A 卡"]["readPermission"], "signed_in")
+        self.assertEqual(by_title["P 卡"]["readPermission"], "owner")
+
+    def test_conflict_still_migrates_permission(self):
+        S.sync()                                     # global default = owner
+        nid = next(iter(self.notes))
+        (self.tmp / "Overviews" / "A 卡.md").write_text(
+            "---\nheptabase_id: aaaa\n---\n# A 卡\n\n內容二\n", encoding="utf-8")
+        self.notes[nid]["lastChangedAt"] += 500      # remote manual edit
+        self.notes[nid]["readPermission"] = "guest"  # and someone opened it up
+        before = self.notes[nid]["content"]
+        rep = S.sync()
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertEqual(self.notes[nid]["content"], before)   # content frozen
+        self.assertEqual(self.notes[nid]["readPermission"], "owner")  # perm migrated
+
+    def test_perm_collection_override_validated(self):
+        cfg = {"hackmd": {"read_permission": "signed_in"}}
+        self.assertEqual(S.perm(cfg, "read_permission", "owner",
+                                {"read_permission": "owner"}), "owner")
+        self.assertEqual(S.perm(cfg, "read_permission", "owner", {}), "signed_in")
+        with self.assertRaises(SystemExit):
+            S.perm(cfg, "read_permission", "owner", {"read_permission": "everyone"})
 
 
 if __name__ == "__main__":

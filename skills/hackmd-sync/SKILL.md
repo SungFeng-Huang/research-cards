@@ -28,11 +28,18 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
 
    ```json
    "hackmd": {
-     "collections": { "overviews": { "folder_id": "<folder-id>" } },
+     "collections": {
+       "overviews": { "folder_id": "<folder-id>" },
+       "projects":  { "folder_id": "<folder-id>",
+                      "read_permission": "owner", "write_permission": "owner" }
+     },
      "read_permission": "owner",
      "write_permission": "owner"
    }
    ```
+
+   collection 條目內的 `read_permission`／`write_permission` 覆蓋全域——
+   典型用法：全域開分享（signed_in）但 projects 釘死私密。
 
 ## 日常
 
@@ -54,7 +61,9 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
   `- ⏵ ` 字首是純文字 bullet（可讀、不可折疊）；圖片 data-URL 過大時
   HackMD 可能拒收——大圖卡先觀察 `errors`。
 - **權限**：出廠預設 `owner/owner`＝私密（只有你）；要分享才改 `signed_in`／`guest`——`guest` 等於公開發佈，想清楚再開；
-  對外連結是 `https://hackmd.io/<noteId>`。
+  對外連結是 `https://hackmd.io/<noteId>`。讀權限是**宣告式**的：每輪
+  sync 把遠端漂移校正回 config 值（連 conflict 卡也校——內容凍結、
+  權限照管）。
 - **刪除**：本地刪卡不會刪 HackMD note（level 1 不做刪除傳播）；
   `verify` 的 `missing_remote` 反向列出 HackMD 端被刪的 note。
 - Agent（claude／codex）皆可；無 MCP 依賴。cluster 亦可跑（hackmd-cli

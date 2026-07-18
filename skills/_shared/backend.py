@@ -423,7 +423,7 @@ class HeptabaseBackend(Backend):
     def save_card(self, card_id, md):
         """Full-body replace: markdown -> ProseMirror. Colors/toggles in the
         OLD body are lost; prefer block-level edits (append) or the
-        obsidian-sync write-back for surgical changes."""
+        heptabase-sync write-back for surgical changes."""
         note = _cli("note", "read", card_id)
         parser = md2pm.BlockParser({
             "self_id": card_id, "workspace": self.workspace,
@@ -455,7 +455,7 @@ class HeptabaseBackend(Backend):
 
 def get_backend(cfg=None):
     cfg = cfg or hbconfig.load_config()
-    # "both": Heptabase is canonical for authoring; obsidian-sync mirrors.
+    # "both": Heptabase is canonical for authoring; heptabase-sync mirrors.
     if cfg["backend"] in ("heptabase", "both"):
         return HeptabaseBackend(cfg)
     return ObsidianBackend(cfg)

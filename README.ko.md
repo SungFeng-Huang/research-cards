@@ -87,7 +87,7 @@
 
 | Skill | 하는 일 |
 |---|---|
-| `note-sync` | **동기화 체인의 단일 진입점** — `backends`(첫 항목=정본)에 따라 적용되는 각 세그먼트를 실행하고, HackMD 라이트백을 같은 실행에서 Heptabase까지 전달하며, 전 세그먼트의 충돌을 집계합니다. `--mode obsidian\|hackmd`로 단일 세그먼트만 실행 |
+| `note-sync` | **동기화 체인의 단일 진입점** — `backends`(첫 항목=정본)에 따라 적용되는 각 세그먼트를 실행하고, HackMD 라이트백을 같은 실행에서 Heptabase까지 전달하며, 전 세그먼트의 충돌을 집계합니다. `--mode heptabase\|hackmd`로 단일 세그먼트만 실행 |
 
 **⚙️ 설정**
 
@@ -339,7 +339,7 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | 이렇게 말하면 | 지정 skill로 하는 방법 |
 |---|---|
 | "노트 동기화/전부 동기화" | `/research-cards:note-sync` |
-| "Heptabase↔vault 세그먼트만 돌려 줘" | `/research-cards:note-sync --mode obsidian` |
+| "Heptabase↔vault 세그먼트만 돌려 줘" | `/research-cards:note-sync --mode heptabase` |
 | "먼저 dry-run으로 어떤 카드가 바뀔지 보여 줘" | `/research-cards:note-sync --dry-run` |
 | "충돌 있어? 같이 봐 줘" | `/research-cards:note-sync`(집계 리포트에 전 세그먼트의 충돌이 나열됩니다) |
 
@@ -502,7 +502,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | iCloud vault를 건드리면 `Operation not permitted`가 남 | 터미널(또는 스케줄러의 인터프리터)에 **전체 디스크 접근 권한**을 주세요 |
 | 스케줄 실행이 Mail을 읽지 못함 | 자동화 권한은 "구동하는 실행 파일"을 따라갑니다 — 같은 인터프리터로 인터랙티브하게 한 번 돌리고 프롬프트를 승인하세요 |
 | Codex가 옛 버전 plugin을 실행함 | 정적 cache 사본을 실행하기 때문입니다 — `codex plugin remove` + `add`로 갱신하고, `plugin_root`가 살아 있는 clone을 가리키는지 확인하세요 |
-| `note-sync`가 obsidian 세그먼트를 건너뜀 | `backends: ["heptabase", "local"]` 이중 저장소에서만 적용됩니다 — 단일 저장소에는 미러링할 대상이 없습니다 |
+| `note-sync`가 heptabase 세그먼트를 건너뜀 | `backends: ["heptabase", "local"]` 이중 저장소에서만 적용됩니다 — 단일 저장소에는 미러링할 대상이 없습니다 |
 | 동기화가 conflict를 보고함 | 버그가 아니라 의도된 동작입니다: 그 카드에 손실성 편집이 있거나 양쪽이 갈라졌습니다. 리포트/`Sync Conflicts.md`에서 해당 블록과 원인을 보고, 남기고 싶은 쪽을 고친 뒤 다시 돌리세요 |
 
 ## License

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.32.0 — star topology: local is always the hub
+
+- The sync topology is now formally a STAR: local (the plain-.md data
+  floor) is always the hub, and every enabled surface syncs over its own
+  local ↔ surface segment. `backends` naming other surfaces without
+  `"local"` gets the hub injected implicitly — the store defaults to
+  `~/.local/share/research-cards/store` with a folders map derived from
+  the configured collections; the user never has to touch it, but
+  write-back gains its safe landing zone everywhere and the whole library
+  always survives as plain text. Single-surface lists are untouched.
+- The engine skill `obsidian-sync` is renamed **`heptabase-sync`** (a
+  segment is named after the SURFACE it syncs; the hub needs no name).
+  note-sync's segment is `--mode heptabase` with `obsidian` kept as an
+  accepted alias. The hackmd segment now always sources from the local
+  hub — the crippled direct-Heptabase path (no write-back) is gone;
+  `["heptabase", "hackmd"]` configs get full two-way sync via the
+  implicit hub.
+
 ## 0.31.1 — deletion propagation across the chain
 
 - obsidian segment: a card trashed/untagged on Heptabase now gets its

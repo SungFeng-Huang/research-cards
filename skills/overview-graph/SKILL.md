@@ -213,7 +213,7 @@ python3 whiteboard2canvas.py --whiteboard <id> --all-data <path>
      7 天會出提醒。live 讀不到時自動退回這裡。
 - 鏡像對象：config `obsidian.graph.mirror_whiteboards`
   `{"<whiteboard-id>": "<vault 相對路徑>.canvas"}`。
-- 已同步的卡 → `file` 節點（借 obsidian-sync 的 state 解析 vault 路徑）；
+- 已同步的卡 → `file` 節點（借 heptabase-sync 的 state 解析 vault 路徑）；
   未同步的卡 → 帶 Heptabase 連結的 `text` 節點（報告列在
   `unsynced_cards`）；浮動文字 → `text`（PM→md）；section → `group`；
   連線 → edge（sides/顏色/label 對應；mindmap/媒體等不支援的物件計入

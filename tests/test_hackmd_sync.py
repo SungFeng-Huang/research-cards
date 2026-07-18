@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(REPO, "skills", "_shared"))
 
 def load_hackmd_sync():
     """Load skills/hackmd-sync/sync.py under a NON-colliding module name.
-    obsidian-sync also ships a `sync.py` whose module-level guard sys.exit()s
+    heptabase-sync also ships a `sync.py` whose module-level guard sys.exit()s
     outside backend='both' — a bare `import sync` here can grab that one via
     sys.path pollution and kill the whole unittest process."""
     import importlib.util

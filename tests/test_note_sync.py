@@ -20,13 +20,18 @@ class TestNoteSync(unittest.TestCase):
     def test_plan_from_backends(self):
         self.assertEqual(
             NS.plan_from_config({"backends": ["heptabase", "local", "hackmd"]}),
-            ["obsidian", "hackmd"])
+            ["heptabase", "hackmd"])
         self.assertEqual(NS.plan_from_config({"backends": ["local", "hackmd"]}),
                          ["hackmd"])
         self.assertEqual(
             NS.plan_from_config({"backends": ["heptabase", "local"]}),
-            ["obsidian"])
+            ["heptabase"])
         self.assertEqual(NS.plan_from_config({"backends": ["local"]}), [])
+
+    def test_mode_alias(self):
+        self.assertEqual(NS.MODE_ALIASES.get("obsidian"), "heptabase")
+        self.assertIn("heptabase", NS.ENGINES)
+        self.assertTrue(NS.ENGINES["heptabase"].endswith("heptabase-sync/sync.py"))
 
     def test_fatal_gate(self):
         self.assertTrue(NS.is_fatal({"rc": 1, "report": {}}))

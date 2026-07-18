@@ -84,7 +84,7 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 
 | Skill | What it does |
 |---|---|
-| `note-sync` | **One entry point for the whole sync chain** — runs every applicable segment per `backends` (first = canonical), converges HackMD write-backs onto Heptabase in the same run, aggregates all conflicts; `--mode obsidian\|hackmd` runs one segment |
+| `note-sync` | **One entry point for the whole sync chain** — runs every applicable segment per `backends` (first = canonical), converges HackMD write-backs onto Heptabase in the same run, aggregates all conflicts; `--mode heptabase\|hackmd` runs one segment |
 
 **⚙️ Setup**
 
@@ -333,7 +333,7 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | You say | How to do it with an explicit skill |
 |---|---|
 | "Sync everything" | `/research-cards:note-sync` |
-| "Sync just the Heptabase↔vault segment" | `/research-cards:note-sync --mode obsidian` |
+| "Sync just the Heptabase↔vault segment" | `/research-cards:note-sync --mode heptabase` |
 | "Dry-run first to see which cards would change" | `/research-cards:note-sync --dry-run` |
 | "Any conflicts? Walk me through Sync Conflicts" | `/research-cards:note-sync`（the aggregate report lists every segment's conflicts） |
 
@@ -496,7 +496,7 @@ Not installed → the export feature is unavailable; everything else works as us
 | `Operation not permitted` when touching an iCloud vault | Grant the terminal (or the scheduler's interpreter) **Full Disk Access** |
 | A scheduled run can't read Mail | Automation permission follows "the launching executable" — run once interactively with the same interpreter and approve the prompt |
 | Codex runs an old plugin version | It executes a static cached copy — refresh with `codex plugin remove` + `add`, and confirm `plugin_root` points at your live clone |
-| `note-sync` skips the obsidian segment | It only applies with both stores in `backends: ["heptabase", "local"]` — with a single store there is nothing to mirror |
+| `note-sync` skips the heptabase segment | It only applies with both stores in `backends: ["heptabase", "local"]` — with a single store there is nothing to mirror |
 | Sync reports a conflict | Feature, not a bug: that card has a lossy edit or divergence on both sides. Check the block and reason in the report / `Sync Conflicts.md`, fix the side you want to keep, and rerun |
 
 ## License

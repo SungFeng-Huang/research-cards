@@ -125,7 +125,7 @@ class TestSyncCollectionsGuard(unittest.TestCase):
         env = dict(os.environ, HEPTABASE_CARDS_CONFIG=cp)
         env.pop("RESEARCH_CARDS_CONFIG", None)
         sync_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                "..", "skills", "obsidian-sync")
+                                "..", "skills", "heptabase-sync")
         r = subprocess.run(
             [_sys.executable, "-c",
              "import sync; print([c['key'] for c in sync.COLLECTIONS])"],

@@ -12,7 +12,7 @@ import unittest
 
 REPO = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
 sys.path.insert(0, os.path.join(REPO, "skills", "_shared"))
-sys.path.insert(0, os.path.join(REPO, "skills", "obsidian-sync"))
+sys.path.insert(0, os.path.join(REPO, "skills", "heptabase-sync"))
 
 EMPTY_DOC = {"type": "doc", "content": [{"type": "paragraph", "attrs": {"id": None}}]}
 

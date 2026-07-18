@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """note-sync — one entry point for the whole note-surface sync chain.
 
-The chain is a sequence of adjacent two-way segments, derived from the
-config `backends` list (first = canonical):
+The topology is a STAR: local (the plain-.md data floor) is always the
+hub, and every enabled surface syncs over its own local ↔ surface
+segment. When `backends` names other surfaces but not "local", the hub is
+injected implicitly (store defaults to ~/.local/share/research-cards/store).
 
-    Heptabase ◀──(obsidian-sync)──▶ vault/local ◀──(hackmd-sync)──▶ HackMD
+    Heptabase ◀─(heptabase segment)─▶ local ◀─(hackmd segment)─▶ HackMD
 
-Modes (each an existing engine, unchanged in place):
-  obsidian — Heptabase ↔ vault, block-level level 2 (needs both stores in
-             `backends`: ["heptabase", "local"])
-  hackmd   — local backend ↔ HackMD, paragraph-level write-back (needs
-             "hackmd" in `backends`)
-  (a reverse "heptabase" mode — vault-canonical mirrored INTO Heptabase —
-  is roadmap; `backends: ["local", "heptabase"]` is rejected until then)
+Segments (each an engine skill, runnable standalone):
+  heptabase — local ↔ Heptabase, block-level level 2 (engine:
+              skills/heptabase-sync/; "obsidian" is the pre-star alias)
+  hackmd    — local ↔ HackMD, paragraph-level write-back (engine:
+              skills/hackmd-sync/)
+  (a local-canonical variant — the store mirrored INTO Heptabase — is
+  roadmap; `backends: ["local", "heptabase"]` is rejected until then)
 
 Without --mode, every applicable segment runs canonical-outward, then a
 convergence pass: if hackmd-sync wrote HackMD edits back into the vault,
-obsidian-sync runs once more so they reach Heptabase in the same
+heptabase-sync runs once more so they reach Heptabase in the same
 invocation. One aggregated JSON report; conflicts from all segments are
 surfaced together.
 
@@ -37,9 +39,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "_shared"))
 import hbconfig  # noqa: E402
 
 ENGINES = {
-    "obsidian": os.path.join(HERE, "..", "obsidian-sync", "sync.py"),
+    "heptabase": os.path.join(HERE, "..", "heptabase-sync", "sync.py"),
     "hackmd": os.path.join(HERE, "..", "hackmd-sync", "sync.py"),
 }
+MODE_ALIASES = {"obsidian": "heptabase"}   # pre-star-topology segment name
 
 
 def run_engine(mode, dry=False):
@@ -56,10 +59,12 @@ def run_engine(mode, dry=False):
 
 
 def plan_from_config(cfg):
+    """Star topology: local is always the hub; one segment per OTHER
+    enabled surface, canonical's segment first."""
     bk = cfg.get("backends") or []
     plan = []
     if {"heptabase", "local"} <= set(bk):
-        plan.append("obsidian")
+        plan.append("heptabase")
     if "hackmd" in bk:
         plan.append("hackmd")
     return plan
@@ -75,13 +80,15 @@ def is_fatal(segment):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=sorted(ENGINES),
+    ap.add_argument("--mode",
+                    choices=sorted(ENGINES) + sorted(MODE_ALIASES),
                     help="run a single segment instead of the whole chain")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     cfg = hbconfig.load_config()
-    plan = [args.mode] if args.mode else plan_from_config(cfg)
+    mode = MODE_ALIASES.get(args.mode, args.mode)
+    plan = [mode] if mode else plan_from_config(cfg)
     if not plan:
         sys.exit("backends 沒有可同步的段——單一庫且無 hackmd 時沒有東西要收斂"
                  f"（目前 backends={cfg.get('backends')}）")
@@ -101,12 +108,12 @@ def main():
             break
 
     # convergence: HackMD-side edits that hackmd-sync wrote back into the
-    # vault still need obsidian-sync to carry them on to Heptabase
+    # vault still need heptabase-sync to carry them on to Heptabase
     if not args.dry_run and not skipped and "hackmd" in plan \
-            and "obsidian" in plan:
+            and "heptabase" in plan:
         wb = (segments[-1].get("report") or {}).get("written_back")
         if wb:
-            segments.append(run_engine("obsidian"))
+            segments.append(run_engine("heptabase"))
 
     conflicts = []
     for s in segments:

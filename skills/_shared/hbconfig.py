@@ -84,6 +84,36 @@ def load_config():
     if not explicit_list and (cfg.get("hackmd") or {}).get("collections") \
             and "hackmd" not in backends:
         backends.append("hackmd")
+    # ── star topology (0.32.0): local is ALWAYS the hub ────────────────
+    # Every sync segment is local ↔ <surface>; whenever a second surface
+    # is enabled, the plain-.md data floor must exist. A list that names
+    # other surfaces but not "local" gets it injected IMPLICITLY, with the
+    # store defaulting to an out-of-the-way path — the user never has to
+    # touch it, but write-back gains its safe landing zone and the whole
+    # library survives any app's death as plain text. A single-surface
+    # list (e.g. ["heptabase"] alone) is left untouched: with nothing to
+    # sync there is no hub to need.
+    cfg["local_implicit"] = False
+    if "local" not in backends and len(backends) > 1:
+        backends.append("local")
+        cfg["local_implicit"] = True
+        sec = cfg.get("local") if cfg.get("local") is not None \
+            else cfg.get("obsidian")
+        if sec is None:
+            sec = {}
+            cfg["local"] = sec
+        if not sec.get("vault"):
+            store = os.path.expanduser("~/.local/share/research-cards/store")
+            os.makedirs(store, exist_ok=True)
+            sec["vault"] = store
+        # the engines index folders directly; give the implicit store a
+        # full map derived from the configured collections (matching the
+        # engines' Key→Capitalized fallback so both segments agree on
+        # directories)
+        if "folders" not in sec:
+            cols = (cfg.get("heptabase") or {}).get("collections") or {}
+            sec["folders"] = {k: k.capitalize() for k in cols}
+        core = [b for b in backends if b != "hackmd"]
     cfg["backends"] = backends
     backend = ("both" if {"heptabase", "local"} <= set(core)
                else ("heptabase" if core == ["heptabase"] else "obsidian"))

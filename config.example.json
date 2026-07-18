@@ -12,7 +12,7 @@
     "language": ""
   },
   "features": {
-    "$comment": "兩個使用方向的開關（預設皆開）。study=論文管線（scholar-inbox-clip/card-rewrite/overview 家族/obsidian-sync）；project=研究專案卡（project-card-log/project-card-merge）。",
+    "$comment": "兩個使用方向的開關（預設皆開）。study=論文管線（scholar-inbox-clip/card-rewrite/overview 家族/heptabase-sync）；project=研究專案卡（project-card-log/project-card-merge）。",
     "study": true,
     "project": true
   },
@@ -43,7 +43,7 @@
         "tag_name": "study/overview"
       },
       "projects": {
-        "$comment": "project 方向用：hub_card=Research-Projects hub（其 card mentions=各專案卡）；tag_name=自動建卡時上的 tag（create_project_card.py）。 tag_id 選填：填上 project tag 的 uuid 後，obsidian-sync 會把 project 卡也鏡像成一個 collection（放進 obsidian.folders.projects，預設 Projects/）；不填則此條目只作為 project 方向的 metadata、sync 略過。",
+        "$comment": "project 方向用：hub_card=Research-Projects hub（其 card mentions=各專案卡）；tag_name=自動建卡時上的 tag（create_project_card.py）。 tag_id 選填：填上 project tag 的 uuid 後，heptabase-sync 會把 project 卡也鏡像成一個 collection（放進 obsidian.folders.projects，預設 Projects/）；不填則此條目只作為 project 方向的 metadata、sync 略過。",
         "hub_card": "<research-projects-hub-card-uuid>",
         "tag_name": "project",
         "tag_id": "<tag-uuid-optional>",
@@ -118,7 +118,7 @@
     "write_back": false,
     "book_index": null,
     "$book_index_comment": "選配：書本目錄卡的 card id（heptabase uuid／vault id）。該卡 render 時自動轉成 HackMD Book mode 形態（setext 標題、/noteId 相對連結、無 H1 時以卡名補 setext H1）——正本維持 plugin 方言不用改。開書：HackMD 網頁該 note 右上 Share → view mode 選 Book mode（一次性）。",
-    "$write_back_comment": "level 2（選配）：HackMD 端的編輯寫回本地筆記庫。信任邊界＝只寫回有效 write_permission 為 owner 的 note（只有你能在 HackMD 上編輯的），開放編輯的 note 永遠只報衝突。需要 backend obsidian/both（寫回落在 vault .md；both 時再由 obsidian-sync 區塊級送回 Heptabase）。兩邊都改＝衝突不動；段落級合併＋round-trip 驗證，會變形就整卡凍結。"
+    "$write_back_comment": "level 2（選配）：HackMD 端的編輯寫回本地筆記庫。信任邊界＝只寫回有效 write_permission 為 owner 的 note（只有你能在 HackMD 上編輯的），開放編輯的 note 永遠只報衝突。需要 backend obsidian/both（寫回落在 vault .md；both 時再由 heptabase-sync 區塊級送回 Heptabase）。兩邊都改＝衝突不動；段落級合併＋round-trip 驗證，會變形就整卡凍結。"
   },
   "integrations": {
     "$comment": "選配的跨 skill 整合。缺少時相關功能自動跳過（graceful degradation）。",

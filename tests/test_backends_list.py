@@ -93,6 +93,29 @@ class TestBackendsList(unittest.TestCase):
         with self.assertRaises(hb.ConfigError):
             load_cfg({"backends": ["heptabase", "local"]})  # no workspace_id
 
+    def test_implicit_local_hub_injection(self):
+        # star topology: other surfaces without "local" get the hub injected
+        cfg, _ = load_cfg({"backends": ["heptabase", "hackmd"],
+                           "heptabase": HEPTA, "local": {}})
+        self.assertIn("local", cfg["backends"])
+        self.assertTrue(cfg["local_implicit"])
+        self.assertIn("research-cards/store", cfg["obsidian"]["vault"])
+        self.assertEqual(cfg["obsidian"]["folders"], {"papers": "Papers"})
+        self.assertEqual(cfg["backend"], "both")
+        # a user-provided vault is respected — no store override
+        cfg, _ = load_cfg({"backends": ["heptabase", "hackmd"],
+                           "heptabase": HEPTA})
+        self.assertTrue(cfg["local_implicit"])
+        self.assertNotIn("research-cards/store", cfg["obsidian"]["vault"])
+        # a single surface needs no hub — untouched
+        cfg, _ = load_cfg({"backends": ["heptabase"], "heptabase": HEPTA})
+        self.assertNotIn("local", cfg["backends"])
+        self.assertFalse(cfg["local_implicit"])
+        # explicit local: no injection flag
+        cfg, _ = load_cfg({"backends": ["heptabase", "local"],
+                           "heptabase": HEPTA})
+        self.assertFalse(cfg["local_implicit"])
+
     def test_local_section_alias(self):
         tmp = Path(tempfile.mkdtemp(prefix="rc-test-local-"))
         (tmp / "v").mkdir()

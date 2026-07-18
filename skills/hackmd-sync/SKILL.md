@@ -9,11 +9,11 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
 
 第三個筆記介面，定位是**分享**：把選定的 collection（典型是 overviews）
 發佈成 HackMD notes，互連卡變成真的 note-to-note 連結。語義
-（與 obsidian-sync 的演進史同款）：
+（與 heptabase-sync 引擎的演進史同款）：
 
 - **前向增量**：本地 backend 為準；來源 markdown md5 沒變就跳過。
   `both` 時來源刻意取 **obsidian 側**（vault）而非 Heptabase——寫回落在
-  純 .md，再由 obsidian-sync 的區塊級二級送回 Heptabase（相鄰兩兩雙向
+  純 .md，再由 heptabase 段的區塊級二級送回 Heptabase（星狀中樞
   的鏈，不重複造引擎）。
 - **變更偵測**：HackMD 端的 `lastChangedAt` 在上次同步後動了 → 進入
   level 2 判定（下條）或報 conflict、**不覆蓋**。

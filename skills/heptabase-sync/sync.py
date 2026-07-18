@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Heptabase -> Obsidian Level-1 sync (research-cards plugin, obsidian-sync skill).
+"""Heptabase -> Obsidian Level-1 sync (research-cards plugin, heptabase-sync skill).
 
 - Body: one-way Heptabase -> Obsidian (Heptabase is source of truth).
 - Properties: bidirectional 3-way sync (Status/Tasks/Topics/Note/...); conflicts
@@ -25,7 +25,7 @@ from pmmd import Converter, assemble, split_blocks, safe_filename, norm_md
 SKILL_DIR = os.path.dirname(os.path.realpath(__file__))
 _cfg = hbconfig.load_config()
 if _cfg["backend"] != "both":
-    sys.exit("obsidian-sync 只在 backend='both' 模式下有意義"
+    sys.exit("heptabase-sync 只在 backend='both' 模式下有意義"
              f"（目前 config 是 {_cfg['backend']!r}）。單一 backend 不需要同步。")
 VAULT = _cfg["obsidian"]["vault"]
 WORKSPACE = _cfg["heptabase"]["workspace_id"]
@@ -434,7 +434,7 @@ def update_conflict_log(state):
     resolved = sorted((r for r in log.values() if r["resolved"]),
                       key=lambda r: r["resolved"], reverse=True)
     out = ["---", 'tags: [sync-conflicts]', "---", "",
-           "Heptabase ↔ Obsidian 同步衝突紀錄（obsidian-sync 自動維護，手動編輯會被覆蓋）。",
+           "Heptabase ↔ Obsidian 同步衝突紀錄（heptabase-sync 自動維護，手動編輯會被覆蓋）。",
            "",
            "解法二選一：到 **Heptabase** 改該區塊（下次 sync 前向覆蓋 Obsidian），"
            "或把 **Obsidian** 檔案的該區塊改回與 Heptabase 一致。改完重跑 sync 即自動歸檔。",

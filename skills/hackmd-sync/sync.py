@@ -3,7 +3,7 @@
 
 HackMD is the plugin's third note surface, aimed at SHARING: publish selected
 collections (typically overviews) as HackMD notes with real note-to-note
-links. Semantics, mirroring obsidian-sync's own history:
+links. Semantics, mirroring heptabase-sync's own history:
 
   - forward, incremental: the local backend is the source of truth;
     unchanged cards are skipped via a rendered-markdown md5 recorded in the
@@ -233,17 +233,15 @@ def load_source():
     heptabase and obsidian: list_cards(collection) -> [{id,title,…}],
     read_card(id).md -> markdown.
 
-    backend='both' deliberately uses the OBSIDIAN side as hackmd's source
-    (unlike get_backend(), which returns the Heptabase canonical): write-back
-    then targets plain .md files, and the vault's own block-level level-2
-    sync (obsidian-sync) carries the change on to Heptabase with all its
-    safety machinery. Chain of adjacent two-way syncs, no duplicated engine.
+    Star topology (0.32.0): the hackmd segment ALWAYS syncs local ↔
+    HackMD — the local store (explicit vault or the implicitly injected
+    hub) is the source, never Heptabase directly. Write-back lands in
+    plain .md, and the heptabase segment carries it on to Heptabase with
+    all its block-level safety machinery.
     """
     import backend as B
     cfg = hbconfig.load_config()
-    if cfg.get("backend") == "both":
-        return cfg, B.ObsidianBackend(cfg)
-    return cfg, B.get_backend(cfg)
+    return cfg, B.ObsidianBackend(cfg)
 
 
 def card_key(card):
@@ -371,7 +369,7 @@ def load_base(key):
 def reverse_links(md, note_to_card):
     """Inverse of rewrite_links for edited regions: HackMD note links whose
     note belongs to the mirror become [[Title]] / [[Title|alias]] wikilinks
-    (the vault-side lingua franca — obsidian-sync rebuilds them as native
+    (the vault-side lingua franca — heptabase-sync rebuilds them as native
     mentions). Foreign HackMD links stay untouched."""
     def unlink(m):
         label, nid = m.group(1), m.group(2)

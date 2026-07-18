@@ -83,7 +83,7 @@
 
 | Skill | 做什麼 |
 |---|---|
-| `note-sync` | **同步鏈單一入口**——依 `backends`（首位＝正本）跑每個適用段、HackMD 寫回同輪送達 Heptabase、跨段衝突彙總；`--mode obsidian\|hackmd` 單跑一段 |
+| `note-sync` | **同步鏈單一入口**——依 `backends`（首位＝正本）跑每個適用段、HackMD 寫回同輪送達 Heptabase、跨段衝突彙總；`--mode heptabase\|hackmd` 單跑一段 |
 
 **⚙️ 設定**
 
@@ -324,7 +324,7 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | 你說 | 怎麼用指定 skill 來做到 |
 |---|---|
 | 「同步筆記／全部同步」 | `/research-cards:note-sync` |
-| 「只跑 Heptabase↔vault 那段」 | `/research-cards:note-sync --mode obsidian` |
+| 「只跑 Heptabase↔vault 那段」 | `/research-cards:note-sync --mode heptabase` |
 | 「先 dry-run 看一下要動哪些卡」 | `/research-cards:note-sync --dry-run` |
 | 「有衝突嗎？帶我看」 | `/research-cards:note-sync`（彙總報告列出各段衝突） |
 
@@ -478,7 +478,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | 碰 iCloud vault 出現 `Operation not permitted` | 給終端機（或排程器的直譯器）**完整磁碟取用權限** |
 | 排程跑起來讀不到 Mail | 自動化權限跟著「發動的執行檔」走——用同一個直譯器互動式跑一次並核准提示 |
 | Codex 跑到舊版 plugin | 它執行靜態 cache 副本——`codex plugin remove`＋`add` 刷新，並確認 `plugin_root` 指向你活的 clone |
-| `note-sync` 跳過 obsidian 段 | 它只在 `backends: ["heptabase", "local"]` 雙庫時適用——單一庫沒有東西可鏡像 |
+| `note-sync` 跳過 heptabase 段 | 它只在 `backends: ["heptabase", "local"]` 雙庫時適用——單一庫沒有東西可鏡像 |
 | 同步報 conflict | 特性不是 bug：該卡有有損編輯或雙邊分歧。看報告／`Sync Conflicts.md` 裡的區塊與原因，修你要保留的那邊，重跑 |
 
 ## License

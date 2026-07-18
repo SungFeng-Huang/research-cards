@@ -1,23 +1,16 @@
 ---
-name: obsidian-sync
-description: >-
-  Level-1 Heptabase → Obsidian sync for the Study vault: one-way incremental
-  body sync (Heptabase is source of truth) plus bidirectional property sync
-  (Status/Tasks/Topics/Note/...) for the study/paper (Source Type=alphaXiv)
-  and study/overview collections. Card links between synced cards become
-  [[wikilinks]]; links to non-synced cards keep Heptabase URLs. Use when the
-  user asks to sync Heptabase cards to Obsidian, 同步卡片到 obsidian, push
-  paper/overview cards to the vault, or after batch edits in either app.
+name: heptabase-sync
+description: "(formerly obsidian-sync) The heptabase segment engine of note-sync: block-level level-2 BIDIRECTIONAL sync between Heptabase and the local .md store (vault) — incremental forward mirror, block-level write-back against a ProseMirror snapshot (all-or-nothing per card), three-way property sync, adoption of hand-made .md files, deletion propagation into .trash/, and a conflict ledger (Sync Conflicts.md). Prefer invoking via note-sync (--mode heptabase); run standalone for cron or engine-level debugging. Use when the user asks to sync Heptabase cards to the vault/Obsidian, 同步卡片到 obsidian／vault, push paper/overview cards, or after batch edits in either app."
 allowed-tools: Bash(heptabase *) Bash(python3 *)
 ---
 
 # Heptabase → Obsidian Sync (Level 1)
 
-> **已併入 [note-sync]**：日常請用 `skills/note-sync/sync.py`（單一入口、全鏈編排＋衝突彙總；`--mode obsidian` 等價單跑本段）。本檔保留引擎語義的完整說明；引擎 `sync.py` 檔案原位不動。
+> **已併入 [note-sync]**：日常請用 `skills/note-sync/sync.py`（單一入口、全鏈編排＋衝突彙總；`--mode heptabase` 等價單跑本段（舊名 `--mode obsidian` 仍相容））。本檔保留引擎語義的完整說明；引擎 `sync.py` 檔案原位不動。
 
 ## Agent（claude / codex）
 
-兩個 agent 皆可駕駛（Codex 端：`research-cards@private-plugins` plugin 的 obsidian-sync skill）。唯一的 Claude
+兩個 agent 皆可駕駛（Codex 端：`research-cards@private-plugins` plugin 的 heptabase-sync skill）。唯一的 Claude
 限定步驟：`unresolved_highlights` 需要 mcp get_object 讀 highlightElement——Codex
 駕駛時把該清單回報給使用者，請對方在 Claude Code session 補 highlights.json。
 

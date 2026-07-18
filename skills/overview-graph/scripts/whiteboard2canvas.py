@@ -21,7 +21,7 @@ REWRITTEN wholesale every run — the layout's source of truth is the
 Heptabase whiteboard; don't hand-arrange the mirrored canvas.
 
 Object mapping (JSON Canvas 1.0):
-  cardInstance -> "file" node when the card is in the obsidian-sync state
+  cardInstance -> "file" node when the card is in the heptabase-sync state
                   (folder rule mirrors sync.py: folders.get(key,
                   key.capitalize())); unsynced cards degrade to a "text"
                   node carrying the title + Heptabase URL

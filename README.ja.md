@@ -84,7 +84,7 @@
 
 | Skill | 何をするか |
 |---|---|
-| `note-sync` | **同期チェーンの単一エントリポイント**——`backends`（先頭＝正本）に従って適用される各セグメントを実行し、HackMD の書き戻しを同じ実行内で Heptabase まで届け、全セグメントのコンフリクトを集約します。`--mode obsidian\|hackmd` で単一セグメントのみ実行 |
+| `note-sync` | **同期チェーンの単一エントリポイント**——`backends`（先頭＝正本）に従って適用される各セグメントを実行し、HackMD の書き戻しを同じ実行内で Heptabase まで届け、全セグメントのコンフリクトを集約します。`--mode heptabase\|hackmd` で単一セグメントのみ実行 |
 
 **⚙️ セットアップ**
 
@@ -331,7 +331,7 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | あなたが言うこと | skill を指名して行うなら |
 |---|---|
 | 「ノートを同期して／全部同期して」 | `/research-cards:note-sync` |
-| 「Heptabase↔vault のセグメントだけ実行して」 | `/research-cards:note-sync --mode obsidian` |
+| 「Heptabase↔vault のセグメントだけ実行して」 | `/research-cards:note-sync --mode heptabase` |
 | 「まず dry-run で、どのカードが動くのか見せて」 | `/research-cards:note-sync --dry-run` |
 | 「コンフリクトはある？　案内して」 | `/research-cards:note-sync`（集約レポートに全セグメントのコンフリクトが並びます） |
 
@@ -485,7 +485,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | iCloud の vault に触ると `Operation not permitted` が出る | ターミナル（またはスケジューラのインタープリタ）に**フルディスクアクセス権限**を与えてください |
 | スケジュール実行が Mail を読めない | 自動化権限は「起動する実行ファイル」に紐づきます——同じインタープリタで対話式に 1 回実行し、プロンプトを承認してください |
 | Codex が古い版の plugin を実行する | Codex は静的な cache コピーを実行しています——`codex plugin remove`＋`add` でリフレッシュし、`plugin_root` が生きている clone を指しているか確認してください |
-| `note-sync` が obsidian セグメントをスキップする | これは `backends: ["heptabase", "local"]` の二重ストアでのみ適用されます——単一ストアではミラーリングするものがありません |
+| `note-sync` が heptabase セグメントをスキップする | これは `backends: ["heptabase", "local"]` の二重ストアでのみ適用されます——単一ストアではミラーリングするものがありません |
 | 同期が conflict を報告する | 仕様であってバグではありません：そのカードに非可逆な編集があるか、両側で分岐しています。レポート／`Sync Conflicts.md` の中のブロックと理由を確認し、残したい側を直して、再実行してください |
 
 ## License

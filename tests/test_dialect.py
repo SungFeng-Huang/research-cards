@@ -1,6 +1,6 @@
 """Markdown dialect round-trip guarantees (pmmd.Converter <-> md2pm).
 
-These are the invariants the obsidian-sync write-back's round-trip check
+These are the invariants the heptabase-sync write-back's round-trip check
 relies on: for every supported construct, PM -> md -> PM -> md must be
 byte-stable, and node types/marks must survive.
 """

@@ -118,6 +118,15 @@ existing cards use this arc):
      later progress are removed (same supersede principle as `📥`); still-open
      ones stay, lightly dated.
 7. **計畫 / 下一步 + 發想** — update; drop items the new progress resolved.
+   **下一步只放「還沒做的事」（hard rule，2026-07-18 教訓）**：
+   - 已完成項**不留殼**——連「✅ 已完成」行都不留：其內容的歸宿是 現狀／
+     進展里程碑／實驗統整，下一步直接刪項（被取代的舊裁決/舊交付路線同理）。
+   - 活項目**不累積進度尾巴**——每輪 merge 把該項重寫成「當前待辦狀態」
+     （一項 1–3 句，細節用「見實驗統整（N）/現狀」指回），歷程屬於 現狀
+     與 實驗統整，不屬於 下一步。
+   - 膨脹判準：一個 下一步 項目裡出現日期串（07-16：…07-17：…）、✅、或
+     超過 ~4 句，就是該收的訊號。實案：A 卡 E8 項曾累積成 ~1400 字連載
+     （四輪 merge 的尾巴），重寫後 10 條 4.6K 字 → 7 條 1.2K 字。
    **Promote actionable 發想 from the `🔍` section** into 下一步 as one-line
    items with a back-ref（`（← 發想 N）`）— the full argument stays in the
    `🔍` section; dedupe against existing 下一步 items (an existing item that

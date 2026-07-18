@@ -85,6 +85,7 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 | Skill | What it does |
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync (backend `both` only) |
+| `hackmd-sync` | One-way incremental mirror of selected collections to **HackMD** (sharing/publishing): real note-to-note links, change detection on the HackMD side (edited notes conflict, never overwritten), declarative read permission |
 
 **⚙️ Setup**
 
@@ -105,6 +106,7 @@ follows whichever anchor card you give it, the latter follows the backend).
 | Basics | Python 3.10+, `pip install pyyaml`, an agent CLI (**Claude Code** or **Codex**) |
 | `backend: heptabase` / `both` | macOS + the **Heptabase desktop app** + the `heptabase` CLI **≥ 0.4.0** (local API `127.0.0.1:21210`) |
 | `backend: obsidian` / `both` (the default) | **Just a folder of .md files** — any directory works; opening it as an **Obsidian vault** is optional polish (iCloud vaults need **Full Disk Access**) |
+| HackMD mirroring (`hackmd-sync`) | `npm install -g @hackmd/hackmd-cli` + one `hackmd-cli login` (API token from hackmd.io → Settings → API; never stored in the plugin config) |
 | Email clipping (`scholar-inbox-clip`) | macOS **Mail.app** + a dedicated mailbox folder (use a Mail rule to route digests into it) + `osascript` automation permission |
 | Card figures | `pip install pymupdf` (PDF pages) + `brew install librsvg` (SVG) |
 | Claude Code extras | **alphaXiv MCP** (content grounding for clipping / rewriting) and **heptabase MCP** (resolving highlight embeds during sync). Optional — Codex falls back to built-in HTTP fetching, and highlights are instead listed for you to patch manually |
@@ -216,6 +218,9 @@ time, before or after Quick Start A:
   `backend: both` for the full block-level **bidirectional sync** between
   Heptabase and your folder — write-back, adoption of hand-made .md files,
   a conflict ledger, three-way property sync.
+- **HackMD** (publishing, not authoring): `hackmd-sync` mirrors selected
+  collections one-way as HackMD notes with real note-to-note links — built
+  for sharing overviews with collaborators.
 
 Setup for either app, and the complete sync mechanics for `both`, live in
 the wiki: [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends).

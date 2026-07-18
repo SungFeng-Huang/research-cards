@@ -110,6 +110,20 @@ def main():
                                        capture_output=True, text=True, timeout=20)
                     check("Heptabase app reachable", r.returncode == 0,
                           (r.stderr or "")[:120])
+            if (cfg.get("hackmd") or {}).get("collections"):
+                hm_cli = shutil.which("hackmd-cli")
+                check("hackmd-cli on PATH", bool(hm_cli), hm_cli or "not found")
+                has_tok = bool(os.environ.get("HMD_API_ACCESS_TOKEN")) or \
+                    os.path.exists(os.path.expanduser("~/.hackmd/config.json"))
+                check("HackMD token (login or env)", has_tok,
+                      "" if has_tok else "run `hackmd-cli login` or set "
+                                         "HMD_API_ACCESS_TOKEN")
+                if args.probe and hm_cli and has_tok:
+                    r = subprocess.run(["hackmd-cli", "whoami"],
+                                       capture_output=True, text=True,
+                                       stdin=subprocess.DEVNULL, timeout=20)
+                    check("HackMD API reachable", r.returncode == 0,
+                          (r.stderr or r.stdout)[:120])
             try:
                 example = json.load(open(EXAMPLE))
                 out["upgrade_hints"] = upgrade_hints(cfg, example)

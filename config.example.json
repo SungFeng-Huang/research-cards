@@ -109,6 +109,12 @@
       "folder": ""
     }
   },
+  "hackmd": {
+    "$comment": "HackMD 鏡像（第三個筆記介面，定位＝分享/發佈）。第一級語義：單向增量（本地 backend 為準、md5 跳過未變卡）＋HackMD 端變更偵測（lastChangedAt 動了→報衝突不覆蓋、不寫回）。互連卡改寫成真 HackMD note 連結、未鏡像卡退化純文字標題。token 不放這裡——跑 `hackmd-cli login` 一次（存 ~/.hackmd/config.json）或設 HMD_API_ACCESS_TOKEN env。collections：research-cards collection key → HackMD folder id（`hackmd-cli folders` 查）。permissions＝新建 note 的預設，值域 owner|signed_in|guest（API 實際接受的三值；填錯會被 sync 直接擋下）。",
+    "collections": {},
+    "read_permission": "signed_in",
+    "write_permission": "owner"
+  },
   "integrations": {
     "$comment": "選配的跨 skill 整合。缺少時相關功能自動跳過（graceful degradation）。",
     "hung_yi_lee": {

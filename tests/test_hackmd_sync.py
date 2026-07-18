@@ -1,0 +1,197 @@
+"""hackmd-sync: link rewriting, incremental skip / conflict logic on a
+mocked hackmd-cli and a temp-vault obsidian backend. No network."""
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
+sys.path.insert(0, os.path.join(REPO, "skills", "_shared"))
+
+
+def load_hackmd_sync():
+    """Load skills/hackmd-sync/sync.py under a NON-colliding module name.
+    obsidian-sync also ships a `sync.py` whose module-level guard sys.exit()s
+    outside backend='both' — a bare `import sync` here can grab that one via
+    sys.path pollution and kill the whole unittest process."""
+    import importlib.util
+    for m in ("hbconfig", "backend", "pmmd", "md2pm"):
+        sys.modules.pop(m, None)
+    spec = importlib.util.spec_from_file_location(
+        "hackmd_sync_under_test",
+        os.path.join(REPO, "skills", "hackmd-sync", "sync.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+UUID = "12345678-1234-1234-1234-123456789abc"
+
+
+class TestRewriteLinks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global S
+        cls.tmp = Path(tempfile.mkdtemp(prefix="rc-test-hackmd-"))
+        cfg = cls.tmp / "config.json"
+        cfg.write_text(json.dumps({"obsidian": {"vault": str(cls.tmp)}}))
+        cls._env = os.environ.get("RESEARCH_CARDS_CONFIG")
+        os.environ["RESEARCH_CARDS_CONFIG"] = str(cfg)
+        S = load_hackmd_sync()
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._env is None:
+            os.environ.pop("RESEARCH_CARDS_CONFIG", None)
+        else:
+            os.environ["RESEARCH_CARDS_CONFIG"] = cls._env
+
+    def test_mirrored_wikilink_becomes_note_link(self):
+        md = "見 [[Tokenizer 總覽]] 與 [[別卡|別名]]。"
+        out = S.rewrite_links(md, {"Tokenizer 總覽": "nId123"}, {})
+        self.assertIn("[Tokenizer 總覽](https://hackmd.io/nId123)", out)
+        self.assertIn("別名", out)               # unmirrored → plain label
+        self.assertNotIn("[[", out)
+
+    def test_unmirrored_mention_plain_title_not_none_link(self):
+        md = f"見 %%HEPTA-CARD:{UUID}%%"
+        out = S.rewrite_links(md, {}, {UUID: {"note_id": None, "title": "未鏡像卡"}})
+        self.assertIn("未鏡像卡", out)
+        self.assertNotIn("hackmd.io/None", out)
+        self.assertNotIn("](", out)
+
+    def test_heptabase_urls_rewritten_or_dropped(self):
+        md = (f"[別名A](https://app.heptabase.com/ws1/card/{UUID}) 與 "
+              f"[別名B](https://app.heptabase.com/ws1/card/99999999-9999-4999-8999-999999999999)")
+        out = S.rewrite_links(md, {}, {UUID: {"note_id": "nZ", "title": "A"}})
+        self.assertIn("[別名A](https://hackmd.io/nZ)", out)
+        self.assertNotIn("heptabase.com", out)
+        self.assertIn("別名B", out)
+
+    def test_mention_placeholder(self):
+        md = f"參考 %%HEPTA-CARD:{UUID}%% 的做法"
+        out = S.rewrite_links(md, {}, {UUID: {"note_id": "nX", "title": "那張卡"}})
+        self.assertIn("[那張卡](https://hackmd.io/nX)", out)
+        out2 = S.rewrite_links(md, {}, {})
+        self.assertNotIn("%%HEPTA-CARD", out2)   # unknown mention drops cleanly
+
+
+class TestSyncFlow(unittest.TestCase):
+    """Drive sync() against a temp obsidian vault with hackmd-cli mocked."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="rc-test-hackmd-flow-"))
+        (self.tmp / "Overviews").mkdir()
+        (self.tmp / "Overviews" / "A 卡.md").write_text(
+            "---\nheptabase_id: aaaa\n---\n# A 卡\n\n內容一\n", encoding="utf-8")
+        cfg = {"backend": "obsidian",
+               "obsidian": {"vault": str(self.tmp),
+                            "folders": {"overviews": "Overviews"}},
+               "hackmd": {"collections": {"overviews": {"folder_id": "F1"}}}}
+        cfg_path = self.tmp / "config.json"
+        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False))
+        self._env = {k: os.environ.get(k) for k in
+                     ("RESEARCH_CARDS_CONFIG", "HEPTABASE_CARDS_CONFIG")}
+        os.environ["RESEARCH_CARDS_CONFIG"] = str(cfg_path)
+        os.environ.pop("HEPTABASE_CARDS_CONFIG", None)
+        global S
+        S = load_hackmd_sync()
+        S.STATE_PATH = str(self.tmp / "hackmd-state.json")
+        self.calls, self.notes, self.nid_seq = [], {}, 0
+
+        def fake_api(method, path, body=None, timeout=60):
+            self.calls.append((method, path, body))
+            if method == "GET" and path == "/notes":
+                return [{"id": n, "lastChangedAt": v["lastChangedAt"],
+                         "readPermission": v["readPermission"],
+                         "content": v["content"]}
+                        for n, v in self.notes.items()]
+            if method == "GET" and path.startswith("/notes/"):
+                nid = path.split("/")[-1]
+                v = self.notes[nid]
+                return {"id": nid, "lastChangedAt": v["lastChangedAt"],
+                        "readPermission": v["readPermission"],
+                        "content": v["content"]}
+            if method == "PATCH":
+                nid = path.split("/")[-1]
+                if "content" in (body or {}):
+                    self.notes[nid]["content"] = body["content"]
+                    self.notes[nid]["lastChangedAt"] += 1
+                if "readPermission" in (body or {}):
+                    self.notes[nid]["readPermission"] = body["readPermission"]
+                return {}
+            raise AssertionError((method, path))
+
+        def fake_create(title, content, folder_id, cfg):
+            self.nid_seq += 1
+            nid = f"note-{self.nid_seq}"
+            # the real API silently ignores invalid permission values and
+            # defaults to owner — simulate that so the declarative-permission
+            # pass has drift to correct
+            self.notes[nid] = {"content": content,
+                               "lastChangedAt": 100 + self.nid_seq,
+                               "readPermission": "owner", "title": title}
+            return nid
+
+        S.api = fake_api
+        S.note_create = fake_create
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        for m in ("hbconfig", "backend"):
+            sys.modules.pop(m, None)
+
+    def test_create_then_skip_then_conflict(self):
+        rep = S.sync()
+        self.assertEqual(len(rep["created"]), 1)
+        # unchanged source + untouched remote → skip
+        rep = S.sync()
+        self.assertEqual(rep["skipped"], 1)
+        self.assertFalse(rep["conflicts"])
+        # remote edited (lastChangedAt moved) + source changed → conflict, no overwrite
+        (self.tmp / "Overviews" / "A 卡.md").write_text(
+            "---\nheptabase_id: aaaa\n---\n# A 卡\n\n內容二\n", encoding="utf-8")
+        nid = next(iter(self.notes))
+        before = self.notes[nid]["content"]
+        self.notes[nid]["lastChangedAt"] += 500     # simulate a manual edit
+        rep = S.sync()
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertFalse(rep["updated"])
+        self.assertEqual(self.notes[nid]["content"], before)
+
+    def test_declarative_read_permission_corrects_drift(self):
+        S.sync()                                     # create → API default owner
+        nid = next(iter(self.notes))
+        self.assertEqual(self.notes[nid]["readPermission"], "signed_in")
+
+    def test_first_run_carries_interlinks(self):
+        (self.tmp / "Overviews" / "B 卡.md").write_text(
+            "---\nheptabase_id: bbbb\n---\n# B 卡\n\n見 [[A 卡]]\n", encoding="utf-8")
+        rep = S.sync()
+        self.assertEqual(len(rep["created"]), 2)
+        b = next(v for v in self.notes.values() if v["title"] == "B 卡")
+        self.assertIn("](https://hackmd.io/note-", b["content"])
+
+    def test_source_change_updates(self):
+        S.sync()
+        (self.tmp / "Overviews" / "A 卡.md").write_text(
+            "---\nheptabase_id: aaaa\n---\n# A 卡\n\n內容二\n", encoding="utf-8")
+        rep = S.sync()
+        self.assertEqual(len(rep["updated"]), 1)
+        nid = next(iter(self.notes))
+        self.assertIn("內容二", self.notes[nid]["content"])
+
+    def test_dry_run_writes_nothing(self):
+        rep = S.sync(dry=True)
+        self.assertEqual(len(rep["created"]), 1)
+        self.assertFalse(os.path.exists(S.STATE_PATH))
+        self.assertFalse(self.notes)                 # nothing actually created
+
+
+if __name__ == "__main__":
+    unittest.main()

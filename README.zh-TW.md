@@ -84,6 +84,7 @@
 | Skill | 做什麼 |
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian 雙向同步（僅 backend `both`） |
+| `hackmd-sync` | 選定 collection 單向增量鏡像到 **HackMD**（分享／發佈）：真 note-to-note 連結、HackMD 端變更偵測（被編輯的 note 報衝突不覆蓋）、宣告式閱讀權限 |
 
 **⚙️ 設定**
 
@@ -104,6 +105,7 @@
 | 基本 | Python 3.10+、`pip install pyyaml`、一個 agent CLI（**Claude Code** 或 **Codex**） |
 | `backend: heptabase` / `both` | macOS＋**Heptabase 桌面版**＋`heptabase` CLI **≥ 0.4.0**（本機 API `127.0.0.1:21210`） |
 | `backend: obsidian` / `both`（預設） | **一個 .md 資料夾就好**——任何目錄都行；用 **Obsidian** 開它是選配加分（iCloud vault 需要**完整磁碟取用權限**） |
+| HackMD 鏡像（`hackmd-sync`） | `npm install -g @hackmd/hackmd-cli`＋跑一次 `hackmd-cli login`（API token 在 hackmd.io → Settings → API 生成；絕不存進 plugin config） |
 | 信件剪報（`scholar-inbox-clip`） | macOS **Mail.app**＋專用信箱資料夾（用 Mail 規則把 digest 導進去）＋`osascript` 自動化權限 |
 | 卡片圖片 | `pip install pymupdf`（PDF 頁面）＋`brew install librsvg`（SVG） |
 | Claude Code 加分項 | **alphaXiv MCP**（剪報／改寫的內容依據）與 **heptabase MCP**（同步時解析 highlight 嵌入）。選用——Codex 走內建 HTTP 抓取、highlight 改列給你手動補 |
@@ -209,6 +211,9 @@ app，十分鐘建起論文管線：
 - **Heptabase**：在 Heptabase 裡寫作（`backend: heptabase`），或用
   `backend: both` 得到 Heptabase 與資料夾之間完整的區塊級**雙向同步**
   ——寫回、手建 .md 收養、衝突總帳、屬性三方同步。
+- **HackMD**（發佈用，不是寫作後端）：`hackmd-sync` 把選定 collection
+  單向鏡像成 HackMD notes、互連卡變真連結——為「把總覽分享給協作者」
+  而生。
 
 兩種 app 的設定步驟、以及 `both` 的完整同步機制，都在 wiki：
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)。

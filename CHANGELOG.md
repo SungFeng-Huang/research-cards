@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.26.0 — HackMD as the third note surface
+
+- New `hackmd-sync` skill: one-way incremental mirror of selected collections
+  (typically overviews) into HackMD folders — built for SHARING. Real
+  note-to-note links between mirrored cards (wikilinks, card mentions, and
+  Heptabase URLs all rewrite; unmirrored targets degrade to plain titles,
+  never broken links), md5-incremental, change detection on the HackMD side
+  (an edited note conflicts and is never overwritten), declarative read
+  permission corrected every run, and write-after verification with
+  self-healing re-sends (HackMD's 202-Accepted pipeline applies writes
+  asynchronously and can drop bursts — single-note GETs are the only
+  authoritative read; requests are throttled and per-card permission+content
+  ride one PATCH).
+- Auth: `hackmd-cli login` once or `HMD_API_ACCESS_TOKEN` — the token never
+  lives in the plugin config. Permission values follow the API:
+  `owner|signed_in|guest` (invalid values are rejected up front).
+- `setup` / `check_config.py` cover the new `hackmd` section (CLI presence,
+  token, `--probe` API reachability).
+
 ## 0.25.0 — interactive setup wizard
 
 - New `setup` skill: an interview-style config wizard that creates, inspects,

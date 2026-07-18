@@ -88,6 +88,7 @@
 | Skill | 하는 일 |
 |---|---|
 | `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화(backend `both` 전용) |
+| `hackmd-sync` | 선택한 collection을 **HackMD**로 단방향 증분 미러링(공유/게시): 진짜 노트 간 링크, HackMD 쪽 변경 감지(편집된 노트는 충돌로 보고되고 절대 덮어쓰이지 않습니다), 선언형 읽기 권한 |
 
 **⚙️ 설정**
 
@@ -109,6 +110,7 @@
 | 기본 | Python 3.10+, `pip install pyyaml`, agent CLI 하나(**Claude Code** 또는 **Codex**) |
 | `backend: heptabase` / `both` | macOS + **Heptabase 데스크톱 앱** + `heptabase` CLI **≥ 0.4.0**(로컬 API `127.0.0.1:21210`) |
 | `backend: obsidian` / `both`(기본값) | **.md 폴더 하나면 충분** — 어떤 디렉터리든 됩니다; **Obsidian vault**로 여는 것은 선택형 보너스(iCloud vault는 **전체 디스크 접근 권한** 필요) |
+| HackMD 미러링(`hackmd-sync`) | `npm install -g @hackmd/hackmd-cli` + 한 번의 `hackmd-cli login`(API 토큰은 hackmd.io → Settings → API에서 발급; plugin config에는 절대 저장되지 않습니다) |
 | 메일 클리핑(`scholar-inbox-clip`) | macOS **Mail.app** + 전용 메일함 폴더(Mail 규칙으로 digest를 그리로 유도) + `osascript` 자동화 권한 |
 | 카드 그림 | `pip install pymupdf`(PDF 페이지) + `brew install librsvg`(SVG) |
 | Claude Code 보너스 | **alphaXiv MCP**(클리핑/리라이트의 내용 근거)와 **heptabase MCP**(동기화 시 highlight 임베드 해석). 선택 사항 — Codex는 내장 HTTP 가져오기를 쓰고, highlight는 수동 보완 목록으로 제시됩니다 |
@@ -221,6 +223,9 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
 - **Heptabase**: Heptabase에서 작성하거나(`backend: heptabase`), `backend: both`로
   Heptabase와 폴더 간의 완전한 블록 단위 **양방향 동기화**를 돌리세요 —
   라이트백, 직접 만든 .md 파일의 입양, 충돌 원장, 속성 3-way 동기화.
+- **HackMD**(게시용이지 작성용이 아닙니다): `hackmd-sync`가 선택한 collection을
+  진짜 노트 간 링크가 달린 HackMD 노트로 단방향 미러링합니다 —
+  오버뷰를 협업자와 공유하기 위해 만들어졌습니다.
 
 두 앱의 설정 방법과 `both`의 완전한 동기화 메커니즘은 wiki에 있습니다:
 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko).

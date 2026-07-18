@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.29.0 — HackMD Book-mode index card
+
+- `hackmd.book_index` (heptabase uuid or vault id): the designated index
+  card is render-transformed into HackMD Book-mode shape — matching the
+  official tutorials book verbatim: setext headings, relative `/noteId`
+  links, and a setext H1 title prepended when the body has none. Source
+  cards stay in the plugin's ATX/full-URL dialect; the transform is
+  render-layer only and re-applies on every sync. The book card is
+  excluded from write-back (its rendered dialect must never be reversed
+  into the vault) — HackMD-side edits to it always report as conflicts.
+  Turning on Book mode itself is a one-time manual step: Share → view
+  mode → Book mode on hackmd.io.
+
 ## 0.28.1 — killed-run resilience for hackmd-sync
 
 - The state ledger is saved incrementally after every create / adopt /

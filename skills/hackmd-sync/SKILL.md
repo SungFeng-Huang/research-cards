@@ -51,6 +51,9 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
    collection 條目內的 `read_permission`／`write_permission` 覆蓋全域——
    典型用法：全域開分享（signed_in／guest）但 projects 釘死私密。
    `write_back` 開 level 2（需 backend obsidian／both）。
+   `book_index`＝書本目錄卡 id：該卡 render 自動轉 Book mode 形態
+   （setext 標題、`/noteId` 相對連結、自動補書名 H1——與官方
+   tutorials 書同款）；開書要在 HackMD 網頁 Share → Book mode 點一次。
 
 ## 日常
 

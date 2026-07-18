@@ -427,6 +427,50 @@ class TestSyncFlow(unittest.TestCase):
         rep = S.sync(only_card="aaaa")
         self.assertEqual(len(rep["created"]), 1)
 
+    def test_book_transform(self):
+        md = ("開場說明。\n\n---\n\n## 主題階層\n\n"
+              "- [A 卡](https://hackmd.io/n1)　說明\n"
+              "    - [B 卡](https://hackmd.io/n2)\n"
+              "- [站外](https://x.io/a)\n")
+        out = S.book_transform(md, "📚 目錄")
+        self.assertTrue(out.startswith("📚 目錄\n===\n"))    # injected title
+        self.assertIn("主題階層\n---", out)                  # ## → setext
+        self.assertIn("](/n1)", out)                        # relative links
+        self.assertIn("](/n2)", out)
+        self.assertIn("https://x.io/a", out)                # foreign untouched
+        self.assertIn("\n---\n", out)                       # hr preserved
+        # existing H1 becomes the setext title — no double injection
+        out2 = S.book_transform("# 我的書\n\n- x\n", "別名")
+        self.assertTrue(out2.startswith("我的書\n===\n"))
+        self.assertNotIn("別名", out2)
+
+    def test_book_index_card_renders_as_book(self):
+        self._reload_with_config(
+            lambda c: c["hackmd"].update({"book_index": "aaaa"}))
+        S.sync()
+        nid = next(iter(self.notes))
+        self.assertTrue(self.notes[nid]["content"].startswith("A 卡\n===\n"))
+        rep = S.sync()                              # stable digest → skip
+        self.assertEqual(rep["skipped"], 1)
+
+    def test_book_index_accepts_vault_id_and_never_writes_back(self):
+        self._reload_with_config(
+            lambda c: c["hackmd"].update({"book_index": "Overviews/A 卡",
+                                          "write_back": True}))
+        S.sync()
+        nid = next(iter(self.notes))
+        self.assertTrue(self.notes[nid]["content"].startswith("A 卡\n===\n"))
+        before_vault = (self.tmp / "Overviews" / "A 卡.md").read_text()
+        self.notes[nid]["content"] = \
+            self.notes[nid]["content"].replace("內容一", "遠端改")
+        self.notes[nid]["lastChangedAt"] += 500
+        rep = S.sync()
+        self.assertFalse(rep["written_back"])
+        self.assertEqual(len(rep["conflicts"]), 1)
+        self.assertIn("book 目錄卡不寫回", rep["conflicts"][0]["why"])
+        self.assertEqual((self.tmp / "Overviews" / "A 卡.md").read_text(),
+                         before_vault)
+
     def test_quota_streak_aborts_run(self):
         S._429_STREAK[0] = 0
         for _ in range(S._429_STREAK_LIMIT - 1):

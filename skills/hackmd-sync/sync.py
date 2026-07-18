@@ -285,6 +285,31 @@ PLACEHOLDER = "（同步中…）"
 PLACEHOLDER_MD5 = content_md5(PLACEHOLDER)
 
 
+def book_transform(md, title):
+    """Shape a rendered index card into HackMD Book-mode form (matching the
+    official tutorials book verbatim): a setext H1 title on top, ATX ##
+    sections become setext (`---` underline), and same-site note links
+    become relative `/noteId` paths. Source cards stay in the plugin's
+    ATX/full-URL dialect — this runs at render time only, every sync."""
+    md = re.sub(r"\]\(" + re.escape(HACKMD_URL) + r"([A-Za-z0-9_-]+)\)",
+                r"](/\1)", md)
+    lines = []
+    for line in md.split("\n"):
+        m = re.match(r"^## (.+)$", line)
+        if m:
+            lines += [m.group(1), "---"]
+            continue
+        m = re.match(r"^# (.+)$", line)
+        if m:
+            lines += [m.group(1), "==="]
+            continue
+        lines.append(line)
+    out = "\n".join(lines)
+    if not re.match(r"^[^\n]+\n===", out):
+        out = f"{title}\n===\n\n{out}"
+    return out
+
+
 # ── write-back (level 2, opt-in) ──────────────────────────────────────────────
 # Trust boundary per the user's rule: only notes whose EFFECTIVE
 # write_permission is "owner" (nobody but the user can edit them on HackMD)
@@ -572,8 +597,9 @@ def _sync_locked(collections=None, only_card=None, dry=False):
     # phase B: render + write content (freshly created notes always update:
     # their md5 is None)
     title_map = {t: n for t, n in known_titles.items() if n}
-    render = lambda m: rewrite_links(m, title_map, mention_map)  # noqa: E731
+    base_render = lambda m: rewrite_links(m, title_map, mention_map)  # noqa: E731
     wb_enabled = bool(hk.get("write_back")) and be.name == "obsidian"
+    book_index = hk.get("book_index")
     want_read_by_card = {}
     for key, cc, card in targets:
         cid, ck, title = card["id"], card_key(card), card["title"]
@@ -583,6 +609,11 @@ def _sync_locked(collections=None, only_card=None, dry=False):
         if not prev.get("note_id"):
             continue  # dry-run create, or create failed above
         try:
+            is_book = book_index and book_index in (cid, ck)
+            if is_book:
+                render = lambda m, _t=title: book_transform(base_render(m), _t)  # noqa: E731,E501
+            else:
+                render = base_render
             src_md = read_md(cid)
             md = render(src_md)
             digest = content_md5(md)
@@ -608,7 +639,12 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                 # owner), never when the source moved too, and only with a
                 # base snapshot to diff against.
                 why_extra = ""
-                if wb_enabled and \
+                if is_book:
+                    # the book index is authored locally; its rendered form
+                    # (setext, relative links) must never be reversed into
+                    # the vault
+                    why_extra = "；book 目錄卡不寫回——請改本地正本"
+                elif wb_enabled and \
                         perm(cfg, "write_permission", "owner", cc) == "owner":
                     source_moved = prev.get("md5") is not None \
                         and prev["md5"] != digest

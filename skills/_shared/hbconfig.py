@@ -88,6 +88,18 @@ def load_config():
     backend = ("both" if {"heptabase", "local"} <= set(core)
                else ("heptabase" if core == ["heptabase"] else "obsidian"))
     cfg["backend"] = backend
+    # ── "local" SECTION alias (0.31.0) ─────────────────────────────────
+    # The settings section for local mode may now be spelled "local"
+    # (matching the backends value); "obsidian" keeps working. Both keys
+    # are bound to the SAME dict so every internal cfg["obsidian"] read —
+    # and any write — sees one source of truth.
+    if cfg.get("local") is not None and cfg.get("obsidian") is not None:
+        raise ConfigError('config 同時有 "local" 與 "obsidian" 區段——'
+                          '兩者是同一份設定的新舊名，留一個（建議 local）')
+    if cfg.get("local") is not None:
+        cfg["obsidian"] = cfg["local"]
+    elif cfg.get("obsidian") is not None:
+        cfg["local"] = cfg["obsidian"]
     agent = cfg.get("agent", "claude")
     if agent not in ("claude", "codex"):
         raise ConfigError(f"config 的 agent 必須是 claude|codex，目前是 {agent!r}")

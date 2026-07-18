@@ -84,7 +84,8 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 
 | Skill | What it does |
 |---|---|
-| `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync (needs both stores in `backends`) |
+| `note-sync` | **One entry point for the whole sync chain** — runs every applicable segment per `backends` (first = canonical), converges HackMD write-backs onto Heptabase in the same run, aggregates all conflicts; `--mode obsidian\|hackmd` runs one segment |
+| `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync engine (needs both stores in `backends`; run via `note-sync` or standalone) |
 | `hackmd-sync` | Incremental mirror of selected collections to **HackMD** (sharing/publishing): real note-to-note links, declarative permissions (per-collection overrides), and opt-in **two-way sync** (`write_back`) — HackMD-side edits on owner-writable notes merge back paragraph-level; shared-writable notes and two-sided edits stay conflicts |
 
 **⚙️ Setup**
@@ -153,7 +154,7 @@ get anchored back to the live repo), and after a plugin update remember to refre
 
 The fastest path: say **"set up research-cards for me"** — the `setup` skill
 interviews you against `config.example.json`'s inline docs, writes a minimal
-config (plain-.md mode needs just `obsidian.vault`), and verifies it with
+config (plain-.md mode needs just `local.vault`), and verifies it with
 `skills/setup/check_config.py` (which also reports **upgrade hints** — newer
 settings your config hasn't opted into). Adjusting later works the same way:
 "switch the output language", "hook up Heptabase" — it edits only what you
@@ -181,13 +182,13 @@ in ten minutes:
      "agent": "claude",
      "plugin_root": "/path/to/research-cards",
      "profile": { "reader": "your reader identity", "field": "your field" },
-     "obsidian": { "vault": "~/Documents/ResearchCards",
+     "local": { "vault": "~/Documents/ResearchCards",
                    "folders": { "papers": "Papers", "overviews": "Overviews" } }
    }
    ```
 
-   (The config section is called `obsidian` for historical reasons — the
-   `vault` is just your folder.)
+   (The `vault` is just your folder; the section also answers to its
+   pre-rename name `obsidian`.)
 4. **Your first card** — in an agent session, say:
    "Use scholar-inbox-clip to make a card from https://arxiv.org/abs/XXXX.XXXXX".
    The card appears under `Papers/` with frontmatter properties, a quick summary, and semantic colorization.
@@ -198,7 +199,7 @@ in ten minutes:
    2. Create a **hub note**: it must contain a `## 子卡與閱讀順序` ("child cards & reading order") section
       listing the comparison cards as `[[wikilinks]]`, and its frontmatter `tasks` must carry your Tasks
       values — the hub format is an API; topology errors out immediately if any piece is missing.
-   3. Register the hub in config `obsidian.graph.hubs`, then:
+   3. Register the hub in config `local.graph.hubs`, then:
 
       ```bash
       python3 /path/to/research-cards/skills/_shared/topology.py refresh <your-topic>
@@ -333,7 +334,8 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 
 | You say | How to do it with an explicit skill |
 |---|---|
-| "Run obsidian-sync" | `/research-cards:obsidian-sync` |
+| "Sync everything" | `/research-cards:note-sync` |
+| "Run obsidian-sync" | `/research-cards:note-sync --mode obsidian` |
 | "Dry-run first to see which cards would change" | `/research-cards:obsidian-sync --dry-run` |
 | "Any conflicts? Walk me through Sync Conflicts" | `/research-cards:obsidian-sync show conflicts` |
 

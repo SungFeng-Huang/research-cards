@@ -13,6 +13,8 @@ allowed-tools: Bash(heptabase *) Bash(python3 *)
 
 # Heptabase → Obsidian Sync (Level 1)
 
+> **已併入 [note-sync]**：日常請用 `skills/note-sync/sync.py`（單一入口、全鏈編排＋衝突彙總；`--mode obsidian` 等價單跑本段）。本檔保留引擎語義的完整說明；引擎 `sync.py` 檔案原位不動。
+
 ## Agent（claude / codex）
 
 兩個 agent 皆可駕駛（Codex 端：`research-cards@private-plugins` plugin 的 obsidian-sync skill）。唯一的 Claude

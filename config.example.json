@@ -80,7 +80,8 @@
     "app_data_dir": "<optional — 預設 ~/Library/Application Support/project-meta>",
     "$app_data_dir_comment": "whiteboard→canvas 鏡像的 live 來源：Heptabase 桌面 app 的資料目錄（讀其中的 hepta.db，一致性快照、唯讀）。通常不用改。"
   },
-  "obsidian": {
+  "local": {
+    "$comment": "local 模式（純 .md 資料夾）的設定區段——2026-07 之前叫 \"obsidian\"，舊名仍相容（兩名擇一使用）。",
     "vault": "~/Documents/MyVault",
     "folders": {
       "papers": "Papers",

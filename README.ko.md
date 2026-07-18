@@ -87,7 +87,8 @@
 
 | Skill | 하는 일 |
 |---|---|
-| `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화(`backends`에 두 저장소 모두 필요) |
+| `note-sync` | **동기화 체인의 단일 진입점** — `backends`(첫 항목=정본)에 따라 적용되는 각 세그먼트를 실행하고, HackMD 라이트백을 같은 실행에서 Heptabase까지 전달하며, 전 세그먼트의 충돌을 집계합니다. `--mode obsidian\|hackmd`로 단일 세그먼트만 실행 |
+| `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화 엔진(`backends`에 두 저장소 모두 필요; `note-sync` 경유 또는 단독 실행) |
 | `hackmd-sync` | 선택한 collection을 **HackMD**로 증분 미러링(공유/게시): 진짜 노트 간 링크, 선언형 권한(collection 단위 재정의 가능), 옵트인 **양방향 동기화**(`write_back`) — HackMD 쪽에서 "나만 편집할 수 있는" 노트의 편집은 문단 단위로 병합되어 되돌아옵니다. 공동 편집 가능한 노트와 양쪽 모두 수정된 경우는 충돌 보고로 남습니다 |
 
 **⚙️ 설정**
@@ -158,7 +159,7 @@ Codex가 실행하는 것은 **정적 cache 사본**입니다: config에 `plugin
 
 가장 빠른 길: **"research-cards 설정해 줘"** 한마디면 됩니다 — `setup`
 skill이 `config.example.json`의 인라인 문서를 따라 여러분을 인터뷰하고,
-최소 config를 작성하고(순수 .md 모드는 `obsidian.vault` 하나면 충분),
+최소 config를 작성하고(순수 .md 모드는 `local.vault` 하나면 충분),
 `skills/setup/check_config.py`로 검증합니다 — 이 검증기는 **upgrade
 hints**(여러분의 config가 아직 옵트인하지 않은 새 설정)도 함께 보고합니다.
 나중의 조정도 같은 방식입니다: "출력 언어를 바꿔 줘", "Heptabase를 연결해
@@ -186,13 +187,13 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
      "agent": "claude",
      "plugin_root": "/path/to/research-cards",
      "profile": { "reader": "여러분의 독자 정체성", "field": "여러분의 분야" },
-     "obsidian": { "vault": "~/Documents/ResearchCards",
+     "local": { "vault": "~/Documents/ResearchCards",
                    "folders": { "papers": "Papers", "overviews": "Overviews" } }
    }
    ```
 
-   (설정 섹션 이름이 `obsidian`인 것은 역사적 명명입니다 — `vault`는
-   그냥 여러분의 폴더입니다.)
+   (`vault`는 그냥 여러분의 폴더입니다. 이 섹션은 개명 전의 옛 이름
+   `obsidian`으로도 동작합니다.)
 4. **첫 카드** — agent session에서 이렇게 말하세요:
    "scholar-inbox-clip으로 https://arxiv.org/abs/XXXX.XXXXX 를 카드로 만들어 줘".
    카드가 `Papers/`에 frontmatter 속성, 빠른 요약, 시맨틱 컬러링과 함께 나타납니다.
@@ -204,7 +205,7 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
       소절이 있어야 하고, `[[wikilinks]]`로 비교 카드를 나열하며, frontmatter
       `tasks`에 여러분의 Tasks 값이 들어가야 합니다 — hub 포맷은 API라서,
       하나라도 빠지면 topology가 곧바로 에러를 냅니다.
-   3. hub를 config `obsidian.graph.hubs`에 등록한 다음:
+   3. hub를 config `local.graph.hubs`에 등록한 다음:
 
       ```bash
       python3 /path/to/research-cards/skills/_shared/topology.py refresh <나의-토픽>
@@ -339,7 +340,8 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 
 | 이렇게 말하면 | 지정 skill로 하는 방법 |
 |---|---|
-| "obsidian-sync 돌려 줘" | `/research-cards:obsidian-sync` |
+| "노트 동기화/전부 동기화" | `/research-cards:note-sync` |
+| "obsidian-sync 돌려 줘" | `/research-cards:note-sync --mode obsidian` |
 | "먼저 dry-run으로 어떤 카드가 바뀔지 보여 줘" | `/research-cards:obsidian-sync --dry-run` |
 | "충돌 있어? Sync Conflicts 좀 같이 봐 줘" | `/research-cards:obsidian-sync 충돌 보기` |
 

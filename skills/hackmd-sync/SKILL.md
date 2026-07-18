@@ -5,6 +5,8 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
 
 # hackmd-sync — 把卡片庫鏡像到 HackMD
 
+> **已併入 [note-sync]**：日常請用 `skills/note-sync/sync.py`（單一入口、全鏈編排＋衝突彙總；`--mode hackmd` 等價單跑本段）。本檔保留引擎語義的完整說明；引擎 `sync.py` 檔案原位不動。
+
 第三個筆記介面，定位是**分享**：把選定的 collection（典型是 overviews）
 發佈成 HackMD notes，互連卡變成真的 note-to-note 連結。語義
 （與 obsidian-sync 的演進史同款）：

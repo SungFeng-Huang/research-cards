@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.31.0 — note-sync + the "local" config section
+
+- New `note-sync` skill: ONE entry point for the whole note-surface chain
+  (Heptabase ↔ vault/local ↔ HackMD). Runs every applicable segment per
+  the `backends` list (canonical-outward), re-runs the obsidian segment in
+  the same invocation when HackMD write-backs landed in the vault, and
+  aggregates all segments' conflicts into one report. A fatal upstream
+  segment (dead process / quota abort) stops the chain — downstream never
+  publishes from a stale vault; per-card errors stay non-fatal
+  (incremental self-healing). `--mode obsidian|hackmd` runs one segment.
+  The engines stay in place; obsidian-sync / hackmd-sync SKILL docs point
+  here for daily use.
+- The local-mode settings section may now be spelled `"local"` (matching
+  the backends value); `"obsidian"` keeps working as its pre-rename alias
+  — both names bind to the same object, both present is an explicit
+  error. config.example.json and all docs now lead with `local`.
+
 ## 0.30.2 — HackMD list-API schema drift (folderPaths)
 
 - The list endpoint stopped returning `parentFolderId` in favor of

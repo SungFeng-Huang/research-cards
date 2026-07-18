@@ -20,7 +20,8 @@ def load_cfg(payload, vault=None):
     if vault is None:
         vault = tmp / "vault"
         vault.mkdir()
-    payload.setdefault("obsidian", {"vault": str(vault)})
+    if "local" not in payload:
+        payload.setdefault("obsidian", {"vault": str(vault)})
     p = tmp / "config.json"
     p.write_text(json.dumps(payload, ensure_ascii=False))
     # patch the module-level path instead of reloading: a reload would mint
@@ -91,6 +92,25 @@ class TestBackendsList(unittest.TestCase):
         _, hb = load_cfg({})
         with self.assertRaises(hb.ConfigError):
             load_cfg({"backends": ["heptabase", "local"]})  # no workspace_id
+
+    def test_local_section_alias(self):
+        tmp = Path(tempfile.mkdtemp(prefix="rc-test-local-"))
+        (tmp / "v").mkdir()
+        # new spelling: "local" section only
+        cfg, _ = load_cfg({"backends": ["local"],
+                           "local": {"vault": str(tmp / "v")}},
+                          vault=tmp / "v")
+        self.assertIs(cfg["obsidian"], cfg["local"])   # one dict, two names
+        self.assertTrue(cfg["obsidian"]["vault"].endswith("/v"))
+        # old spelling still binds both ways
+        cfg, _ = load_cfg({"backends": ["local"]})     # helper fills obsidian
+        self.assertIs(cfg["local"], cfg["obsidian"])
+        # both sections present → explicit error
+        _, hb = load_cfg({})
+        with self.assertRaises(hb.ConfigError):
+            load_cfg({"backends": ["local"],
+                      "local": {"vault": str(tmp / "v")},
+                      "obsidian": {"vault": str(tmp / "v")}})
 
 
 if __name__ == "__main__":

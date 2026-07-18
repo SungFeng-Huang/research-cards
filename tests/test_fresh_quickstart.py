@@ -38,7 +38,7 @@ class TestFreshQuickstart(unittest.TestCase):
         cfg["backend"] = "obsidian"
         cfg["plugin_root"] = str(REPO)
         cfg["profile"] = {"reader": "測試讀者", "field": "測試領域"}
-        cfg["obsidian"]["vault"] = str(cls.home / "MyVault")
+        cfg["local"]["vault"] = str(cls.home / "MyVault")   # example renamed the section (alias: obsidian)
         cfg_dir = cls.home / ".config" / "research-cards"
         cfg_dir.mkdir(parents=True)
         json.dump(cfg, open(cfg_dir / "config.json", "w"), ensure_ascii=False)
@@ -85,7 +85,7 @@ be.create_card("overviews", "QS 總覽",
 """)
         cfgp = self.home / ".config/research-cards/config.json"
         cfg = json.load(open(cfgp))
-        cfg["obsidian"]["graph"]["hubs"] = {"my-topic": "Overviews/QS 總覽"}
+        cfg["local"]["graph"]["hubs"] = {"my-topic": "Overviews/QS 總覽"}
         json.dump(cfg, open(cfgp, "w"), ensure_ascii=False)
 
         r = sh(f"import runpy, sys; sys.argv=['t','refresh','my-topic']; "

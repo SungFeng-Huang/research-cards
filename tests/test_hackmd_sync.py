@@ -105,6 +105,8 @@ class TestSyncFlow(unittest.TestCase):
             if method == "GET" and path == "/notes":
                 return [{"id": n, "lastChangedAt": v["lastChangedAt"],
                          "readPermission": v["readPermission"],
+                         "title": v.get("title"),
+                         "parentFolderId": v.get("folder"),
                          "content": v["content"]}
                         for n, v in self.notes.items()]
             if method == "GET" and path.startswith("/notes/"):
@@ -439,6 +441,73 @@ class TestSyncFlow(unittest.TestCase):
         S.note_create = broke_create
         rep = S.sync()
         self.assertEqual(rep["aborted"], "連續 429")
+
+    def test_adoption_reclaims_orphans_of_killed_run(self):
+        S.sync()                       # a "killed" run: notes exist on HackMD…
+        os.remove(S.STATE_PATH)        # …but the ledger was never written
+        nid = next(iter(self.notes))   # killed in phase A → still placeholder
+        self.notes[nid]["content"] = S.PLACEHOLDER
+        rep = S.sync()
+        self.assertEqual(len(rep["adopted"]), 1)
+        self.assertFalse(rep["created"])
+        self.assertEqual(len(self.notes), 1)      # no duplicate note
+        self.assertFalse(rep["stray_duplicates"])
+        rep = S.sync()                             # adopted card converges
+        self.assertEqual(rep["skipped"], 1)
+
+    def test_hand_made_same_title_note_never_adopted(self):
+        # a REAL-content unclaimed note with the same title must not be
+        # adopted (phase B would overwrite it) — new note created alongside,
+        # hand-made one untouched and surfaced
+        self.notes["hand"] = {"content": "我手寫的", "lastChangedAt": 7,
+                              "readPermission": "owner",
+                              "writePermission": "owner", "title": "A 卡",
+                              "created_read": "owner", "folder": "F1"}
+        rep = S.sync()
+        self.assertEqual(len(rep["created"]), 1)
+        self.assertFalse(rep["adopted"])
+        self.assertEqual(self.notes["hand"]["content"], "我手寫的")
+        self.assertEqual([d["note"] for d in rep["stray_duplicates"]], ["hand"])
+
+    def test_state_lock_blocks_second_runner(self):
+        fh = S.acquire_state_lock()
+        try:
+            with self.assertRaises(SystemExit):
+                S.sync()
+        finally:
+            import fcntl
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            fh.close()
+        S.sync()                                   # lock released → runs fine
+
+    def test_incremental_state_save_survives_abort(self):
+        (self.tmp / "Overviews" / "B 卡.md").write_text(
+            "---\nheptabase_id: bbbb\n---\nB 內容\n", encoding="utf-8")
+        real_create = S.note_create
+        calls = []
+        def one_then_quota(*a, **k):
+            if calls:
+                raise S.QuotaExhausted("連續 429")
+            calls.append(1)
+            return real_create(*a, **k)
+        S.note_create = one_then_quota
+        rep = S.sync()
+        self.assertTrue(rep["aborted"])
+        import json as _j
+        st = _j.load(open(S.STATE_PATH))           # ledger written mid-run
+        self.assertEqual(len(st["cards"]), 1)
+
+    def test_stray_duplicate_reported_not_deleted(self):
+        S.sync()
+        self.notes["note-dup"] = {"content": "x", "lastChangedAt": 1,
+                                  "readPermission": "owner",
+                                  "writePermission": "owner", "title": "A 卡",
+                                  "created_read": "owner", "folder": "F1"}
+        # fake list endpoint must expose folder for adoption/stray scan
+        rep = S.sync()
+        self.assertEqual([d["note"] for d in rep["stray_duplicates"]],
+                         ["note-dup"])
+        self.assertIn("note-dup", self.notes)      # surfaced, not deleted
 
 
 if __name__ == "__main__":

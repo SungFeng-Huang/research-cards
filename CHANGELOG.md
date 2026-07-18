@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.28.1 — killed-run resilience for hackmd-sync
+
+- The state ledger is saved incrementally after every create / adopt /
+  content write — a run killed mid-way (timeout, crash) no longer orphans
+  the notes it already created.
+- Adoption: the remote index is fetched before phase A, and notes that a
+  killed run created but never recorded are re-claimed by folder+title —
+  but ONLY when their content is still the placeholder (the killed-phase-A
+  signature). Same-titled notes with real content are surfaced as strays
+  and never adopted or overwritten. Leftover duplicates are reported,
+  never auto-deleted.
+- A whole-run exclusive lock on the state file stops concurrent syncs from
+  last-write-winning each other's ledger entries.
+- Freshly created notes (invisible to the pre-create index) get their
+  read-permission drift corrected in the post-write verification pass.
+
 ## 0.28.0 — HackMD two-way sync (level 2)
 
 - `hackmd-sync` write-back (opt-in `hackmd.write_back`): HackMD-side edits

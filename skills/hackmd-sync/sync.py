@@ -158,12 +158,14 @@ def perm(cfg, key, default, cc=None):
 
 def fetch_remote_index():
     """One GET /notes → {note_id: {last_changed_at, read_permission,
-    content_md5}}. The list response includes full content, so one call also
-    powers write-AFTER-verification."""
+    content_md5, title, folder}}. title+folder power phase-A adoption
+    (reclaiming notes a killed run created but never recorded)."""
     rows = api("GET", "/notes")
     return {r["id"]: {"last_changed_at": r.get("lastChangedAt"),
                       "read_permission": r.get("readPermission"),
-                      "content_md5": content_md5(r.get("content") or "")}
+                      "content_md5": content_md5(r.get("content") or ""),
+                      "title": r.get("title"),
+                      "folder": r.get("parentFolderId") or None}
             for r in rows if r.get("id")}
 
 
@@ -277,6 +279,10 @@ def rewrite_links(md, title_to_note, id_to_note):
 
 def content_md5(md):
     return hashlib.md5(md.encode("utf-8")).hexdigest()
+
+
+PLACEHOLDER = "（同步中…）"
+PLACEHOLDER_MD5 = content_md5(PLACEHOLDER)
 
 
 # ── write-back (level 2, opt-in) ──────────────────────────────────────────────
@@ -398,8 +404,34 @@ def save_state(state):
     os.replace(tmp, STATE_PATH)
 
 
+def acquire_state_lock():
+    """Exclusive whole-run lock: state is saved incrementally from an
+    in-memory copy, so two concurrent runs (e.g. a cron sync and a --card
+    sync) would last-write-wins each other's ledger entries and re-orphan
+    notes. Held for the run's lifetime; released on process exit."""
+    import fcntl
+    os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+    fh = open(STATE_PATH + ".lock", "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit("另一個 hackmd-sync 正在跑（state lock 被持有）——"
+                 "等它結束再跑，或先停掉它")
+    return fh
+
+
 # ── sync ──────────────────────────────────────────────────────────────────────
 def sync(collections=None, only_card=None, dry=False):
+    fh = acquire_state_lock()
+    try:
+        return _sync_locked(collections, only_card, dry)
+    finally:
+        import fcntl
+        fcntl.flock(fh, fcntl.LOCK_UN)
+        fh.close()
+
+
+def _sync_locked(collections=None, only_card=None, dry=False):
     cfg, be = load_source()
     list_cards, read_md = be.list_cards, (lambda cid: be.read_card(cid).md)
     hk = cfg.get("hackmd") or {}
@@ -409,9 +441,9 @@ def sync(collections=None, only_card=None, dry=False):
                  "（hackmd-cli folders 查 folder id）")
     state = load_state()
     cards_state = state.setdefault("cards", {})
-    report = {"created": [], "updated": [], "skipped": 0,
+    report = {"created": [], "adopted": [], "updated": [], "skipped": 0,
               "written_back": [], "conflicts": [], "errors": [],
-              "aborted": None}
+              "stray_duplicates": [], "aborted": None}
 
     # gather the full mirror set, plus an id→title map over EVERY configured
     # collection (not just mirrored ones) so mentions of unmirrored cards
@@ -443,22 +475,73 @@ def sync(collections=None, only_card=None, dry=False):
     known_titles = {c["title"]: cards_state.get(card_key(c), {}).get("note_id")
                     for _, _, c in targets}
 
+    # index BEFORE the creates: phase A needs it to ADOPT notes that an
+    # earlier killed run created but never recorded (matching them by
+    # folder+title instead of duplicating them). None = index unavailable
+    # (rate limit): skip adoption + remote missing/conflict/permission
+    # checks, keep the md5-incremental part.
+    remote_index = None
+    try:
+        remote_index = fetch_remote_index()
+    except Exception as e:                                   # noqa: BLE001
+        report["errors"].append(
+            {"card": None, "title": "(remote index)",
+             "err": f"HackMD note list 失敗（rate limit？稍後重跑）——本輪"
+                    f"跳過收養與遠端 missing/conflict/權限檢查：{str(e)[:120]}"})
+
+    claimed = {v["note_id"] for v in cards_state.values() if v.get("note_id")}
+    unclaimed, strays = {}, []
+    managed_folders = {cc.get("folder_id") for _, cc, _ in targets}
+    for nid2, info2 in (remote_index or {}).items():
+        if nid2 in claimed or info2.get("folder") not in managed_folders:
+            continue
+        # only PLACEHOLDER-content notes are adoptable — those are the
+        # signature of a killed run's phase A. A same-titled note with real
+        # content might be hand-made: adopting it would let phase B
+        # overwrite it (its state carries no last_changed_at to conflict on)
+        if info2.get("content_md5") == PLACEHOLDER_MD5:
+            unclaimed.setdefault((info2["folder"], info2.get("title")),
+                                 []).append(nid2)
+        else:
+            strays.append({"note": nid2, "title": info2.get("title"),
+                           "folder": info2["folder"],
+                           "why": "非 placeholder 的無主同資料夾 note——"
+                                  "不自動收養/覆寫；手建請忽略，確定是遺孤"
+                                  "可手動補 state 條目或刪除"})
+
     # phase A: create every brand-new card FIRST so the link map is complete
     # before any content is finalized — first publication already carries the
-    # promised note-to-note links (no second-run convergence needed)
+    # promised note-to-note links (no second-run convergence needed). State
+    # is saved after EVERY create/adopt: a killed run must never lose the
+    # ledger of notes it already created (the original sin behind orphans).
     for key, cc, card in targets:
         ck, title = card_key(card), card["title"]
         if (cards_state.get(ck) or {}).get("note_id"):
             continue
         try:
+            cand = unclaimed.get((cc.get("folder_id"), title))
+            if cand:
+                nid = cand.pop(0)
+                if dry:
+                    report["adopted"].append({"card": ck, "note": nid,
+                                              "title": title})
+                    continue
+                cards_state[ck] = {"note_id": nid, "md5": None,
+                                   "last_changed_at": None, "title": title}
+                known_titles[title] = nid
+                report["adopted"].append({"card": ck, "note": nid,
+                                          "title": title})
+                save_state(state)
+                continue
             if dry:
                 report["created"].append({"card": ck, "title": title})
                 continue
-            nid = note_create(title, "（同步中…）", cc.get("folder_id"), cfg, cc)
+            nid = note_create(title, PLACEHOLDER, cc.get("folder_id"), cfg, cc)
             cards_state[ck] = {"note_id": nid, "md5": None,
                                "last_changed_at": None, "title": title}
             known_titles[title] = nid
             report["created"].append({"card": ck, "note": nid, "title": title})
+            save_state(state)
         except QuotaExhausted as e:
             report["aborted"] = str(e)
             break
@@ -466,21 +549,15 @@ def sync(collections=None, only_card=None, dry=False):
             report["errors"].append({"card": ck, "title": title,
                                      "err": str(e)[:200]})
 
-    # index AFTER the creates so brand-new notes are covered in the same run
-    # (their permission drift — e.g. the API silently defaulting an invalid
-    # value to owner — gets corrected below, not next time). None = index
-    # unavailable (rate limit): skip remote missing/conflict/permission
-    # checks, keep the md5-incremental part.
-    remote_index = None
-    if any((cards_state.get(card_key(c)) or {}).get("note_id")
-           for _, _, c in targets):
-        try:
-            remote_index = fetch_remote_index()
-        except Exception as e:                               # noqa: BLE001
-            report["errors"].append(
-                {"card": None, "title": "(remote index)",
-                 "err": f"HackMD note list 失敗（rate limit？稍後重跑）——本輪"
-                        f"跳過遠端 missing/conflict/權限檢查：{str(e)[:120]}"})
+    # anything still unclaimed after adoption is a stray duplicate (e.g. two
+    # killed runs created the same card twice) — surface it, never delete
+    for (fld, ttl), nids in unclaimed.items():
+        for nid2 in nids:
+            report["stray_duplicates"].append(
+                {"note": nid2, "title": ttl, "folder": fld,
+                 "why": "placeholder 遺孤但同卡已有認領 note——重複 create，"
+                        "可刪"})
+    report["stray_duplicates"] += strays
 
     known_ids = {card_key(c): {"note_id": cards_state.get(card_key(c), {}).get("note_id"),
                                "title": c["title"]}
@@ -497,9 +574,11 @@ def sync(collections=None, only_card=None, dry=False):
     title_map = {t: n for t, n in known_titles.items() if n}
     render = lambda m: rewrite_links(m, title_map, mention_map)  # noqa: E731
     wb_enabled = bool(hk.get("write_back")) and be.name == "obsidian"
+    want_read_by_card = {}
     for key, cc, card in targets:
         cid, ck, title = card["id"], card_key(card), card["title"]
         want_read = perm(cfg, "read_permission", "owner", cc)
+        want_read_by_card[ck] = want_read
         prev = cards_state.get(ck) or {}
         if not prev.get("note_id"):
             continue  # dry-run create, or create failed above
@@ -572,6 +651,7 @@ def sync(collections=None, only_card=None, dry=False):
                                 "last_changed_at": info["last_changed_at"],
                                 "title": title}
                             save_base(ck, new_render)
+                            save_state(state)
                             report["written_back"].append(
                                 {"card": ck, "note": prev["note_id"],
                                  "title": title})
@@ -609,6 +689,7 @@ def sync(collections=None, only_card=None, dry=False):
                                    "last_changed_at": None,  # backfilled below
                                    "title": title}
                 save_base(ck, md)
+                save_state(state)
             report["updated"].append({"card": ck, "note": prev["note_id"],
                                       "title": title})
         except QuotaExhausted as e:
@@ -635,6 +716,13 @@ def sync(collections=None, only_card=None, dry=False):
             try:
                 info = note_get(rec["note_id"])
                 rec["last_changed_at"] = info["last_changed_at"]
+                # freshly created notes were invisible to the pre-create
+                # index — correct their read-permission drift here (the API
+                # silently falls back to owner on values it dislikes)
+                want = want_read_by_card.get(cid2)
+                if want and info.get("read_permission") \
+                        and info["read_permission"] != want:
+                    note_set_read_permission(rec["note_id"], want)
                 if rec.get("md5") and info["content_md5"] != rec["md5"]:
                     rec["md5"] = None           # force a re-send next run
                     report["errors"].append(

@@ -119,7 +119,7 @@ def note_create(title, content, folder_id, cfg):
     (lastChangedAt is backfilled from a post-run index refresh)."""
     args = ["hackmd-cli", "notes", "create", "--title", title,
             "--content", content,
-            "--readPermission", perm(cfg, "read_permission", "signed_in"),
+            "--readPermission", perm(cfg, "read_permission", "owner"),
             "--writePermission", perm(cfg, "write_permission", "owner"),
             "--output", "json"]
     if folder_id:
@@ -292,7 +292,7 @@ def sync(collections=None, only_card=None, dry=False):
 
     # phase B: render + write content (freshly created notes always update:
     # their md5 is None)
-    want_read = perm(cfg, "read_permission", "signed_in")
+    want_read = perm(cfg, "read_permission", "owner")
     for key, folder_id, card in targets:
         cid, title = card["id"], card["title"]
         prev = cards_state.get(cid) or {}

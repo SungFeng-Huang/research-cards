@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.1 — private by default on HackMD
+
+- `hackmd-sync` now defaults `read_permission` / `write_permission` to
+  **owner** (private): sharing is an explicit opt-in (`signed_in` / `guest`),
+  not something a default hands out. The declarative-permission pass migrates
+  existing mirrored notes on the next run — even content-unchanged (skipped)
+  cards get their permission corrected.
+
 ## 0.26.0 — HackMD as the third note surface
 
 - New `hackmd-sync` skill: one-way incremental mirror of selected collections

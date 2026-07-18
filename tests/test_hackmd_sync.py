@@ -134,8 +134,8 @@ class TestSyncFlow(unittest.TestCase):
                                "readPermission": "owner", "title": title}
             return nid
 
-        S.api = fake_api
-        S.note_create = fake_create
+        S.api = self._fake_api = fake_api
+        S.note_create = self._fake_create = fake_create
 
     def tearDown(self):
         for k, v in self._env.items():
@@ -165,7 +165,16 @@ class TestSyncFlow(unittest.TestCase):
         self.assertEqual(self.notes[nid]["content"], before)
 
     def test_declarative_read_permission_corrects_drift(self):
-        S.sync()                                     # create → API default owner
+        # fixture config sets an explicit non-default so the pass has drift
+        # to correct against the mocked API default (owner)
+        import json as _j
+        cfgp = self.tmp / "config.json"
+        c = _j.loads(cfgp.read_text()); c["hackmd"]["read_permission"] = "signed_in"
+        cfgp.write_text(_j.dumps(c, ensure_ascii=False))
+        global S
+        S = load_hackmd_sync(); S.STATE_PATH = str(self.tmp / "hackmd-state.json")
+        S.api, S.note_create = self._fake_api, self._fake_create
+        S.sync()
         nid = next(iter(self.notes))
         self.assertEqual(self.notes[nid]["readPermission"], "signed_in")
 

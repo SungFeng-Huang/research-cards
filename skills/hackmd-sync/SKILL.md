@@ -29,7 +29,7 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
    ```json
    "hackmd": {
      "collections": { "overviews": { "folder_id": "<folder-id>" } },
-     "read_permission": "signed_in",
+     "read_permission": "owner",
      "write_permission": "owner"
    }
    ```
@@ -53,7 +53,7 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
 - **方言**：顏色 `<span style>`／`<u>` HackMD 原生渲染；toggle 的
   `- ⏵ ` 字首是純文字 bullet（可讀、不可折疊）；圖片 data-URL 過大時
   HackMD 可能拒收——大圖卡先觀察 `errors`。
-- **權限**：`read_permission: everyone` 等於公開發佈——分享前想清楚；
+- **權限**：出廠預設 `owner/owner`＝私密（只有你）；要分享才改 `signed_in`／`guest`——`guest` 等於公開發佈，想清楚再開；
   對外連結是 `https://hackmd.io/<noteId>`。
 - **刪除**：本地刪卡不會刪 HackMD note（level 1 不做刪除傳播）；
   `verify` 的 `missing_remote` 反向列出 HackMD 端被刪的 note。

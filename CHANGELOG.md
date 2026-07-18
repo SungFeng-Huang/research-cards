@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.30.2 — HackMD list-API schema drift (folderPaths)
+
+- The list endpoint stopped returning `parentFolderId` in favor of
+  `folderPaths` (a list of folder objects; [0] is the direct folder) —
+  which silently blinded phase-A adoption and the stray scan, letting a
+  resumed first-publication run re-create hundreds of already-existing
+  notes instead of adopting them. `_folder_of()` now reads both schema
+  generations, with a regression test simulating the newer shape.
+
 ## 0.30.1 — seal the continuation back-ref too
 
 - A spill's child card opens with a back-reference to its entry card

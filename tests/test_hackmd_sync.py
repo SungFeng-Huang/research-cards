@@ -427,6 +427,37 @@ class TestSyncFlow(unittest.TestCase):
         rep = S.sync(only_card="aaaa")
         self.assertEqual(len(rep["created"]), 1)
 
+    def test_folder_of_supports_both_api_generations(self):
+        self.assertEqual(S._folder_of({"parentFolderId": "F1"}), "F1")
+        self.assertEqual(S._folder_of(
+            {"folderPaths": [{"id": "F2", "name": "Papers",
+                              "parentId": None}]}), "F2")
+        self.assertIsNone(S._folder_of({"folderPaths": []}))
+        self.assertIsNone(S._folder_of({}))
+
+    def test_adoption_works_with_folderpaths_schema(self):
+        # newer list schema: folderPaths instead of parentFolderId — the
+        # regression that blinded adoption and duplicated 300 notes
+        real_api = S.api
+        def newer_api(method, path, body=None, timeout=60):
+            out = real_api(method, path, body, timeout)
+            if method == "GET" and path == "/notes":
+                for r in out:
+                    pf = r.pop("parentFolderId", None)
+                    r["folderPaths"] = ([{"id": pf, "name": "?",
+                                          "parentId": None}] if pf else [])
+            return out
+        S.api = newer_api
+        S.sync()
+        os.remove(S.STATE_PATH)
+        nid = next(iter(self.notes))
+        self.notes[nid]["content"] = S.PLACEHOLDER
+        rep = S.sync()
+        S.api = real_api
+        self.assertEqual(len(rep["adopted"]), 1)
+        self.assertFalse(rep["created"])
+        self.assertEqual(len(self.notes), 1)
+
     def test_book_transform(self):
         md = ("開場說明。\n\n---\n\n## 主題階層\n\n"
               "- [A 卡](https://hackmd.io/n1)　說明文字拖尾\n"

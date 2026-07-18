@@ -156,6 +156,17 @@ def perm(cfg, key, default, cc=None):
     return v
 
 
+def _folder_of(row):
+    """Direct folder id of a listed note across API generations: newer
+    responses carry `folderPaths` (a list of folder dicts, [0] = the direct
+    folder), older ones a flat `parentFolderId`. Schema drift here silently
+    blinded adoption/stray scanning once (2026-07-18) — support both."""
+    fp = row.get("folderPaths")
+    if isinstance(fp, list) and fp and isinstance(fp[0], dict):
+        return fp[0].get("id") or None
+    return row.get("parentFolderId") or None
+
+
 def fetch_remote_index():
     """One GET /notes → {note_id: {last_changed_at, read_permission,
     content_md5, title, folder}}. title+folder power phase-A adoption
@@ -165,7 +176,7 @@ def fetch_remote_index():
                       "read_permission": r.get("readPermission"),
                       "content_md5": content_md5(r.get("content") or ""),
                       "title": r.get("title"),
-                      "folder": r.get("parentFolderId") or None}
+                      "folder": _folder_of(r)}
             for r in rows if r.get("id")}
 
 

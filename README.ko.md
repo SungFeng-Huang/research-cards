@@ -88,8 +88,6 @@
 | Skill | 하는 일 |
 |---|---|
 | `note-sync` | **동기화 체인의 단일 진입점** — `backends`(첫 항목=정본)에 따라 적용되는 각 세그먼트를 실행하고, HackMD 라이트백을 같은 실행에서 Heptabase까지 전달하며, 전 세그먼트의 충돌을 집계합니다. `--mode obsidian\|hackmd`로 단일 세그먼트만 실행 |
-| `obsidian-sync` | Heptabase ↔ Obsidian 양방향 동기화 엔진(`backends`에 두 저장소 모두 필요; `note-sync` 경유 또는 단독 실행) |
-| `hackmd-sync` | 선택한 collection을 **HackMD**로 증분 미러링(공유/게시): 진짜 노트 간 링크, 선언형 권한(collection 단위 재정의 가능), 옵트인 **양방향 동기화**(`write_back`) — HackMD 쪽에서 "나만 편집할 수 있는" 노트의 편집은 문단 단위로 병합되어 되돌아옵니다. 공동 편집 가능한 노트와 양쪽 모두 수정된 경우는 충돌 보고로 남습니다 |
 
 **⚙️ 설정**
 
@@ -99,7 +97,7 @@
 
 스위치 소속: config `features.study`는 클리핑 + 오버뷰 + 지식 그래프를,
 `features.project`는 연구 프로젝트 3종 세트(log／merge／campaign)를 관할합니다. `bib-export`와
-`obsidian-sync`는 방향 스위치의 영향을 받지 않습니다(전자는 여러분이 준
+`note-sync`는 방향 스위치의 영향을 받지 않습니다(전자는 여러분이 준
 앵커 카드를, 후자는 backend를 따릅니다).
 
 ## 설치
@@ -111,7 +109,7 @@
 | 기본 | Python 3.10+, `pip install pyyaml`, agent CLI 하나(**Claude Code** 또는 **Codex**) |
 | `backends`에 `"heptabase"` 포함 | macOS + **Heptabase 데스크톱 앱** + `heptabase` CLI **≥ 0.4.0**(로컬 API `127.0.0.1:21210`) |
 | `backends`에 `"local"` 포함(기본값) | **.md 폴더 하나면 충분** — 어떤 디렉터리든 됩니다; **Obsidian vault**로 여는 것은 선택형 보너스(iCloud vault는 **전체 디스크 접근 권한** 필요) |
-| HackMD 미러링(`hackmd-sync`) | `npm install -g @hackmd/hackmd-cli` + 한 번의 `hackmd-cli login`(API 토큰은 hackmd.io → Settings → API에서 발급; plugin config에는 절대 저장되지 않습니다) |
+| HackMD 미러링(`note-sync --mode hackmd`) | `npm install -g @hackmd/hackmd-cli` + 한 번의 `hackmd-cli login`(API 토큰은 hackmd.io → Settings → API에서 발급; plugin config에는 절대 저장되지 않습니다) |
 | 메일 클리핑(`scholar-inbox-clip`) | macOS **Mail.app** + 전용 메일함 폴더(Mail 규칙으로 digest를 그리로 유도) + `osascript` 자동화 권한 |
 | 카드 그림 | `pip install pymupdf`(PDF 페이지) + `brew install librsvg`(SVG) |
 | Claude Code 보너스 | **alphaXiv MCP**(클리핑/리라이트의 내용 근거)와 **heptabase MCP**(동기화 시 highlight 임베드 해석). 선택 사항 — Codex는 내장 HTTP 가져오기를 쓰고, highlight는 수동 보완 목록으로 제시됩니다 |
@@ -224,7 +222,7 @@ grep이 되고, git으로 버전 관리할 수 있습니다. 노트 앱 없이 1
 - **Heptabase**: Heptabase에서 작성하거나(`backends: ["heptabase"]`), `backends: ["heptabase", "local"]`로
   Heptabase와 폴더 간의 완전한 블록 단위 **양방향 동기화**를 돌리세요 —
   라이트백, 직접 만든 .md 파일의 입양, 충돌 원장, 속성 3-way 동기화.
-- **HackMD**(게시 우선): `hackmd-sync`가 선택한 collection을 진짜 노트 간
+- **HackMD**(게시 우선): `note-sync`의 hackmd 세그먼트가 선택한 collection을 진짜 노트 간
   링크가 달린 HackMD 노트로 미러링합니다 — 오버뷰를 협업자와 공유하기
   위해 만들어졌습니다. 옵트인 `write_back`으로 "HackMD에서 나만 편집할 수
   있는" 노트는 양방향이 됩니다(공동 편집 가능한 노트는 절대 되돌려 쓰지
@@ -242,7 +240,7 @@ wiki를 보세요: [Daily Research Pipeline](https://github.com/SungFeng-Huang/r
 - **자연어(권장)** — agent에게 원하는 것을 그냥 말하면, 알맞은 skill을 골라
   SKILL.md의 계약대로 실행합니다. 아래 각 절에 예문이 있습니다.
 - **skill 지명** — Claude Code는 슬래시로: `/research-cards:<skill>`(예:
-  `/research-cards:obsidian-sync`); Codex는 메시지에서 skill 이름을 불러 주면 됩니다.
+  `/research-cards:note-sync`); Codex는 메시지에서 skill 이름을 불러 주면 됩니다.
 - **로우레벨 CLI** — 무인 스케줄링이나 debug 때만 필요하며, 각 절의
   "로우레벨 명령" 접이식 섹션에 담아 두었습니다(agent가 평소에 여러분 대신 돌리는 게 바로 이것들입니다).
 
@@ -341,9 +339,9 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | 이렇게 말하면 | 지정 skill로 하는 방법 |
 |---|---|
 | "노트 동기화/전부 동기화" | `/research-cards:note-sync` |
-| "obsidian-sync 돌려 줘" | `/research-cards:note-sync --mode obsidian` |
-| "먼저 dry-run으로 어떤 카드가 바뀔지 보여 줘" | `/research-cards:obsidian-sync --dry-run` |
-| "충돌 있어? Sync Conflicts 좀 같이 봐 줘" | `/research-cards:obsidian-sync 충돌 보기` |
+| "Heptabase↔vault 세그먼트만 돌려 줘" | `/research-cards:note-sync --mode obsidian` |
+| "먼저 dry-run으로 어떤 카드가 바뀔지 보여 줘" | `/research-cards:note-sync --dry-run` |
+| "충돌 있어? 같이 봐 줘" | `/research-cards:note-sync`(집계 리포트에 전 세그먼트의 충돌이 나열됩니다) |
 
 메커니즘 세부 사항은 wiki의 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-ko)를 보세요; agent는 실행 후 JSON 리포트를 읽고
 충돌과 할 일을 여러분 앞에 펼쳐 보여 줍니다.
@@ -504,7 +502,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | iCloud vault를 건드리면 `Operation not permitted`가 남 | 터미널(또는 스케줄러의 인터프리터)에 **전체 디스크 접근 권한**을 주세요 |
 | 스케줄 실행이 Mail을 읽지 못함 | 자동화 권한은 "구동하는 실행 파일"을 따라갑니다 — 같은 인터프리터로 인터랙티브하게 한 번 돌리고 프롬프트를 승인하세요 |
 | Codex가 옛 버전 plugin을 실행함 | 정적 cache 사본을 실행하기 때문입니다 — `codex plugin remove` + `add`로 갱신하고, `plugin_root`가 살아 있는 clone을 가리키는지 확인하세요 |
-| `obsidian-sync`가 실행을 거부함 | `backends: ["heptabase", "local"]`에서만 의미가 있습니다 — 단일 저장소에는 동기화할 대상이 없습니다 |
+| `note-sync`가 obsidian 세그먼트를 건너뜀 | `backends: ["heptabase", "local"]` 이중 저장소에서만 적용됩니다 — 단일 저장소에는 미러링할 대상이 없습니다 |
 | 동기화가 conflict를 보고함 | 버그가 아니라 의도된 동작입니다: 그 카드에 손실성 편집이 있거나 양쪽이 갈라졌습니다. 리포트/`Sync Conflicts.md`에서 해당 블록과 원인을 보고, 남기고 싶은 쪽을 고친 뒤 다시 돌리세요 |
 
 ## License

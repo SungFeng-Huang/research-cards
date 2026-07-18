@@ -84,8 +84,6 @@
 | Skill | 做什麼 |
 |---|---|
 | `note-sync` | **同步鏈單一入口**——依 `backends`（首位＝正本）跑每個適用段、HackMD 寫回同輪送達 Heptabase、跨段衝突彙總；`--mode obsidian\|hackmd` 單跑一段 |
-| `obsidian-sync` | Heptabase ↔ Obsidian 雙向同步引擎（需 `backends` 同時含兩庫；經 `note-sync` 或單獨跑） |
-| `hackmd-sync` | 選定 collection 增量鏡像到 **HackMD**（分享／發佈）：真 note-to-note 連結、宣告式權限（per-collection 可覆蓋）、選配**雙向同步**（`write_back`）——HackMD 端對「只有你能編輯」的 note 的修改會段落級合併寫回；開放編輯的 note 與兩邊都改的情況維持衝突報告 |
 
 **⚙️ 設定**
 
@@ -94,7 +92,7 @@
 | `setup` | 互動式 config 精靈：照 example 行內文件建立／體檢／調整 `config.json`，附健康檢查驗證器（`check_config.py`） |
 
 開關歸屬：config `features.study` 蓋剪報＋總覽＋知識圖；`features.project`
-蓋研究專案三件組（log／merge／campaign）；`bib-export` 與 `obsidian-sync` 不吃方向開關（前者跟著
+蓋研究專案三件組（log／merge／campaign）；`bib-export` 與 `note-sync` 不吃方向開關（前者跟著
 你給的錨點卡走，後者跟著 backend 走）。
 
 ## 安裝
@@ -106,7 +104,7 @@
 | 基本 | Python 3.10+、`pip install pyyaml`、一個 agent CLI（**Claude Code** 或 **Codex**） |
 | `backends` 含 `"heptabase"` | macOS＋**Heptabase 桌面版**＋`heptabase` CLI **≥ 0.4.0**（本機 API `127.0.0.1:21210`） |
 | `backends` 含 `"local"`（預設） | **一個 .md 資料夾就好**——任何目錄都行；用 **Obsidian** 開它是選配加分（iCloud vault 需要**完整磁碟取用權限**） |
-| HackMD 鏡像（`hackmd-sync`） | `npm install -g @hackmd/hackmd-cli`＋跑一次 `hackmd-cli login`（API token 在 hackmd.io → Settings → API 生成；絕不存進 plugin config） |
+| HackMD 鏡像（`note-sync --mode hackmd`） | `npm install -g @hackmd/hackmd-cli`＋跑一次 `hackmd-cli login`（API token 在 hackmd.io → Settings → API 生成；絕不存進 plugin config） |
 | 信件剪報（`scholar-inbox-clip`） | macOS **Mail.app**＋專用信箱資料夾（用 Mail 規則把 digest 導進去）＋`osascript` 自動化權限 |
 | 卡片圖片 | `pip install pymupdf`（PDF 頁面）＋`brew install librsvg`（SVG） |
 | Claude Code 加分項 | **alphaXiv MCP**（剪報／改寫的內容依據）與 **heptabase MCP**（同步時解析 highlight 嵌入）。選用——Codex 走內建 HTTP 抓取、highlight 改列給你手動補 |
@@ -212,7 +210,7 @@ app，十分鐘建起論文管線：
 - **Heptabase**：在 Heptabase 裡寫作（`backends: ["heptabase"]`），或用
   `backends: ["heptabase", "local"]` 得到 Heptabase 與資料夾之間完整的區塊級**雙向同步**
   ——寫回、手建 .md 收養、衝突總帳、屬性三方同步。
-- **HackMD**（發佈優先）：`hackmd-sync` 把選定 collection 鏡像成
+- **HackMD**（發佈優先）：`note-sync` 的 hackmd 段把選定 collection 鏡像成
   HackMD notes、互連卡變真連結——為「把總覽分享給協作者」而生。選配
   `write_back` 對「只有你能在 HackMD 編輯」的 note 開啟雙向（開放編輯
   的 note 永不寫回）。
@@ -229,7 +227,7 @@ wiki：[Daily Research Pipeline](https://github.com/SungFeng-Huang/research-card
 - **自然語言（推薦）**——直接跟 agent 說你要什麼，它會挑對 skill、照
   SKILL.md 的合約執行。下面每節都給例句。
 - **指名 skill**——Claude Code 用斜線：`/research-cards:<skill>`（如
-  `/research-cards:obsidian-sync`）；Codex 在訊息裡點名 skill 即可。
+  `/research-cards:note-sync`）；Codex 在訊息裡點名 skill 即可。
 - **底層 CLI**——只在無人值守排程或 debug 時需要，收在每節的
   「底層指令」摺疊區（agent 平常就是替你跑這些）。
 
@@ -326,9 +324,9 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | 你說 | 怎麼用指定 skill 來做到 |
 |---|---|
 | 「同步筆記／全部同步」 | `/research-cards:note-sync` |
-| 「跑 obsidian-sync」 | `/research-cards:note-sync --mode obsidian` |
-| 「先 dry-run 看一下要動哪些卡」 | `/research-cards:obsidian-sync --dry-run` |
-| 「有衝突嗎？帶我看 Sync Conflicts」 | `/research-cards:obsidian-sync 看衝突` |
+| 「只跑 Heptabase↔vault 那段」 | `/research-cards:note-sync --mode obsidian` |
+| 「先 dry-run 看一下要動哪些卡」 | `/research-cards:note-sync --dry-run` |
+| 「有衝突嗎？帶我看」 | `/research-cards:note-sync`（彙總報告列出各段衝突） |
 
 機制細節見 wiki 的 [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends-zh-TW)；agent 跑完會讀 JSON 報告、把衝突與待辦攤給你。
 
@@ -480,7 +478,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | 碰 iCloud vault 出現 `Operation not permitted` | 給終端機（或排程器的直譯器）**完整磁碟取用權限** |
 | 排程跑起來讀不到 Mail | 自動化權限跟著「發動的執行檔」走——用同一個直譯器互動式跑一次並核准提示 |
 | Codex 跑到舊版 plugin | 它執行靜態 cache 副本——`codex plugin remove`＋`add` 刷新，並確認 `plugin_root` 指向你活的 clone |
-| `obsidian-sync` 拒絕執行 | 它只在 `backends: ["heptabase", "local"]` 有意義——單一庫沒有東西可同步 |
+| `note-sync` 跳過 obsidian 段 | 它只在 `backends: ["heptabase", "local"]` 雙庫時適用——單一庫沒有東西可鏡像 |
 | 同步報 conflict | 特性不是 bug：該卡有有損編輯或雙邊分歧。看報告／`Sync Conflicts.md` 裡的區塊與原因，修你要保留的那邊，重跑 |
 
 ## License

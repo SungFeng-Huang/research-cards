@@ -118,6 +118,10 @@ class TestSyncFlow(unittest.TestCase):
                         "readPermission": v["readPermission"],
                         "writePermission": v.get("writePermission", "owner"),
                         "content": v["content"]}
+            if method == "DELETE":
+                nid = path.split("/")[-1]
+                self.notes.pop(nid, None)
+                return {}
             if method == "PATCH":
                 nid = path.split("/")[-1]
                 if "content" in (body or {}):
@@ -426,6 +430,44 @@ class TestSyncFlow(unittest.TestCase):
     def test_only_card_accepts_uuid(self):
         rep = S.sync(only_card="aaaa")
         self.assertEqual(len(rep["created"]), 1)
+
+    def test_vanished_source_deletes_only_untouched_notes(self):
+        (self.tmp / "Overviews" / "K 卡.md").write_text(
+            "---\nheptabase_id: kkkk\n---\n留守\n", encoding="utf-8")
+        S.sync()
+        nid = next(n for n, v in self.notes.items() if v["title"] == "A 卡")
+        os.remove(self.tmp / "Overviews" / "A 卡.md")   # source card gone
+        rep = S.sync()
+        self.assertEqual(rep["vanished"][0]["action"].split("（")[0], "deleted")
+        self.assertNotIn(nid, self.notes)               # remote note deleted
+        import json as _j
+        st = _j.load(open(S.STATE_PATH))
+        self.assertNotIn("aaaa", st["cards"])            # ledger cleaned
+
+    def test_vanished_pass_fails_closed_on_empty_inventory(self):
+        (self.tmp / "Overviews" / "B 卡.md").write_text(
+            "---\nheptabase_id: bbbb\n---\nB\n", encoding="utf-8")
+        S.sync()                                   # ledger has 2 cards
+        n_before = set(self.notes)
+        # simulate an unmounted vault: the managed folder suddenly empties
+        os.remove(self.tmp / "Overviews" / "A 卡.md")
+        os.remove(self.tmp / "Overviews" / "B 卡.md")
+        rep = S.sync()                             # inventory 0 < 2/2
+        self.assertFalse(rep["vanished"])          # pass skipped
+        self.assertEqual(set(self.notes), n_before)   # nothing deleted
+        self.assertTrue(any("vanished 檢查" in (e.get("err") or "")
+                            for e in rep["errors"]))
+
+    def test_vanished_source_keeps_edited_notes(self):
+        (self.tmp / "Overviews" / "K 卡.md").write_text(
+            "---\nheptabase_id: kkkk\n---\n留守\n", encoding="utf-8")
+        S.sync()
+        nid = next(n for n, v in self.notes.items() if v["title"] == "A 卡")
+        self.notes[nid]["content"] = "有人在 HackMD 端改過"
+        os.remove(self.tmp / "Overviews" / "A 卡.md")
+        rep = S.sync()
+        self.assertTrue(rep["vanished"][0]["action"].startswith("kept"))
+        self.assertIn(nid, self.notes)                   # surfaced, not deleted
 
     def test_folder_of_supports_both_api_generations(self):
         self.assertEqual(S._folder_of({"parentFolderId": "F1"}), "F1")

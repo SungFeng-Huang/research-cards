@@ -503,7 +503,7 @@ def _sync_locked(collections=None, only_card=None, dry=False):
     cards_state = state.setdefault("cards", {})
     report = {"created": [], "adopted": [], "updated": [], "skipped": 0,
               "written_back": [], "conflicts": [], "errors": [],
-              "stray_duplicates": [], "aborted": None}
+              "stray_duplicates": [], "vanished": [], "aborted": None}
 
     # gather the full mirror set, plus an id→title map over EVERY configured
     # collection (not just mirrored ones) so mentions of unmirrored cards
@@ -812,6 +812,55 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                 report["errors"].append(
                     {"card": cid2, "title": rec.get("title"),
                      "err": f"寫後驗證讀取失敗——下輪重試：{str(e)[:100]}"})
+    # vanished sources: a card gone from every collection (trashed upstream,
+    # merged away) leaves its mirror behind — the mirror follows, but a note
+    # is deleted ONLY when it still carries exactly what we last wrote
+    # (content md5 == ledger md5); anything else is surfaced, never silently
+    # deleted. Full runs only: a --collection/--card run sees a subset and
+    # would misread everything else as vanished.
+    if not collections and not only_card:
+        target_keys = {card_key(c) for _, _, c in targets}
+        # fail-closed: a silently-incomplete source inventory (unmounted
+        # iCloud vault, a moved folder — list_cards returns [] without
+        # raising) would otherwise read as "everything vanished" and mass-
+        # delete the mirror. Genuine deletions are few; losing half the
+        # inventory in one run is a listing failure, not a purge.
+        if cards_state and len(target_keys) < len(cards_state) / 2:
+            report["errors"].append(
+                {"card": None, "title": "(vanished pass)",
+                 "err": f"跳過 vanished 檢查：本輪來源卡數（{len(target_keys)}）"
+                        f"不足帳本（{len(cards_state)}）一半——來源盤點可能不完整"
+                        "（vault 未掛載／資料夾被移動），為防誤刪不做刪除傳播"})
+            target_keys = None
+        for ck2, rec in (list(cards_state.items()) if target_keys is not None
+                         else []):
+            if ck2 in target_keys or not rec.get("note_id"):
+                continue
+            entry = {"card": ck2, "note": rec["note_id"],
+                     "title": rec.get("title")}
+            if dry:
+                entry["action"] = "dry-run（實跑會依 md5 判定刪或保留）"
+                report["vanished"].append(entry)
+                continue
+            try:
+                info = note_get(rec["note_id"])
+                if rec.get("md5") and info["content_md5"] == rec["md5"]:
+                    api("DELETE", f"/notes/{rec['note_id']}")
+                    cards_state.pop(ck2)
+                    save_state(state)
+                    entry["action"] = "deleted（內容與帳本一致）"
+                else:
+                    entry["action"] = ("kept（HackMD 端內容與帳本不符——"
+                                       "可能被編輯過，僅回報）")
+            except Exception as e:                           # noqa: BLE001
+                if "404" in str(e):
+                    cards_state.pop(ck2)
+                    save_state(state)
+                    entry["action"] = "already-gone（遠端已不存在，清帳）"
+                else:
+                    entry["action"] = f"error: {str(e)[:100]}"
+            report["vanished"].append(entry)
+
     if not dry:
         save_state(state)
     # dedupe: a created card also passes phase B as "updated" — report it once

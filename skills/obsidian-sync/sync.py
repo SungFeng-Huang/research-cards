@@ -321,11 +321,42 @@ def main():
             except Exception as e:
                 report["errors"].append({"card": cid, "err": repr(e)[:300]})
 
-        # cards gone from tag
+        # cards gone from tag — the mirror follows: move the vault file into
+        # Obsidian's native trash (.trash/, recoverable in-app), drop the
+        # ledger entry + pm-cache. Upstream removals (merge finalize, manual
+        # trash) used to be report-only, leaving ghost files behind.
         for cid, st in list(state["cards"].items()):
             if st.get("collection") == col["key"] and \
                cid not in {c["id"] for c in col_cards[col["key"]]}:
-                report["removed_from_tag"].append({"card": cid, "file": st["file"]})
+                entry = {"card": cid, "file": st["file"]}
+                if not dry:
+                    src = os.path.join(folder, st["file"] + ".md")
+                    # the file is only OURS to trash when its frontmatter
+                    # heptabase_id matches the removed card — a same-titled
+                    # LIVE card shares the filename (two generations of a
+                    # continuation card did exactly this and the live
+                    # card's mirror got trashed by name)
+                    if os.path.exists(src):
+                        fm, _body = parse_file(src)
+                        if fm.get("heptabase_id") == cid:
+                            tdir = os.path.join(VAULT, ".trash")
+                            os.makedirs(tdir, exist_ok=True)
+                            dst = os.path.join(tdir, st["file"] + ".md")
+                            n = 1
+                            while os.path.exists(dst):
+                                n += 1
+                                dst = os.path.join(tdir,
+                                                   f"{st['file']} ({n}).md")
+                            os.replace(src, dst)
+                            entry["trashed_to"] = os.path.relpath(dst, VAULT)
+                        else:
+                            entry["file_kept"] = ("同名檔屬於另一張活卡"
+                                                  f"（{fm.get('heptabase_id', '?')[:8]}）——僅清帳")
+                    cp = cache_path(cid)
+                    if os.path.exists(cp):
+                        os.remove(cp)
+                    state["cards"].pop(cid)
+                report["removed_from_tag"].append(entry)
 
     try:
         sync_journals(state, resolver, dry)

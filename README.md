@@ -85,8 +85,6 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 | Skill | What it does |
 |---|---|
 | `note-sync` | **One entry point for the whole sync chain** — runs every applicable segment per `backends` (first = canonical), converges HackMD write-backs onto Heptabase in the same run, aggregates all conflicts; `--mode obsidian\|hackmd` runs one segment |
-| `obsidian-sync` | Heptabase ↔ Obsidian bidirectional sync engine (needs both stores in `backends`; run via `note-sync` or standalone) |
-| `hackmd-sync` | Incremental mirror of selected collections to **HackMD** (sharing/publishing): real note-to-note links, declarative permissions (per-collection overrides), and opt-in **two-way sync** (`write_back`) — HackMD-side edits on owner-writable notes merge back paragraph-level; shared-writable notes and two-sided edits stay conflicts |
 
 **⚙️ Setup**
 
@@ -95,7 +93,7 @@ reading, and full bidirectional sync respectively); **Claude Code** and
 | `setup` | Interactive config wizard: create / inspect / adjust `config.json` against the example's inline docs, with a health-check verifier (`check_config.py`) |
 
 Switch ownership: config `features.study` covers clipping + overviews + knowledge graph; `features.project`
-covers the three research-project skills (log / merge / campaign); `bib-export` and `obsidian-sync` ignore the direction switches (the former
+covers the three research-project skills (log / merge / campaign); `bib-export` and `note-sync` ignore the direction switches (the former
 follows whichever anchor card you give it, the latter follows the backend).
 
 ## Installation
@@ -107,7 +105,7 @@ follows whichever anchor card you give it, the latter follows the backend).
 | Basics | Python 3.10+, `pip install pyyaml`, an agent CLI (**Claude Code** or **Codex**) |
 | `backends` incl. `"heptabase"` | macOS + the **Heptabase desktop app** + the `heptabase` CLI **≥ 0.4.0** (local API `127.0.0.1:21210`) |
 | `backends` incl. `"local"` (the default) | **Just a folder of .md files** — any directory works; opening it as an **Obsidian vault** is optional polish (iCloud vaults need **Full Disk Access**) |
-| HackMD mirroring (`hackmd-sync`) | `npm install -g @hackmd/hackmd-cli` + one `hackmd-cli login` (API token from hackmd.io → Settings → API; never stored in the plugin config) |
+| HackMD mirroring (`note-sync --mode hackmd`) | `npm install -g @hackmd/hackmd-cli` + one `hackmd-cli login` (API token from hackmd.io → Settings → API; never stored in the plugin config) |
 | Email clipping (`scholar-inbox-clip`) | macOS **Mail.app** + a dedicated mailbox folder (use a Mail rule to route digests into it) + `osascript` automation permission |
 | Card figures | `pip install pymupdf` (PDF pages) + `brew install librsvg` (SVG) |
 | Claude Code extras | **alphaXiv MCP** (content grounding for clipping / rewriting) and **heptabase MCP** (resolving highlight embeds during sync). Optional — Codex falls back to built-in HTTP fetching, and highlights are instead listed for you to patch manually |
@@ -219,7 +217,7 @@ time, before or after Quick Start A:
   `backends: ["heptabase", "local"]` for the full block-level **bidirectional sync** between
   Heptabase and your folder — write-back, adoption of hand-made .md files,
   a conflict ledger, three-way property sync.
-- **HackMD** (publishing-first): `hackmd-sync` mirrors selected collections
+- **HackMD** (publishing-first): `note-sync`'s hackmd segment mirrors selected collections
   as HackMD notes with real note-to-note links — built for sharing overviews
   with collaborators. Opt-in `write_back` makes it two-way for notes only
   you can edit on HackMD (shared-writable notes never write back).
@@ -236,7 +234,7 @@ This section is the command reference. Day to day you **invoke skills**, not com
 - **Natural language (recommended)** — just tell the agent what you want; it picks the right skill and
   executes the SKILL.md contract. Every subsection below gives example phrasings.
 - **Naming the skill** — in Claude Code use the slash form: `/research-cards:<skill>` (e.g.
-  `/research-cards:obsidian-sync`); in Codex just name the skill in your message.
+  `/research-cards:note-sync`); in Codex just name the skill in your message.
 - **Low-level CLI** — only needed for unattended scheduling or debugging, tucked into each subsection's
   "Low-level commands" fold (the agent normally runs these for you anyway).
 
@@ -335,9 +333,9 @@ python3 bib_export.py <card-id> -o refs.bib      # '-' = stdout
 | You say | How to do it with an explicit skill |
 |---|---|
 | "Sync everything" | `/research-cards:note-sync` |
-| "Run obsidian-sync" | `/research-cards:note-sync --mode obsidian` |
-| "Dry-run first to see which cards would change" | `/research-cards:obsidian-sync --dry-run` |
-| "Any conflicts? Walk me through Sync Conflicts" | `/research-cards:obsidian-sync show conflicts` |
+| "Sync just the Heptabase↔vault segment" | `/research-cards:note-sync --mode obsidian` |
+| "Dry-run first to see which cards would change" | `/research-cards:note-sync --dry-run` |
+| "Any conflicts? Walk me through Sync Conflicts" | `/research-cards:note-sync`（the aggregate report lists every segment's conflicts） |
 
 Mechanism details in the wiki's [Note App Backends](https://github.com/SungFeng-Huang/research-cards/wiki/Note-App-Backends); after a run the agent reads the JSON report and lays the
 conflicts and follow-ups out for you.
@@ -498,7 +496,7 @@ Not installed → the export feature is unavailable; everything else works as us
 | `Operation not permitted` when touching an iCloud vault | Grant the terminal (or the scheduler's interpreter) **Full Disk Access** |
 | A scheduled run can't read Mail | Automation permission follows "the launching executable" — run once interactively with the same interpreter and approve the prompt |
 | Codex runs an old plugin version | It executes a static cached copy — refresh with `codex plugin remove` + `add`, and confirm `plugin_root` points at your live clone |
-| `obsidian-sync` refuses to run | It only makes sense with `backends: ["heptabase", "local"]` — with a single store there is nothing to sync |
+| `note-sync` skips the obsidian segment | It only applies with both stores in `backends: ["heptabase", "local"]` — with a single store there is nothing to mirror |
 | Sync reports a conflict | Feature, not a bug: that card has a lossy edit or divergence on both sides. Check the block and reason in the report / `Sync Conflicts.md`, fix the side you want to keep, and rerun |
 
 ## License

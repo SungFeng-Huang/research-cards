@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.31.1 — deletion propagation across the chain
+
+- obsidian segment: a card trashed/untagged on Heptabase now gets its
+  vault mirror MOVED into `.trash/` (Obsidian's native, recoverable trash)
+  with ledger + pm-cache cleanup — and only when the file's frontmatter
+  heptabase_id matches the removed card (a same-titled live card sharing
+  the filename is never touched; production hit exactly this).
+- hackmd segment: a vanished source (trashed upstream, merged away) gets
+  its HackMD note deleted ONLY when the remote content still matches the
+  sync ledger exactly; edited notes are surfaced and kept, a 404 cleans
+  the ledger. Fail-closed: if the run's source inventory drops below half
+  the ledger (unmounted vault, moved folder), the pass is skipped with a
+  loud error instead of mass-deleting the mirror.
+- Docs: engine invocations across README/wiki now speak note-sync; the
+  Note-App-Backends page was restructured (levels 1-3, then one general
+  sync-machinery section covering both segments).
+
 ## 0.31.0 — note-sync + the "local" config section
 
 - New `note-sync` skill: ONE entry point for the whole note-surface chain

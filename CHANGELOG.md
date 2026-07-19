@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.34.0 — project-card-cleanup
+
+- New skill `project-card-cleanup`: re-scope a project card CHAIN to its
+  handoff role (最高指導原則 + 實驗現狀 + 待辦 handoff) against an
+  external authority layer (paper draft, .private planning docs, or the
+  axis card). Where project-card-merge FOLDS appends into the body,
+  cleanup DISTILLS writing-phase appends, SUPERSEDES history pile-ups and
+  POINTERIZES content that now lives in the draft — while preserving
+  every experiment number, method record, figure and card-link.
+  `cleanup_lib` is a thin layer over merge_lib: one-read chain dumps with
+  an md5 baseline, a fullwidth-tolerant section extractor, a dump→builder
+  emitter whose HARD FILTER drops chain plumbing (sentinels / spill
+  headers — narrowed to the real LINK_MARK+card-literal shape), a
+  pre-write content inventory, and a lowered-threshold finalize for
+  dense rebuilds.
+
 ## 0.33.0 — reverse mode: local canonical, Heptabase as a view
 
 - `backends: ["local", "heptabase"]` is unlocked: the .md store is the

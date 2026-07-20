@@ -869,10 +869,12 @@ const fmtV = v => {
 };
 const host = document.getElementById('ledgerCharts');
 if (D.metric_keys.length === 0) {
-  host.innerHTML = '<p class="muted">（ledger 尚無出現 ≥2 次的數值指標——單次數值請看下方 Ledger 表）</p>';
+  host.innerHTML = '<p class="muted">（尚無可畫的指標）</p>';
 }
 D.metric_keys.forEach(key => {
-  const ys = D.metrics[key];                 // per-rung values (null = 該 rung 沒記這個指標)
+  // series 已在產生端壓縮：labels/vals 只含「有記到這個指標」的列，
+  // x 軸即點序（等距）——不再攤在全帳本時間軸上留整片空白
+  const S = D.series[key];
   const card = document.createElement('div'); card.className = 'card';
   const h3 = document.createElement('h3'); h3.textContent = key; card.appendChild(h3);
   if (D.glossary[key]) { const p = document.createElement('p'); p.className = 'note';
@@ -882,16 +884,13 @@ D.metric_keys.forEach(key => {
   host.appendChild(card);
   function render(){
     box.textContent = '';
-    const idx = [];                          // rung indices that have a value
-    ys.forEach((v, i) => { if (v !== null && v !== undefined) idx.push(i); });
-    if (!idx.length){ box.textContent = '（無資料）'; return; }
+    const n = S.vals.length;
+    if (!n){ box.textContent = '（無資料）'; return; }
     const W = Math.max(280, box.clientWidth || card.clientWidth - 24), H = 170;
     const m = {t:12, r:12, b:34, l:56};
-    const n = D.rungs.length;
-    const X = i => n <= 1 ? (m.l + (W - m.l - m.r) / 2)
-                          : m.l + i / (n - 1) * (W - m.l - m.r);
-    let vals = idx.map(i => ys[i]);
-    let ymin = Math.min(...vals), ymax = Math.max(...vals);
+    const X = j => n <= 1 ? (m.l + (W - m.l - m.r) / 2)
+                          : m.l + j / (n - 1) * (W - m.l - m.r);
+    let ymin = Math.min(...S.vals), ymax = Math.max(...S.vals);
     if (ymax === ymin){ ymax += Math.abs(ymax) * 0.1 || 1; ymin -= Math.abs(ymin) * 0.1 || 1; }
     // 半值域運算：[-1e308, 1e308] 這種有限極值直接 ymax-ymin 會溢位成
     // Infinity → NaN 座標；折半後相減保證 finite
@@ -916,34 +915,34 @@ D.metric_keys.forEach(key => {
       const tx = add('text', {x:m.l-6, y:y+4, 'text-anchor':'end'}); tx.textContent = fmtV(v);
     }
     const lblEvery = Math.max(1, Math.ceil(n / 5));
-    D.rungs.forEach((r, i) => {
-      if (i % lblEvery && i !== n - 1) return;
-      const tx = add('text', {x:X(i), y:H-16, 'text-anchor':'middle'});
+    S.labels.forEach((r, j) => {
+      if (j % lblEvery && j !== n - 1) return;
+      const tx = add('text', {x:X(j), y:H-16, 'text-anchor':'middle'});
       tx.textContent = r.length > 12 ? r.slice(0, 11) + '…' : r;
     });
     add('line', {x1:m.l, x2:W-m.r, y1:H-m.b, y2:H-m.b, stroke:'#9aa4a0', 'stroke-width':1});
     let d = '';
-    idx.forEach(i => { d += (d ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(ys[i]).toFixed(1); });
-    if (idx.length > 1)
+    S.vals.forEach((v, j) => { d += (d ? 'L' : 'M') + X(j).toFixed(1) + ' ' + Y(v).toFixed(1); });
+    if (n > 1)
       add('path', {d, fill:'none', stroke:'#2a78d6', 'stroke-width':2,
                    'stroke-linejoin':'round', 'stroke-linecap':'round'});
-    idx.forEach(i => add('circle', {cx:X(i), cy:Y(ys[i]), r:4,
-                                    fill:'#2a78d6', stroke:'#fff', 'stroke-width':2}));
+    S.vals.forEach((v, j) => add('circle', {cx:X(j), cy:Y(v), r:4,
+                                            fill:'#2a78d6', stroke:'#fff', 'stroke-width':2}));
     const cross = add('line', {x1:0, x2:0, y1:m.t, y2:H-m.b, stroke:'#9aa4a0',
                                'stroke-width':1, visibility:'hidden'});
-    // hover 綁在整個 svg（不靠透明 rect 的 hit-test）：找最近「有值」的 rung
+    // hover 綁在整個 svg（不靠透明 rect 的 hit-test）：找最近的點
     svg.addEventListener('pointermove', ev => {
       const r = svg.getBoundingClientRect();
       const px = Math.min(Math.max(ev.clientX - r.left, m.l), W - m.r);
-      let best = idx[0], bd = Infinity;
-      idx.forEach(i => { const dd = Math.abs(X(i) - px); if (dd < bd){ bd = dd; best = i; } });
+      let best = 0, bd = Infinity;
+      for (let j = 0; j < n; j++){ const dd = Math.abs(X(j) - px); if (dd < bd){ bd = dd; best = j; } }
       cross.setAttribute('x1', X(best)); cross.setAttribute('x2', X(best));
       cross.setAttribute('visibility', 'visible');
       tt.textContent = '';
       const tl = document.createElement('div'); tl.className = 't';
-      tl.textContent = D.rungs[best]; tt.appendChild(tl);
+      tl.textContent = S.labels[best]; tt.appendChild(tl);
       const row = document.createElement('div'); row.className = 'r';
-      const b = document.createElement('b'); b.textContent = fmtV(ys[best]);
+      const b = document.createElement('b'); b.textContent = fmtV(S.vals[best]);
       const nm = document.createElement('span'); nm.textContent = key;
       row.appendChild(b); row.appendChild(nm); tt.appendChild(row);
       tt.style.display = 'block';
@@ -972,21 +971,25 @@ D.metric_keys.forEach(key => {
 def cmd_report(args):
     """從 MISSION/queue/ledger/BLOCKED/glossary 產生單頁靜態 campaign 報告
     （無相依、無時間戳＝輸出確定性，發佈時間交給 git 歷史）。內容：
-    ladder（含各 rung 的實驗內容/目標/gate）、指標說明（glossary.json）、
-    Ledger 指標圖（逐 rung 曲線，游標懸停顯示 rung 與精確值）、Ledger 全表。"""
+    現況摘要（running rung＋各自最新 ledger 結論＋下一步）、ladder（running
+    置頂、done rung 收合成一行結論、長文折疊）、指標說明（glossary.json）、
+    Ledger 指標圖（≥3 點的指標成圖，x 軸只列有紀錄的列；恰 2 點列對照表）、
+    Ledger 分組表（依 rung 收合，running 組預設展開）。"""
     import html as H
     root = _load_dir(args.dir)
     title = _mission_title(root)
     gloss = _load_glossary(root)
 
-    def mchip(name, value):
+    def mchip(name, value=None):
         """Metrics 欄的指標膠囊：游標移上去立刻跳 JS tooltip 顯示指標說明
-        （原生 title 有延遲又不明顯——使用者反映「看起來能 hover 但沒顯示」）。"""
+        （原生 title 有延遲又不明顯——使用者反映「看起來能 hover 但沒顯示」）。
+        value=None 時只顯示指標名（兩點對照表的指標欄）。"""
         base = name.split(".")[0]
         tip = gloss.get(name) or gloss.get(base) \
             or "（此指標尚無說明——可補進 runs/auto_research/glossary.json）"
-        return (f"<span class=\"mchip\" data-tip=\"{H.escape(tip)}\">"
-                f"<b>{H.escape(name)}</b>={H.escape(value)}</span>")
+        body = f"<b>{H.escape(name)}</b>" \
+            + ("" if value is None else f"={H.escape(value)}")
+        return f"<span class=\"mchip\" data-tip=\"{H.escape(tip)}\">{body}</span>"
 
     qp = os.path.join(root, "queue.json")
     exps = []
@@ -998,6 +1001,65 @@ def cmd_report(args):
     if os.path.exists(lp):
         with open(lp) as f:
             rows = [json.loads(l) for l in f if l.strip()]
+    def rung_meta(expid):
+        """ledger 的 experiment id（如 E1-launch、E8f-inpipe）→ 最長前綴對應的
+        ladder rung。前綴後只接受「-」或「單一字母梯次（後接 - 或結尾）」：
+        E1-launch→E1、E8f-inpipe→E8、E9a→E9 歸宗；E11 不配 E1，E1alpha 這種
+        任意字母續接也不配（cohort 文法——分組/摘要都靠這條）。"""
+        best = None
+        for e in exps:
+            rid = str(e.get("id") or "")
+            if not rid:
+                continue
+            if expid == rid or (expid.startswith(rid)
+                                and re.match(r"-|[A-Za-z](-|$)",
+                                             expid[len(rid):])):
+                if best is None or len(rid) > len(str(best.get("id"))):
+                    best = e
+        return best
+
+    def first_sent(s, limit=110):
+        """首句截取（。／；／; 斷句，再截 limit）——摘要行與一行結論用。"""
+        s = " ".join(str(s or "").split())
+        cuts = [i for i in (s.find(c) for c in ("。", "；", ";"))
+                if 0 < i <= limit]
+        if cuts:
+            return s[:min(cuts) + 1]
+        return s if len(s) <= limit else s[:limit] + "…"
+
+    def fold_cell(text, head=110, fold_at=200):
+        """長文塞表格 cell 會把整列撐爆（ladder note 實測破萬字）——超過
+        fold_at 收成 <details>，summary 顯前段、點開看全文（保留換行）。"""
+        t = " ".join(str(text or "").split())
+        if not t:
+            return "—"
+        if len(t) <= fold_at:
+            return H.escape(t)
+        return (f"<details class=\"fold\"><summary>{H.escape(t[:head])}…"
+                f"</summary><div class=\"foldbody\">"
+                f"{H.escape(str(text).strip())}</div></details>")
+
+    def fmt_v(v):
+        """數值顯示（與圖表 JS 的 fmtV 同規則）：千分位／科學記號／4 有效位。
+        inf/nan 原樣印出——ledger 值本身有限，但 Δ 相減可能溢位，int(inf)
+        會 OverflowError。"""
+        import math
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return str(v)
+        if not math.isfinite(f):
+            return str(f)
+        if f == 0:
+            return "0"
+        a = abs(f)
+        if a >= 1000:
+            return f"{f:,.0f}" if f == int(f) else f"{f:,.1f}"
+        if a < 1e-3:
+            return f"{f:.2e}"
+        return f"{f:.4g}"
+
+    row_rung = [rung_meta(str(r.get("experiment"))) for r in rows]
     counts = {st: sum(1 for e in exps if e.get("status", "pending") == st)
               for st in QUEUE_STATUSES}
     next_pending = next((e.get("id") for e in exps
@@ -1038,24 +1100,87 @@ def cmd_report(args):
     if os.path.exists(bp):
         parts.append(f"<div class=\"blocked\"><b>BLOCKED</b><br>"
                      f"{H.escape(open(bp).read())}</div>")
+
+    # ---- 現況摘要：report 最該回答的「現在做到哪」——running rung 各一條
+    # （接該 rung 最新一列 ledger 結論）＋下一步；帳本細節留給下方分組表 ----
+    latest_by_rung = {}
+    for rm, r in zip(row_rung, rows):
+        if rm is not None:
+            latest_by_rung[str(rm.get("id"))] = r   # 後蓋前＝該 rung 最新一列
+    bullets = []
+    for e in exps:
+        if e.get("status", "pending") != "running":
+            continue
+        rid = str(e.get("id"))
+        b = (f"<b>{H.escape(rid)}</b>（running）｜"
+             f"{H.escape(first_sent(e.get('title'), 80) or '—')}")
+        lr = latest_by_rung.get(rid)
+        concl = first_sent((lr or {}).get("decision")
+                           or (lr or {}).get("purpose"), 110)
+        if lr is not None and concl:
+            b += (f"<br><span class=\"muted\">最新"
+                  f"（{H.escape(str(lr.get('experiment')))}）："
+                  f"{H.escape(concl)}</span>")
+        bullets.append(b)
+    # rung 交接期（無 running）：先補「最新紀錄」再列 next——條件不能是
+    # 「bullets 全空」，否則只要還有 pending rung，剛完成 rung 的結論就被
+    # next 條目排擠掉，使用者得展開下方 ledger 才看得到
+    if not bullets and rows:
+        r = rows[-1]
+        bullets.append(f"最新紀錄 <b>{H.escape(str(r.get('experiment')))}</b>｜"
+                       + H.escape(first_sent(r.get("decision")
+                                             or r.get("purpose"), 130) or "—"))
+    if next_pending is not None:
+        ne = next((e for e in exps if e.get("id") == next_pending), {})
+        bullets.append(f"<b>{H.escape(str(next_pending))}</b>（next）｜"
+                       + H.escape(first_sent(ne.get("title"), 100) or "—"))
+    if bullets:
+        parts.append("<div class=\"nowbox\"><div class=\"lab\">現況摘要</div><ul>"
+                     + "".join(f"<li>{b}</li>" for b in bullets)
+                     + "</ul></div>")
+
     if exps:
         parts.append("<h2>Experiment ladder</h2>"
-                     "<p class=\"muted\">每個 rung＝一個受 gate 把關的實驗階段，"
-                     "由上而下依序推進；gate 未過不啟用下一階。</p>"
-                     "<div class=\"wrap\"><table><tr><th>Rung</th><th>實驗內容</th>"
-                     "<th>目標 / Gate</th><th>狀態</th><th>備註</th></tr>")
-        for e in exps:
-            st = e.get("status", "pending")
-            goal = " ".join(x for x in [str(e.get("goal") or "").strip(),
-                                        str(e.get("gate") or "").strip()] if x) or "—"
-            note = str(e.get("note") or e.get("notes") or "").strip() or "—"
-            parts.append(f"<tr><td>{H.escape(str(e.get('id')))}</td>"
-                         f"<td>{H.escape(str(e.get('title') or '—'))}</td>"
-                         f"<td>{H.escape(goal)}</td>"
-                         f"<td><span class=\"chip {H.escape(st)}\">{H.escape(st)}"
-                         f"</span></td>"
-                         f"<td>{H.escape(note)}</td></tr>")
-        parts.append("</table></div>")
+                     "<p class=\"muted\">每個 rung＝一個受 gate 把關的實驗階段；"
+                     "running 置頂、其餘依 ladder 序，done rung 收合成一行結論。</p>")
+        live = [e for e in exps if e.get("status", "pending") != "done"]
+        live.sort(key=lambda e: 0 if e.get("status", "pending") == "running"
+                  else 1)   # 穩定排序：running 置頂、其餘保 queue 原序
+        done_rungs = [e for e in exps if e.get("status", "pending") == "done"]
+        if live:
+            parts.append("<div class=\"wrap\"><table><tr><th>Rung</th>"
+                         "<th>實驗內容</th><th>目標 / Gate</th><th>狀態</th>"
+                         "<th>備註</th></tr>")
+            for e in live:
+                st = e.get("status", "pending")
+                goal = " ".join(x for x in [str(e.get("goal") or "").strip(),
+                                            str(e.get("gate") or "").strip()] if x)
+                parts.append(f"<tr><td>{H.escape(str(e.get('id')))}</td>"
+                             f"<td>{fold_cell(e.get('title'))}</td>"
+                             f"<td>{fold_cell(goal)}</td>"
+                             f"<td><span class=\"chip {H.escape(st)}\">{H.escape(st)}"
+                             f"</span></td>"
+                             f"<td>{fold_cell(e.get('note') or e.get('notes'))}"
+                             f"</td></tr>")
+            parts.append("</table></div>")
+        if done_rungs:
+            # 收合但不減料：goal/gate/note 全文都在（長文以 fold_cell 摺疊，
+            # 展開可讀）——只把「已完成」從主表移出視線
+            parts.append(f"<details class=\"rung\"><summary><b>done rungs"
+                         f"（{len(done_rungs)}）</b>——已完成的階段，點開看"
+                         "目標與結論</summary>"
+                         "<div class=\"wrap\"><table><tr><th>Rung</th>"
+                         "<th>實驗內容</th><th>目標 / Gate</th>"
+                         "<th>備註（結論）</th></tr>")
+            for e in done_rungs:
+                goal = " ".join(x for x in [str(e.get("goal") or "").strip(),
+                                            str(e.get("gate") or "").strip()] if x)
+                parts.append(f"<tr><td>{H.escape(str(e.get('id')))}</td>"
+                             f"<td>{fold_cell(e.get('title'))}</td>"
+                             f"<td>{fold_cell(goal)}</td>"
+                             f"<td>{fold_cell(e.get('note') or e.get('notes'))}"
+                             f"</td></tr>")
+            parts.append("</table></div></details>")
 
     # ---- 指標說明（glossary，收合——指標膠囊滑過即顯示，同內容備查）----
     if gloss:
@@ -1067,96 +1192,138 @@ def cmd_report(args):
                          f"<td>{H.escape(gloss[k])}</td></tr>")
         parts.append("</table></details>")
 
-    # ---- Ledger 指標圖（逐 rung；hover 顯示 rung＋精確值）----
-    chart_keys = []
+    # ---- Ledger 指標圖（x 軸只列有紀錄的列；≥3 點成圖，恰 2 點列對照表——
+    # 帳本裡多數 metric key 只出現一兩次，攤在全時間軸上是整片空白）----
+    chart_keys, pair_keys = [], []
     if rows:
-        rung_labels, flat_rows = [], []
+        row_labels, flat_rows = [], []
         seen_lbl = {}
         for r in rows:
             lbl = str(r.get("experiment") or "?")
             seen_lbl[lbl] = seen_lbl.get(lbl, 0) + 1
             if seen_lbl[lbl] > 1:
                 lbl = f"{lbl}#{seen_lbl[lbl]}"
-            rung_labels.append(lbl)
+            row_labels.append(lbl)
             flat_rows.append(_flat_metrics(r.get("metrics")))
         kcounts = {}
         for fr in flat_rows:
             for k in fr:
                 kcounts[k] = kcounts.get(k, 0) + 1
-        chart_keys = sorted(k for k, c in kcounts.items() if c >= 2)
-        payload = {"rungs": rung_labels,
-                   "metric_keys": chart_keys,
-                   "metrics": {k: [fr.get(k) for fr in flat_rows] for k in chart_keys},
-                   "glossary": gloss}
-        parts.append("<h2>Ledger 指標圖（逐 rung）</h2>"
-                     "<p class=\"muted\">出現 ≥2 次的數值指標各成一張小圖；"
-                     "游標懸停顯示該點的 rung 名與精確值（指標定義見上方指標說明）。</p>"
-                     "<div class=\"charts\" id=\"ledgerCharts\"></div>")
-        # 所有 < 換 <——杜絕 experiment/metric 名/glossary 內容夾帶
-        # </script> 的 script-data 逃逸（合法 JSON escape；ensure_ascii 同時
-        # 中和 U+2028/2029 行分隔符）。與 progress_page.render 同手法。
-        blob = json.dumps(payload, ensure_ascii=True,
-                          allow_nan=False).replace("<", "\\u003c")
-        parts.append("<script>" +
-                     _REPORT_CHART_JS.replace("__PAYLOAD__", blob) +
-                     "</script>")
+        chart_keys = sorted(k for k, c in kcounts.items() if c >= 3)
+        pair_keys = sorted(k for k, c in kcounts.items() if c == 2)
 
-    # ---- Ledger 全表（experiment id 依 rung 前綴對應 ladder 的內容/目標）----
-    def rung_meta(expid):
-        """ledger 的 experiment id（如 E1-launch）→ 最長前綴對應的 ladder rung。
-        前綴後一字元不得是英數，避免 E1 誤配 E11。"""
-        best = None
-        for e in exps:
-            rid = str(e.get("id") or "")
-            if not rid:
-                continue
-            if expid == rid or (expid.startswith(rid)
-                                and not expid[len(rid):len(rid) + 1].isalnum()):
-                if best is None or len(rid) > len(str(best.get("id"))):
-                    best = e
-        return best
+        def key_points(k):
+            return [(row_labels[i], fr[k])
+                    for i, fr in enumerate(flat_rows) if k in fr]
 
+        if chart_keys:
+            series = {k: {"labels": [p[0] for p in key_points(k)],
+                          "vals": [p[1] for p in key_points(k)]}
+                      for k in chart_keys}
+            payload = {"metric_keys": chart_keys, "series": series,
+                       "glossary": gloss}
+            parts.append("<h2>Ledger 指標圖</h2>"
+                         "<p class=\"muted\">出現 ≥3 次的數值指標各成一張小圖；"
+                         "x 軸只列「有記到該指標」的 ledger 列（點距不代表時間"
+                         "間隔）；游標懸停顯示列名與精確值。</p>"
+                         "<div class=\"charts\" id=\"ledgerCharts\"></div>")
+            # 所有 < 換 <——杜絕 experiment/metric 名/glossary 內容夾帶
+            # </script> 的 script-data 逃逸（合法 JSON escape；ensure_ascii 同時
+            # 中和 U+2028/2029 行分隔符）。與 progress_page.render 同手法。
+            blob = json.dumps(payload, ensure_ascii=True,
+                              allow_nan=False).replace("<", "\\u003c")
+            parts.append("<script>" +
+                         _REPORT_CHART_JS.replace("__PAYLOAD__", blob) +
+                         "</script>")
+        if pair_keys:
+            parts.append(f"<details class=\"rung\"><summary><b>兩點指標對照"
+                         f"（{len(pair_keys)}）</b>——只出現兩次的指標，點太少"
+                         "不成曲線，列前後值備查</summary>"
+                         "<div class=\"wrap\"><table><tr><th>指標</th><th>前</th>"
+                         "<th>後</th><th>Δ</th></tr>")
+            for k in pair_keys:
+                (la, va), (lb, vb) = key_points(k)
+                delta = vb - va
+                parts.append(
+                    f"<tr><td>{mchip(str(k))}</td>"
+                    f"<td>{H.escape(la)}＝{H.escape(fmt_v(va))}</td>"
+                    f"<td>{H.escape(lb)}＝{H.escape(fmt_v(vb))}</td>"
+                    f"<td>{H.escape(('+' if delta > 0 else '') + fmt_v(delta))}"
+                    f"</td></tr>")
+            parts.append("</table></div></details>")
+
+    # ---- Ledger（按 rung 分組收合；running 組預設展開——75 列平鋪的流水帳
+    # 沒人讀得完，組標題列給「列數＋狀態＋最新結論」）----
     parts.append(f"<h2>Ledger（{len(rows)} rows）</h2>"
-                 "<p class=\"muted\">「驗證目標」＝<b>這一列</b>要驗證的事（ledger row 的 "
-                 "purpose 欄位；未標 purpose 的列退回顯示所屬 rung 的 title）——"
-                 "significant/decision 都是相對這個目標在說話；experiment 名稱"
-                 "滑過可看所屬 rung 的完整內容與 gate。</p>")
+                 "<p class=\"muted\">依 rung 分組（experiment id 前綴對應 ladder），"
+                 "running 的組預設展開；組內依時間序，最新結論看組標題列。"
+                 "「驗證目標」＝該列 ledger row 的 purpose 欄位（未標則退回 rung "
+                 "title）——significant/decision 都是相對這個目標在說話；"
+                 "experiment 名稱滑過可看所屬 rung 的完整內容與 gate。</p>")
+    ledger_groups = []
     if rows:
-        parts.append("<div class=\"wrap\"><table><tr><th>Experiment</th>"
-                     "<th>驗證目標</th><th>Metrics</th>"
-                     "<th>Significant</th><th>Decision</th><th>Playbook cites</th></tr>")
-        for r in rows:
-            met = " ".join(mchip(str(k), str(v))
-                           for k, v in (r.get("metrics") or {}).items()) or "—"
-            sig = r.get("significant")
-            chip = ("<span class=\"chip sig\">significant</span>" if sig is True
-                    else "<span class=\"chip nosig\">not significant</span>")
-            cites = "、".join(H.escape(str(c))
-                              for c in (r.get("playbook_rules_cited") or [])) or "—"
+        gidx = {}
+        for rm, r in zip(row_rung, rows):
             expid = str(r.get("experiment"))
-            rm = rung_meta(expid)
-            sub = str(r.get("purpose") or "").strip()   # 本列在 rung 中的子實驗角色（選配欄位）
-            if rm or sub:
-                lines = []
-                if rm:
-                    rid = str(rm.get("id"))
-                    lines.append(f"{rid}（rung）：" + "｜".join(
-                        x for x in [str(rm.get("title") or ""),
-                                    str(rm.get("goal") or ""),
-                                    ("gate：" + str(rm.get("gate"))) if rm.get("gate") else ""] if x))
-                lines.append(f"本列（{expid}）：" + (sub or "（此列未標子實驗角色——ledger row 可加 purpose 欄位）"))
-                tip = "\n".join(lines)
-                expcell = (f"<span class='mchip' data-tip='{H.escape(tip)}'>"
-                           f"<b>{H.escape(expid)}</b></span>")
-                # 驗證目標欄＝與 hover「本列」同源的 per-row purpose——每列可區別；
-                # 未標 purpose 的舊列退回 rung title（rung 級粗粒度）
-                goal_cell = H.escape(sub or str((rm or {}).get("title") or "—"))
-            else:
-                expcell, goal_cell = H.escape(expid), "—"
-            parts.append(f"<tr><td>{expcell}</td><td>{goal_cell}</td><td>{met}</td>"
-                         f"<td>{chip}</td><td>{H.escape(str(r.get('decision') or ''))}</td>"
-                         f"<td>{cites}</td></tr>")
-        parts.append("</table></div>")
+            gkey = str(rm.get("id")) if rm else (expid.split("-")[0] or expid)
+            if gkey not in gidx:
+                gidx[gkey] = len(ledger_groups)
+                ledger_groups.append({"key": gkey, "meta": rm, "rows": []})
+            ledger_groups[gidx[gkey]]["rows"].append(r)
+        for g in ledger_groups:
+            rm, grows = g["meta"], g["rows"]
+            st = str((rm or {}).get("status") or "")
+            last = grows[-1]
+            concl = first_sent(last.get("decision") or last.get("purpose"), 100)
+            summ = [f"<b>{H.escape(g['key'])}</b>（{len(grows)} 列）"]
+            if st:
+                summ.append(f"<span class=\"chip {H.escape(st)}\">"
+                            f"{H.escape(st)}</span>")
+            if rm and rm.get("title"):
+                summ.append(H.escape(first_sent(str(rm.get("title")), 60)))
+            if concl:
+                summ.append(f"<span class=\"sumlast\">最新"
+                            f"（{H.escape(str(last.get('experiment')))}）："
+                            f"{H.escape(concl)}</span>")
+            opn = " open" if st == "running" else ""
+            parts.append(f"<details class=\"rung\"{opn}><summary>"
+                         + " ".join(summ) + "</summary>"
+                         "<div class=\"wrap\"><table><tr><th>Experiment</th>"
+                         "<th>驗證目標</th><th>Metrics</th><th>Significant</th>"
+                         "<th>Decision</th><th>Playbook cites</th></tr>")
+            for r in grows:
+                met = " ".join(mchip(str(k), str(v))
+                               for k, v in (r.get("metrics") or {}).items()) or "—"
+                sig = r.get("significant")
+                chip = ("<span class=\"chip sig\">significant</span>"
+                        if sig is True else
+                        "<span class=\"chip nosig\">not significant</span>"
+                        if sig is False else "—")   # 未填≠不顯著（incident/決策列）
+                cites = "、".join(H.escape(str(c))
+                                  for c in (r.get("playbook_rules_cited") or [])) or "—"
+                expid = str(r.get("experiment"))
+                sub = str(r.get("purpose") or "").strip()   # 本列在 rung 中的子實驗角色（選配欄位）
+                if rm or sub:
+                    lines = []
+                    if rm:
+                        rid = str(rm.get("id"))
+                        lines.append(f"{rid}（rung）：" + "｜".join(
+                            x for x in [str(rm.get("title") or ""),
+                                        str(rm.get("goal") or ""),
+                                        ("gate：" + str(rm.get("gate"))) if rm.get("gate") else ""] if x))
+                    lines.append(f"本列（{expid}）：" + (sub or "（此列未標子實驗角色——ledger row 可加 purpose 欄位）"))
+                    tip = "\n".join(lines)
+                    expcell = (f"<span class='mchip' data-tip='{H.escape(tip)}'>"
+                               f"<b>{H.escape(expid)}</b></span>")
+                    # 驗證目標欄＝與 hover「本列」同源的 per-row purpose——每列可區別；
+                    # 未標 purpose 的舊列退回 rung title（rung 級粗粒度）
+                    goal_cell = H.escape(sub or str((rm or {}).get("title") or "—"))
+                else:
+                    expcell, goal_cell = H.escape(expid), "—"
+                parts.append(f"<tr><td>{expcell}</td><td>{goal_cell}</td><td>{met}</td>"
+                             f"<td>{chip}</td><td>{fold_cell(r.get('decision'))}</td>"
+                             f"<td>{cites}</td></tr>")
+            parts.append("</table></div></details>")
     else:
         parts.append("<p class=\"muted\">（尚無評測紀錄）</p>")
     # metrics 膠囊的即時 tooltip（全頁共用一個 #mtip，fixed 定位跟著游標）
@@ -1229,7 +1396,9 @@ def cmd_report(args):
             and os.path.basename(out).casefold() != "index.html":
         idx = _write_index(os.path.dirname(out), title, warn_ignored=warn_ign)
     print(json.dumps({"report": out, "ladder": os.path.exists(qp),
-                      "ledger_rows": len(rows), "charts": len(chart_keys),
+                      "ledger_rows": len(rows),
+                      "ledger_groups": len(ledger_groups),
+                      "charts": len(chart_keys), "pair_metrics": len(pair_keys),
                       "glossary": len(gloss),
                       "index_pages": idx}, ensure_ascii=False))
 

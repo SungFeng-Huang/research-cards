@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.35.1 — status-summary fallback at rung handover
+
+- campaign report: the current-status box's "nothing running → show the
+  newest ledger conclusion" fallback keyed on *all bullets empty*, so a
+  pending-next entry suppressed it — during a rung handover (E0 done, E1
+  pending) the just-finished rung's conclusion was hidden below the fold.
+  The fallback now keys on *no running entries* and renders before next;
+  regression test asserts conclusion + next coexist.
+
+## 0.35.0 — campaign report readability overhaul
+
+Diagnosed on the duplex-s2s campaign (75 ledger rows): the report page had
+become an unreadable flat dump. Four rendering-layer fixes in
+`campaign.py cmd_report` (data schema untouched — pages regenerate from the
+same queue/ledger):
+
+- **現況摘要 box**: new summary block at the top — one bullet per running
+  rung (title + that rung's latest ledger decision/purpose first-sentence)
+  plus the next pending rung; falls back to the newest ledger row when
+  nothing is running. Answers "where are we now" without scanning the ledger.
+- **Ledger grouped by rung**: the flat N-row table becomes per-rung
+  `<details>` groups (running rungs open by default); the summary line
+  carries row count, status chip, rung title, and the group's latest
+  conclusion. Grouping reuses the ladder-prefix match, relaxed from "next
+  char not alphanumeric" to "not a digit" so letter cohorts (E8f-inpipe,
+  E9a-launch) attach to their parent rung while E1 still never matches E11.
+  Rows matching no rung group under their first `-`-segment. `significant`
+  now renders `—` when the field is absent (incident/decision rows) instead
+  of a misleading "not significant" chip; long `decision` cells fold.
+- **Charts de-sparsified**: threshold raised to ≥3 occurrences (the 75-row
+  ledger had 301 numeric keys, 278 of them one-shot → 23 near-empty charts);
+  the x axis now only contains the rows that recorded the metric (payload
+  ships compacted `series` instead of full-length null-padded arrays — note
+  point spacing no longer encodes time). Keys appearing exactly twice render
+  as a collapsed 前/後/Δ comparison table instead of a two-point "line".
+- **Ladder table**: running rungs sort to the top, done rungs collapse into
+  a one-line-conclusion `<details>` list, and long goal/note cells fold
+  (a real note had grown past 10K chars, exploding the row). New `planned`
+  chip color; `.nowbox`/`details.rung`/`details.fold` styles in
+  showcase.css; `p.muted` generalized to `.muted`.
+
 ## 0.34.0 — project-card-cleanup
 
 - New skill `project-card-cleanup`: re-scope a project card CHAIN to its

@@ -265,6 +265,33 @@ class TestPagesSetup(unittest.TestCase):
 
 
 class TestReport(unittest.TestCase):
+    def test_nowbox_shows_latest_conclusion_at_rung_handover(self):
+        # rung 交接期（E0 done、E1 pending、無 running）：現況摘要必須同時
+        # 顯示剛完成 rung 的最新結論與 next——之前 next 條目會把 fallback
+        # 排擠掉，結論只能到下方 ledger 挖
+        import re
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-nb-"))
+        root = repo / "runs" / "auto_research"
+        run(["init", "--repo", str(repo), "--rungs", "E0", "E1"])
+        q = json.loads((root / "queue.json").read_text())
+        q["experiments"][0]["status"] = "done"
+        (root / "queue.json").write_text(json.dumps(q))
+        row = {"experiment": "E0-final", "config_hash": "h",
+               "purpose": "E0 收尾驗證", "metrics": {"wer": 0.28},
+               "significant": True,
+               "decision": "E0 gate 過（wer 0.28、CI 排除 0）——進 E1",
+               "playbook_rules_cited": ["-"]}
+        run(["ledger-append", "--dir", str(root), "--json", json.dumps(row)])
+        out = repo / "docs" / "campaign-report.html"
+        run(["report", "--dir", str(root), "--out", str(out)])
+        m = re.search(r'<div class="nowbox">.*?</ul></div>', out.read_text(), re.S)
+        self.assertTrue(m, "現況摘要缺席")
+        nb = m.group(0)
+        self.assertIn("E0-final", nb)                 # 最新結論在摘要裡
+        self.assertIn("E0 gate 過", nb)
+        self.assertIn("（next）", nb)                  # next 也在
+        self.assertIn("E1", nb)
+
     def test_report_renders_and_is_deterministic(self):
         repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-rep-"))
         root = repo / "runs" / "auto_research"
@@ -403,12 +430,17 @@ class TestReport(unittest.TestCase):
         (root / "glossary.json").write_text(json.dumps(
             {"mos": "品質 </script><script>x</script>"}, ensure_ascii=False))
         evil = "</script><script>alert(1)//"
+        # mos/evil ×3 → 入圖；pair ×2 → 對照表；tiny/big ×1 → 都不畫
         rows = [{"experiment": "E0", "config_hash": "h",
-                 "metrics": {"mos": 3.4, evil: 1, "tiny": 5e-6},
+                 "metrics": {"mos": 3.4, evil: 1, "tiny": 5e-6, "pair": 1.0},
                  "significant": False, "decision": "calibrate"},
                 {"experiment": "E1", "config_hash": "h",
-                 "metrics": {"mos": 3.1, evil: 2, "big": 10 ** 400},
-                 "significant": True, "decision": "advance"}]
+                 "metrics": {"mos": 3.1, evil: 2, "big": 10 ** 400,
+                             "pair": 2.5},
+                 "significant": True, "decision": "advance"},
+                {"experiment": "E1-fix", "config_hash": "h",
+                 "metrics": {"mos": 3.6, evil: 3},
+                 "significant": True, "decision": "advance more"}]
         for row in rows:
             run(["ledger-append", "--dir", str(root), "--json",
                  json.dumps(row)])
@@ -416,16 +448,59 @@ class TestReport(unittest.TestCase):
         rep = json.loads(run(["report", "--dir", str(root),
                               "--out", str(out)]).stdout)
         # 10**400 不可 float——跳過該值即可，report 不得崩（OverflowError）
-        self.assertEqual(rep["ledger_rows"], 2)
+        self.assertEqual(rep["ledger_rows"], 3)
         html = out.read_text()
         payload_line = re.search(r"^const D = .*$", html, re.M).group(0)
         # 全 < 已跳脫：metric key/glossary 帶 </script> 也逃不出 script data
         self.assertNotIn("<", payload_line[len("const D = "):])
         self.assertIn("\\u003c/script>", payload_line)
         d = json.loads(re.search(r"^const D = (.*);$", html, re.M).group(1))
-        self.assertIn("mos", d["metric_keys"])            # ≥2 次 → 入圖
+        self.assertIn("mos", d["metric_keys"])            # ≥3 次 → 入圖
         self.assertNotIn("big", d["metric_keys"])         # overflow 值被跳過
-        self.assertEqual(d["metrics"]["mos"], [3.4, 3.1])
+        self.assertNotIn("pair", d["metric_keys"])        # 恰 2 次 → 對照表
+        self.assertEqual(d["series"]["mos"]["vals"], [3.4, 3.1, 3.6])
+        self.assertEqual(d["series"]["mos"]["labels"], ["E0", "E1", "E1-fix"])
+        self.assertEqual(rep["charts"], 2)                # mos + evil
+        self.assertEqual(rep["pair_metrics"], 1)          # pair
+        self.assertIn("兩點指標對照", html)                # 對照表存在
+        self.assertIn("+1.5", html)                       # pair 的 Δ=2.5−1.0
+
+    def test_report_pair_delta_overflow_renders(self):
+        # 兩個合法有限極值相減 → Δ=inf：對照表要照印（"+inf"），不得
+        # OverflowError 崩掉整份 report
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-dov-"))
+        root = repo / "runs" / "auto_research"
+        run(["init", "--repo", str(repo), "--rungs", "E0"])
+        for exp, v in (("E0", -1e308), ("E0-b", 1e308)):
+            run(["ledger-append", "--dir", str(root), "--json",
+                 json.dumps({"experiment": exp, "config_hash": "h",
+                             "metrics": {"huge": v}, "significant": False,
+                             "decision": "d"})])
+        out = repo / "docs" / "campaign-report.html"
+        rep = json.loads(run(["report", "--dir", str(root),
+                              "--out", str(out)]).stdout)
+        self.assertEqual(rep["pair_metrics"], 1)
+        self.assertIn("+inf", out.read_text())
+
+    def test_report_groups_ledger_by_rung_prefix(self):
+        # 分組文法：E1-launch/E1a-x 歸 E1；E11-x、E1alpha-x 不歸 E1（各自成組）
+        repo = Path(tempfile.mkdtemp(prefix="hbcards-campaign-grp-"))
+        root = repo / "runs" / "auto_research"
+        run(["init", "--repo", str(repo), "--rungs", "E1", "E11"])
+        for exp in ("E1-launch", "E1a-probe", "E11-start", "E1alpha-x"):
+            run(["ledger-append", "--dir", str(root), "--json",
+                 json.dumps({"experiment": exp, "config_hash": "h",
+                             "metrics": {}, "significant": False,
+                             "decision": "d"})])
+        out = repo / "docs" / "campaign-report.html"
+        rep = json.loads(run(["report", "--dir", str(root),
+                              "--out", str(out)]).stdout)
+        # E1（E1-launch+E1a-probe）、E11（E11-start）、E1alpha（fallback）
+        self.assertEqual(rep["ledger_groups"], 3)
+        html = out.read_text()
+        self.assertIn("<b>E1</b>（2 列）", html)
+        self.assertIn("<b>E11</b>（1 列）", html)
+        self.assertIn("<b>E1alpha</b>（1 列）", html)
 
 
 

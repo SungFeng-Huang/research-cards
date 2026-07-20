@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.36.0 — progress page declutter
+
+- The campaign progress page stays readable at scale (validated on a
+  21-run / 123-eval-set campaign that had blown up to an unusable 294KB
+  flat dump): the evals bar-chart selector defaults to the last 8 groups
+  (not all — dozens of groups meant sub-pixel bars) with a collapsed
+  selection table and a live checked-count; run tabs sort by log mtime
+  with the newest 6 flat and older runs folded away, button text uses the
+  short run name (full name/desc/purpose on hover); the ladder shows
+  running rungs flat and folds done/pending (goal/note via foldCell) while
+  staying self-contained even without a report page; the run-overview and
+  job-chain tables fold with row counts. Rendering layer only — the
+  payload schema and data files are untouched.
+
 ## 0.35.1 — status-summary fallback at rung handover
 
 - campaign report: the current-status box's "nothing running → show the

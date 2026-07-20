@@ -510,5 +510,73 @@ class TestEvalBarChart(unittest.TestCase):
         self.assertIn("if (ymax <= ymin) ymax = ymin + 1", self.TEMPLATE)
 
 
+class TestDeclutterLayout(Base):
+    """progress 頁去雜訊改版：收合容器的 DOM 錨點（JS 以 getElementById
+    取用，錨點消失＝整頁 JS 中斷）、evals 預設勾選上限、runTabs 分層、
+    ladder running 平鋪＋其餘收合（report 缺席也不斷頭）。
+    註：勾選互動/摺疊展開是瀏覽器行為，本測試栈（unittest＋字串斷言）
+    驗不到 DOM 事件——涵蓋到模板契約與 end-to-end 錨點為止。"""
+
+    TEMPLATE = pp.TEMPLATE
+
+    def test_collapse_anchors_present(self):
+        # runsInfo / 更早的 run / job 鏈 / 其他 rung 都收進 details，
+        # 容器 id 是 JS 的硬相依
+        for anchor in ('id="runsInfoWrap"', 'id="runsInfoSummary"',
+                       'id="moreRunsWrap"', 'id="moreRunsSummary"',
+                       'id="moreRuns"', 'id="jobsWrap"', 'id="jobsSummary"',
+                       'id="ladderRestWrap"', 'id="ladderRestSummary"',
+                       '<table id="ladderRest">'):
+            self.assertIn(anchor, self.TEMPLATE)
+
+    def test_evals_selector_defaults_capped_and_not_open(self):
+        # 幾十組全勾＝每根柱 <1px；預設只勾尾端 MAX_ON 組，選擇表預設收合
+        self.assertIn("sers.slice(-MAX_ON)", self.TEMPLATE)
+        self.assertIn('<details id="evalsGroups" hidden>', self.TEMPLATE)
+        self.assertNotIn('<details id="evalsGroups" open', self.TEMPLATE)
+        # checkbox 初始態必須跟預設集合同源（曾為寫死 true）
+        self.assertIn("cb.checked = checked[sn]", self.TEMPLATE)
+
+    def test_runtabs_sorted_and_overflow_folded(self):
+        # 按 log 更新時間新→舊；超過 MAX_TABS 收進「更早的 run」；
+        # 按鈕的勾選 listener 是疊圖互動的核心，rewrite 時不得丟失
+        self.assertIn("MAX_TABS", self.TEMPLATE)
+        self.assertIn("last_mtime_ts || 0", self.TEMPLATE)
+        self.assertIn("order.slice(0, MAX_TABS)", self.TEMPLATE)
+        self.assertIn("b.addEventListener('click'", self.TEMPLATE)
+
+    def test_ladder_running_inline_rest_folded(self):
+        # running 平鋪；done/pending 收進 ladderRest details（資訊零損失，
+        # 不能只留連結指向可能缺席的 report 頁）；長 goal/note 用 foldCell
+        self.assertIn("=== 'running'", self.TEMPLATE)
+        self.assertIn("function foldCell", self.TEMPLATE)
+        self.assertIn("ladderRestWrap", self.TEMPLATE)
+        self.assertNotIn("Campaign 實驗階梯（running）", self.TEMPLATE)
+
+    def test_end_to_end_anchors_and_full_queue_payload(self):
+        # 實頁驗證（非 TEMPLATE 字串）：running+done 混合 queue、超過
+        # MAX_TABS 的 run 清單 → 錨點都在最終 HTML；queue 全量仍進 payload
+        # （其餘 rung 是摺疊呈現，不是資料被剪掉）
+        q = json.loads((self.root / "queue.json").read_text())
+        q["experiments"][0]["status"] = "done"
+        q["experiments"][0]["note"] = "長" * 300      # 超過 foldCell 門檻
+        q["experiments"][1]["status"] = "running"
+        (self.root / "queue.json").write_text(json.dumps(q, ensure_ascii=False))
+        self.write_logs()
+        self.write_cfg(runs=[{"name": f"exp{i} 完整名稱", "short": str(i),
+                              "log_glob": ["slurm_logs/*.out"]}
+                             for i in range(8)])       # 8 > MAX_TABS(6)
+        out = self.repo / "docs" / "p.html"
+        run(["progress", "--dir", str(self.root), "--out", str(out)])
+        html = out.read_text()
+        for anchor in ('id="runsInfoWrap"', 'id="moreRunsWrap"',
+                       'id="jobsWrap"', 'id="ladderRestWrap"',
+                       '<table id="ladderRest">'):
+            self.assertIn(anchor, html)
+        d = payload_of(out)
+        self.assertEqual(len(d["queue"]["experiments"]), 2)   # 全量入 payload
+        self.assertEqual(len(d["runs"]), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

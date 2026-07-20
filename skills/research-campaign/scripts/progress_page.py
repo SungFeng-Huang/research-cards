@@ -834,6 +834,11 @@ TEMPLATE = r"""<!doctype html>
   .runtabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   .runtabs .live { font-size:11px; opacity:.85; margin-left:4px; }
   [data-tip] { text-decoration:underline dotted; cursor:help; }
+  .runtabs button[data-tip] { text-decoration:none; }
+  details.fold { margin:0; display:inline; }
+  details.fold > summary { color:inherit; }
+  details.fold .foldbody { white-space:pre-wrap; margin-top:6px; padding-top:6px;
+                           border-top:1px dashed var(--line); color:var(--muted); }
   #mtip { position:fixed; pointer-events:none; background:var(--panel);
           border:1px solid var(--line); border-radius:8px; padding:8px 10px;
           font-size:12.5px; display:none; box-shadow:0 2px 10px rgba(0,0,0,.14);
@@ -848,33 +853,45 @@ TEMPLATE = r"""<!doctype html>
   <p class="sub"><span id="pgSub"></span> <a href="campaign-report.html">← campaign report</a></p>
   <div class="tiles" id="tiles"></div>
   <h2>訓練曲線</h2>
-  <div class="wrap"><table id="runsInfo" hidden style="margin-bottom:12px"></table></div>
-  <p class="sub" id="runTabsHint" hidden>勾選要疊在曲線上的 run（可多選）：</p>
+  <details id="runsInfoWrap" hidden><summary id="runsInfoSummary">run 總覽</summary>
+    <div class="wrap" style="margin-top:10px"><table id="runsInfo"></table></div>
+  </details>
+  <p class="sub" id="runTabsHint" hidden style="margin:14px 0 12px">勾選要疊在曲線上的 run（可多選；滑過按鈕看說明）：</p>
   <div id="runTabs" class="runtabs" hidden></div>
-  <div class="charts" id="charts"></div>
+  <details id="moreRunsWrap" hidden><summary id="moreRunsSummary">更早的 run</summary>
+    <div id="moreRuns" class="runtabs" style="margin-top:10px"></div>
+  </details>
+  <div class="charts" id="charts" style="margin-top:12px"></div>
   <details><summary id="tblSummary"></summary>
     <div class="wrap" style="margin-top:10px"><table id="dataTable"></table></div>
   </details>
   <h2 id="evalsH2" hidden></h2>
   <p class="sub" id="evalsNote" hidden></p>
-  <details id="evalsGroups" open hidden><summary id="evalsGroupsSummary">評測集設定說明</summary>
+  <details id="evalsGroups" hidden><summary id="evalsGroupsSummary">評測集設定說明</summary>
     <div class="wrap" style="margin-top:10px"><table id="evalsGroupsTable"></table></div>
   </details>
-  <div class="charts" id="evalsCharts"></div>
+  <div class="charts" id="evalsCharts" style="margin-top:12px"></div>
   <details id="evalsTblWrap" hidden style="margin-top:10px"><summary>驗證評測數據表</summary>
     <div class="wrap" style="margin-top:10px"><table id="evalsTable"></table></div>
   </details>
   <h2>Campaign 實驗階梯</h2>
+  <p class="sub">running 平鋪、其餘收合；各 rung 的結論敘事與 gate 判定見
+    <a href="campaign-report.html">campaign report</a>。</p>
   <div class="wrap"><table id="ladder"></table></div>
+  <details id="ladderRestWrap" hidden><summary id="ladderRestSummary">其他 rung</summary>
+    <div class="wrap" style="margin-top:10px"><table id="ladderRest"></table></div>
+  </details>
   <h2>Ledger（最近完成的評測決策）</h2>
   <div class="wrap"><table id="ledger"></table></div>
   <details id="glossWrap" hidden><summary>指標說明（表頭/欄名滑過也會顯示）</summary>
     <div class="wrap" style="margin-top:10px"><table id="glossTable"></table></div>
   </details>
   <h2>訓練 job 鏈</h2>
-  <p class="sub" id="hideFailedWrap"><label><input type="checkbox" id="hideFailed" checked>
-    隱藏無存檔進度的嘗試（<span id="hiddenN">0</span> 筆——全域 step 空＝沒撐到第一次 checkpoint 的失敗/中斷；運行中的不隱藏）</label></p>
-  <div class="wrap"><table id="jobsTable"></table></div>
+  <details id="jobsWrap"><summary id="jobsSummary">job 鏈明細</summary>
+    <p class="sub" id="hideFailedWrap" style="margin-top:10px"><label><input type="checkbox" id="hideFailed" checked>
+      隱藏無存檔進度的嘗試（<span id="hiddenN">0</span> 筆——全域 step 空＝沒撐到第一次 checkpoint 的失敗/中斷；運行中的不隱藏）</label></p>
+    <div class="wrap"><table id="jobsTable"></table></div>
+  </details>
   <p class="footnote" id="foot"></p>
 </main>
 <div id="mtip"></div>
@@ -1083,6 +1100,20 @@ function chipEl(status){
   const s = document.createElement('span'); s.className = 'chip ' + status;
   s.textContent = icon + ' ' + status; return {el:s};
 }
+function foldCell(text, head, foldAt){
+  // 長文塞 cell 會把整列撐爆（ladder note 實測破萬字）——超過 foldAt 收成
+  // details 摺疊：summary 顯前段、點開看全文
+  head = head || 110; foldAt = foldAt || 200;
+  const t = String(text || '').trim();
+  if (!t) return '—';
+  if (t.length <= foldAt) return t;
+  const d = document.createElement('details'); d.className = 'fold';
+  const s = document.createElement('summary');
+  s.textContent = t.replace(/\s+/g, ' ').slice(0, head) + '…'; d.appendChild(s);
+  const b = document.createElement('div'); b.className = 'foldbody';
+  b.textContent = t; d.appendChild(b);
+  return {el: d};
+}
 function fillDataTable(){
   const P = RUNS[primary];
   document.getElementById('tblSummary').textContent =
@@ -1141,6 +1172,10 @@ function fillJobsTable(){
         ((r.jobs || []).length > 1 ? '（重啟批次——同實驗多列＝多次 sbatch，由 ckpt 續跑）' : '—')]);
   });
   document.getElementById('hiddenN').textContent = hidden;
+  document.getElementById('jobsSummary').textContent =
+    'job 鏈明細（' + rows.length + ' 列'
+    + (hidden ? '；另 ' + hidden + ' 筆無存檔已隱藏' : '')
+    + '——每次 sbatch/重啟的存檔進度稽核，平時免展開）';
   fillTable('jobsTable',
     ['實驗', '任務', '狀態', {t:'嘗試',num:1},
      {t:'起始',num:1, tip:'該任務的起點：log 裡「Restored … step=N-last.ckpt」resume 行的精確值；沒有 resume 行的（真 from-scratch=0，或缺訊息時由前段進度鏈估計）'},
@@ -1152,9 +1187,12 @@ function fillJobsTable(){
 }
 document.getElementById('hideFailed').addEventListener('change', fillJobsTable);
 fillDataTable();
-/* run 總覽表：每個 exp 的設定差異與實驗目的 */
+/* run 總覽表：每個 exp 的設定差異與實驗目的（收合——21 個 run 的長文表
+   擋在曲線前面沒人捲得動；點開備查） */
 if (RUNS.length > 1 || RUNS.some(r => r.desc || r.purpose)){
-  const ri = document.getElementById('runsInfo'); ri.hidden = false;
+  document.getElementById('runsInfoWrap').hidden = false;
+  document.getElementById('runsInfoSummary').textContent =
+    'run 總覽（' + RUNS.length + ' 個 run 的設定差異與實驗目的）';
   fillTable('runsInfo', ['實驗', '設定差異', '實驗目的', {t:'最新 step',num:1}, 'log 更新'],
     RUNS.map((r, i) => [runName(i)
       + (i === (D.active||0) ? '（最新活動）' : '')
@@ -1163,14 +1201,22 @@ if (RUNS.length > 1 || RUNS.some(r => r.desc || r.purpose)){
       r.desc || '—', r.purpose || '—',
       r.last_step === null ? '—' : r.last_step.toLocaleString('en-US'), r.last_mtime]));
 }
-/* 多 run 勾選 chips：勾選集合疊在同一張圖；最後點亮的 run = 資料表顯示對象 */
+/* 多 run 勾選 chips：勾選集合疊在同一張圖；最後點亮的 run = 資料表顯示對象。
+   依 log 更新時間新→舊排；前 MAX_TABS 個平鋪，其餘（多半已停/已砍的歷史
+   run）收進「更早的 run」折疊區——按鈕文字用 short，全名/設定進 tooltip */
 if (RUNS.length > 1){
   const bar = document.getElementById('runTabs'); bar.hidden = false;
   document.getElementById('runTabsHint').hidden = false;
-  RUNS.forEach((r, i) => {
-    if (r.attach_to !== null && r.attach_to !== undefined) return;  // 附掛 run 隨宿主，不單獨列
+  const MAX_TABS = 6;
+  const order = RUNS.map((r, i) => i)
+    .filter(i => RUNS[i].attach_to === null || RUNS[i].attach_to === undefined)  // 附掛 run 隨宿主，不單獨列
+    .sort((a, b) => (RUNS[b].last_mtime_ts || 0) - (RUNS[a].last_mtime_ts || 0));
+  const mkBtn = i => {
+    const r = RUNS[i];
     const b = document.createElement('button');
-    b.textContent = runName(i);
+    b.textContent = r.short || runName(i);
+    const tip = [r.name, r.desc, r.purpose].filter(Boolean).join('\n');
+    if (tip && tip !== b.textContent) b.dataset.tip = tip;
     if (i === (D.active || 0)){
       const s = document.createElement('span'); s.className = 'live';
       s.textContent = '（最新活動）'; b.appendChild(s);
@@ -1187,8 +1233,17 @@ if (RUNS.length > 1){
       renderers.forEach(fn => fn());
       fillDataTable();
     });
-    bar.appendChild(b);
-  });
+    return b;
+  };
+  order.slice(0, MAX_TABS).forEach(i => bar.appendChild(mkBtn(i)));
+  const rest = order.slice(MAX_TABS);
+  if (rest.length){
+    document.getElementById('moreRunsWrap').hidden = false;
+    document.getElementById('moreRunsSummary').textContent =
+      '更早的 run（' + rest.length + '——已停/已砍/歷史對照，點開可勾選疊圖）';
+    const more = document.getElementById('moreRuns');
+    rest.forEach(i => more.appendChild(mkBtn(i)));
+  }
 }
 function barChart(host, title, cats, serNames, matrix, tipOf, colors, autoResize){
   // 分組柱狀圖：cats × series；每根柱 hover 立即顯示（組合, series, 精確值）。
@@ -1281,12 +1336,10 @@ if (D.evals){
     D.evals.rows);
   if (D.evals.groups && D.evals.groups.length){
     document.getElementById('evalsGroups').hidden = false;
-    // 有 chart 時，表格由下方 chart 區塊建（含勾選欄＋色塊）；無 chart 退回純
-    // 說明表——summary 文案跟著分流，別對無圖的設定宣稱「勾選＝顯示於圖表」
-    if (D.evals.chart){
-      document.getElementById('evalsGroupsSummary').textContent =
-        '評測集選擇與設定說明（勾選＝顯示於下方圖表）';
-    } else {
+    // 有 chart 時，表格由下方 chart 區塊建（含勾選欄＋色塊），summary 由
+    // renderEvals 動態帶勾選計數；無 chart 退回純說明表——別對無圖的設定
+    // 宣稱「勾選＝顯示於圖表」
+    if (!D.evals.chart){
       fillTable('evalsGroupsTable', ['評測集', '設定'], D.evals.groups);
     }
   }
@@ -1312,7 +1365,11 @@ if (D.evals){
     // Object.create(null)：series 名是任意字串——"__proto__" 之類的合法名稱
     // 在普通 object 上會踩到原型 setter（review P3）
     const serColor = Object.create(null); sers.forEach((sn, i) => { serColor[sn] = PAL[i % PAL.length]; });
-    const checked = Object.create(null); sers.forEach(sn => { checked[sn] = true; });
+    // 預設勾選：組少全勾；組多只勾最後 MAX_ON 組（rows 出現序的尾端≈最近
+    // 加入的評測集）——幾十組全畫時每根柱寬 <1px，等於白畫
+    const MAX_ON = 8;
+    const defOn = new Set(sers.length > MAX_ON ? sers.slice(-MAX_ON) : sers);
+    const checked = Object.create(null); sers.forEach(sn => { checked[sn] = defOn.has(sn); });
     const descOf = Object.create(null); (D.evals.groups || []).forEach(g => { descOf[String(g[0])] = g[1]; });
     document.getElementById('evalsGroups').hidden = false;
     const gt = document.getElementById('evalsGroupsTable');
@@ -1338,7 +1395,7 @@ if (D.evals){
     sers.forEach(sn => {
       const tr = document.createElement('tr');
       const td0 = document.createElement('td'); td0.className = 'evsel-ck';
-      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = checked[sn];
       cb.addEventListener('change', () => { checked[sn] = cb.checked; renderEvals(); });
       boxes.push(cb); td0.appendChild(cb);
       const td1 = document.createElement('td');
@@ -1362,6 +1419,9 @@ if (D.evals){
       evHost.textContent = '';
       const on = sers.filter(sn => checked[sn]);
       pcount.textContent = '顯示 ' + on.length + ' / ' + sers.length + ' 組';
+      document.getElementById('evalsGroupsSummary').textContent =
+        '評測集選擇與設定說明（已勾 ' + on.length + '/' + sers.length +
+        ' 組——點開勾選要畫進圖表的評測集）';
       if (!on.length){ const p = document.createElement('p'); p.className = 'sub';
         p.textContent = '（未勾選任何評測集）'; evHost.appendChild(p); return; }
       ch.value_cols.forEach(vc => {
@@ -1391,11 +1451,29 @@ if (D.glossary && Object.keys(D.glossary).length){
     Object.keys(D.glossary).sort().map(k => [k, D.glossary[k]]));
 }
 if (D.queue && Array.isArray(D.queue.experiments)){
-  fillTable('ladder', ['ID', '實驗', '目標 / Gate', '狀態', '備註'],
-    D.queue.experiments.map(e => [e.id, e.title || '—',
-      [(e.goal || ''), (e.gate || '')].filter(Boolean).join('｜gate：') || '—',
-      chipEl(e.status || 'pending'),
-      (e.note || e.notes || '—')]));
+  // running 平鋪＝「現在在跑什麼」；其餘 rung 收進 details——不能只留連結
+  // 指向 report（progress 可單獨 regen，report 缺席時資訊會斷頭），但也
+  // 不再平鋪整梯（11K 字 note 全文擋版面）：全量都在、done/pending 摺疊
+  const exps = D.queue.experiments;
+  const isRun = e => (e.status || 'pending') === 'running';
+  const ladderRow = e => [e.id, e.title || '—',
+    foldCell([(e.goal || ''), (e.gate || '')].filter(Boolean).join('｜gate：')),
+    chipEl(e.status || 'pending'),
+    foldCell(e.note || e.notes)];
+  const running = exps.filter(isRun), rest = exps.filter(e => !isRun(e));
+  if (running.length){
+    fillTable('ladder', ['ID', '實驗', '目標 / Gate', '狀態', '備註'],
+      running.map(ladderRow));
+  } else {
+    fillTable('ladder', ['ID'], [['（目前無 running rung）']]);
+  }
+  if (rest.length){
+    document.getElementById('ladderRestWrap').hidden = false;
+    document.getElementById('ladderRestSummary').textContent =
+      '其他 rung（' + rest.length + '——done/pending 一覽，點開看目標與備註）';
+    fillTable('ladderRest', ['ID', '實驗', '目標 / Gate', '狀態', '備註'],
+      rest.map(ladderRow));
+  }
 } else {
   fillTable('ladder', ['ID'], [['（尚無 queue.json）']]);
 }

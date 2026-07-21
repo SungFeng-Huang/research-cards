@@ -121,6 +121,14 @@ python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> \
 （Mac 直連會自動 seal 成可點的卡片節點；bridge 端是文字型——輸出的
 `note` 會提醒回 Mac 跑 `repair_chain.py --card <ENTRY> --seal` 收斂。）
 
+log 卡出生掛 **log tag**（config `log_tag_name`，預設＝projects tag 的
+child tag `<tag_name>/progress`，如 `project/progress`）——log 卡是進度
+紀錄、不是專案卡，自成一族才不會淹沒 project tag 掃描（0.40.0 起；設
+`log_tag_name` 等於 `tag_name` 可恢復舊行為）。想讓 log 卡帶機器可讀的
+「屬於哪個 entry」邊：在 app 裡給該 log tag 加一個叫 `relation_property`
+名（預設 `project`）的 relation property，之後的 log 卡自動設值（輸出
+`log_related:true`），無須改 code。
+
 ### log 卡寫作規格（handoff 的 hard rules——寫給「兩週後的人」看）
 
 1. **無縮寫**：任何代號／縮寫**首次出現必須展開或一句話解釋**——
@@ -153,6 +161,13 @@ python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> \
 - `--dry-run` 先看計畫（不建卡、不寫入）。
 - 離線（bridge down）會 fail-fast 不建孤兒卡；create 成功但 link 失敗時
   會存 recovery 檔並印補救指令。
+- **（Mac）log 完刷新 project canvas**——git-graph 視圖（entry＝HEAD、
+  log 卡＝commits、📎 橙＝未蒸餾、📗 綠＝已蒸餾）：
+  ```bash
+  python3 <此 skill 目錄>/project_canvas.py --card <ENTRY_CARD_ID>
+  ```
+  生成 `<vault>/Projects/<專案>.canvas`（生成式視圖，別手排；cluster 端
+  無 vault 跳過，回 Mac 再刷）。
 
 ### 舊模式：直接 append 段落（相容保留）
 
@@ -165,8 +180,10 @@ python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> --content-file 
 - **卡沒滿**（常態）：`overflowed:false` → 內容直接 append 到 tail。
 - **卡接近容量上限**：**預設（0.24.1 起）自動 spill**——建續卡子卡並在 tail 補
   `▶ 續卡…[[card:<id>]]`（`overflowed:true, child:<id>`）；無 config 的機器
-  （cluster bridge）同樣適用。cluster 建的子卡未上 tag（bridge 無 tag 能力）
-  → 讀輸出 `note` 回 Mac 補 tag。config 顯式設
+  （cluster bridge）同樣適用。子卡自動上 project tag（bridge 484db04+ 有
+  `hb tag-add`；更舊的 hb client 拿不到 tag → 讀輸出 `note` 補），並 best-effort
+  把 tag 的 relation property（config `relation_property`，預設同 tag 名）指回
+  entry 卡（輸出 `related` 欄位）——tag 掃描因此能區分 entry 與續卡。config 顯式設
   `heptabase.collections.projects.overflow_spill=false` 可改回滿卡 fail-fast
   （不 spill、不移內容，訊息叫你先回 Mac 用 project-card-merge 整併）。
 - 想先看會不會溢位：加 `--dry-run`（只讀，回報 `dry_run:true`＋是否 would-block/would-spill）。

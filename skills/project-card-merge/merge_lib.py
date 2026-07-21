@@ -530,6 +530,10 @@ def _create_child(entry_id, entry_title, n, child_content, tag):
     md5, doc = L.read_card(cid)
     doc["content"] = child_content
     L.save_card(cid, md5, doc)
+    # Best-effort entry-pointer relation — same convention as the append-side
+    # spill (tag-level scans tell continuations from entries); never blocks
+    # the merge (properties live outside the content doc / md5 lock).
+    AC.Transport("heptabase", AC.load_cfg()).set_project_relation(cid, entry_id)
     return cid
 
 

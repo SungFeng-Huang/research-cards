@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.41.0 — project canvas: the git graph of a research project
+
+- New `project_canvas.py` (project-card-log): one JSON Canvas per project
+  chain, laid out like a git graph — the entry card (the chain's
+  README/HEAD, purple) on top, log cards (the commits) newest-first down
+  a vertical trunk with edges pointing in the direction of time, and
+  continuation children as a gray side row. Colors carry the distillation
+  state straight from the timeline marks: 📎 orange = not yet distilled,
+  📗 green = merged into the body. Mirrored cards are clickable file
+  nodes; unmirrored ones degrade to text nodes with the summary and card
+  id. Node ids are deterministic so regeneration doesn't flicker.
+  `--card <entry>` / `--all` (hub-listed projects) / `--dry-run`;
+  the canvas is a generated view — rebuilt each run, not hand-arranged.
+  Wired into the log and merge SKILL flows (refresh after each).
+
+## 0.40.0 — log cards get their own tag family (`<projects-tag>/progress`)
+
+- log-as-card cards are progress records, not project cards — they now
+  arrive tagged with the projects tag's `progress` CHILD tag
+  (`project/progress` by default; config `log_tag_name` overrides, set it
+  equal to `tag_name` to restore the 0.37–0.39 behaviour) instead of the
+  projects tag itself, so the project-tag scan stays entries+continuations
+  only. `tag add` by name matches an existing nested tag (verified live).
+- Transport.create grows a `tag=` override; set_project_relation grows a
+  `tag=` scope (whose schema to search). The log card's entry-pointer
+  relation is looked up in the LOG tag's own schema: it ships empty →
+  quiet False; add a relation property named like `relation_property`
+  (default `project`) to that tag in-app and log cards start carrying
+  their "belongs to <entry>" edge with no code change (`log_related`).
+- Output gains `log_tag`; untagged-log recovery notes quote the log tag.
+
+||||||| parent of 2d5315d (release: 0.39.0 — project canvas（專案的 git graph 視圖）)
+## 0.39.0 — spill children carry their own provenance (tag + entry relation)
+
+- Continuation children and log cards created over the hb bridge are now
+  TAGGED at birth: Transport.create wires the bridge's new `hb tag-add`
+  verb (heptabase-ssh-bridge 484db04+; idempotent, offline it queues and
+  the drain replays). An older client without the verb degrades exactly
+  like before — untagged + flagged in the output `note`.
+- Every card transport now best-effort points the tag's RELATION property
+  back at the chain's entry card (`related` / `log_related` in the output):
+  append-side spill children, log-as-card cards, and merge-side
+  finalize_chain children all carry a machine-readable "belongs to
+  <entry>" edge, so tag-level scans (`tag cards --include-properties`)
+  can tell entries from continuations/logs without walking chains.
+  Convention: the relation property is named like the tag itself
+  (config `relation_property` overrides); schemas without such a
+  property skip quietly. Write format note: `card set-property` expects
+  a plain ID array (`["<entry-id>"]`), not the `{id,type}` objects reads
+  return.
+- New pure helpers with self-test + unit coverage: find_relation_pid
+  (schema lookup from `card properties` output), relation_property_name
+  (config plumbing), Transport.set_project_relation (both transports,
+  never fails the caller); tests/test_project_card_overflow.py covers
+  the tag-add degradation and the spill wiring end-to-end.
+
 ## 0.38.0 — merge learns the log timeline (permanent link record)
 
 - project-card-merge now understands log-as-card chains: `scan` collects

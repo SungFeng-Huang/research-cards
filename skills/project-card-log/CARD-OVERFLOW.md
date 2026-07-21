@@ -29,8 +29,12 @@ bridge lacks.
 3. else → create a continuation child (`{entry_title} · 續 N`, opens with a
    `母卡：[[card:<entry_id>]]` back-ref), put the new section there, and append
    the continuation link to the old tail.
-- Transports: obsidian (files, no cap → always plain append) / heptabase CLI
-  (child tagged) / hb bridge (child **untagged** → flagged in output `note`).
+- Transports: obsidian (files, no cap → always plain append) / heptabase CLI /
+  hb bridge (484db04+). Both card transports tag the child (`hb tag-add`; an
+  older client leaves it untagged → flagged in output `note`) and best-effort
+  point the tag's relation property (config `relation_property`, default = the
+  tag's own name) back at the entry card (output `related`) — so tag-level
+  scans can tell continuations from entries.
 - Config: `heptabase.collections.projects.{char_cap,spill_threshold,overflow_spill}`
   (defaults 100000 / 80000 / **true** since 0.24.1). Sizes are measured in the STORED
   (ProseMirror-serialized) representation: the append side estimates it from
@@ -61,9 +65,11 @@ chain-aware）. The steps below are the as-built behavior:
    dedup/supersede/`🔍`-fold rules the merge already applies).
 3. **Strip the continuation links** from every card as they're absorbed (remove
    each `▶ 續卡…` block from the entry/intermediate bodies).
-4. **Tag the untagged cluster children** before deleting — or skip if deleting:
-   `heptabase tag add --card-id <child> --tag-name project` (bridge left them
-   untagged). Do this so a mid-merge crash leaves them discoverable.
+4. **Tag any untagged cluster children** before deleting — or skip if deleting:
+   `heptabase tag add --card-id <child> --tag-name project`. Only children
+   created by a pre-tag-add hb client (bridge < 484db04) are untagged; newer
+   spills arrive tagged + entry-related. Do this so a mid-merge crash leaves
+   them discoverable.
 5. **Delete (or archive) the now-empty children.** Needs overwrite/delete →
    Mac-only. If your policy is archive-not-delete, move them to an `archive`
    collection and drop them from the chain.

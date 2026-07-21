@@ -296,6 +296,22 @@ def seal_loglink_paragraphs(nodes):
     return sealed
 
 
+def find_relation_pid(props, tag, pname):
+    """From `card properties` / `hb props` output, the id of <tag>'s relation
+    property named <pname> — the chain convention: a continuation child (or a
+    log card) points this property back at its entry card, so tag-level scans
+    can tell entries from non-entries. None when the schema has no such
+    property (feature quietly off for that tag)."""
+    for tg in (props.get("tags") or []):
+        if tg.get("tagName") != tag:
+            continue
+        for p in (tg.get("properties") or []):
+            if p.get("type") == "relation" and p.get("name") == pname:
+                return p.get("id")
+        return None          # tag present but no matching relation property
+    return None
+
+
 def continuation_block(child_id):
     return f"\n\n---\n▶ **{LINK_MARK}**：[[card:{child_id}]]\n"
 
@@ -378,6 +394,28 @@ def tag_name(cfg):
     if isinstance(t, str) and t.startswith("<") and t.endswith(">"):
         t = None
     return t or "project"
+
+
+def relation_property_name(cfg):
+    """Name of the tag's relation property that points back at the entry card.
+    Defaults to the tag's own name (the schema convention: tag `project` has a
+    relation property `project`); config relation_property overrides."""
+    n = _projects_cfg(cfg).get("relation_property")
+    if isinstance(n, str) and n.startswith("<") and n.endswith(">"):
+        n = None
+    return n or tag_name(cfg)
+
+
+def log_tag_name(cfg):
+    """Tag for log-as-card cards. Defaults to the projects tag's `progress`
+    CHILD tag（`project/progress`）— log cards are progress records, not
+    project cards, so they get their own family and stop flooding the
+    project-tag scan. config log_tag_name overrides (set it equal to
+    tag_name to restore the pre-0.40 behaviour)."""
+    n = _projects_cfg(cfg).get("log_tag_name")
+    if isinstance(n, str) and n.startswith("<") and n.endswith(">"):
+        n = None
+    return n or f"{tag_name(cfg)}/progress"
 
 
 def cap_threshold(cfg):
@@ -557,8 +595,12 @@ class Transport:
             sys.exit(f"create 輸出無法解析出卡片 id：{out[:200]}")
         return cid
 
-    def create(self, title, body):
-        """Continuation child (body already opens with '# {title}'). -> (id, tagged)."""
+    def create(self, title, body, tag=None):
+        """New card (body already opens with '# {title}'). -> (id, tagged).
+        `tag` overrides the tag applied at birth (default self.tag — the
+        projects tag; log-as-card passes log_tag_name's child tag instead).
+        obsidian ignores it (folder model)."""
+        use_tag = tag or self.tag
         if self.kind == "hb":
             # --no-queue: a continuation child needs its id NOW. Queuing it (Mac
             # offline) would 0-exit with no id, and a later drain would build an
@@ -568,17 +610,65 @@ class Transport:
             if r.returncode != 0:
                 sys.exit(f"hb create --no-queue 失敗（Mac/tunnel 可能離線；續卡需即時 id，"
                          f"不排隊）：{r.stderr[:200]}")
-            return self._parse_new_id(r.stdout.strip()), False  # bridge 無 tag → Mac 補
+            cid = self._parse_new_id(r.stdout.strip())
+            # bridge 484db04+ has `hb tag-add` (idempotent; offline it QUEUES
+            # and the drain replays it — still counts as tagged). An older
+            # client has no such verb → non-zero → flag for a Mac follow-up.
+            # Swallow raises too (timeout, spawn failure): the child exists but
+            # its tail link doesn't yet — metadata must never orphan it.
+            try:
+                t = sh(["hb", "tag-add", cid, use_tag])
+                tagged = (t.returncode == 0)
+            except Exception:                                # noqa: BLE001
+                tagged = False
+            return cid, tagged
         if self.kind == "heptabase":
             r = sh(["heptabase", "note", "create", "--content", body])
             if r.returncode != 0:
                 sys.exit(f"heptabase note create 失敗：{r.stderr[:200]}")
             cid = self._parse_new_id(r.stdout.strip())
-            t = sh(["heptabase", "tag", "add", "--card-id", cid,
-                    "--tag-name", self.tag])
-            return cid, (t.returncode == 0)
+            try:                          # same never-orphan rule as hb above
+                t = sh(["heptabase", "tag", "add", "--card-id", cid,
+                        "--tag-name", use_tag])
+                tagged = (t.returncode == 0)
+            except Exception:                                # noqa: BLE001
+                tagged = False
+            return cid, tagged
         cid = self._obe.create_card("projects", title, body)
         return cid, True
+
+    def set_project_relation(self, card_id, entry_id, tag=None):
+        """Best-effort: point card_id's relation property (config
+        relation_property, default = the projects tag's own name) back at the
+        chain's entry card. `tag` names WHOSE schema to look in (default
+        self.tag; log cards pass their own log tag — wire a relation property
+        onto that tag in-app and log cards pick it up with no code change).
+        Skips quietly when the tag schema has no such property or the card
+        isn't tagged (yet — e.g. the tag-add was queued offline). Metadata
+        polish like the back-ref seal: never fails the caller. obsidian is
+        out of scope (different property model)."""
+        try:
+            if self.kind == "hb":
+                r = sh(["hb", "props", card_id])
+            elif self.kind == "heptabase":
+                r = sh(["heptabase", "card", "properties", card_id])
+            else:
+                return False
+            if r.returncode != 0:
+                return False
+            pid = find_relation_pid(json.loads(r.stdout), tag or self.tag,
+                                    relation_property_name(self.cfg))
+            if not pid:
+                return False
+            val = json.dumps([entry_id])   # set-property wants an ID array,
+            if self.kind == "hb":          # not the {id,type} objects reads give
+                r = sh(["hb", "set-prop", card_id, "--pid", pid, "--json", val])
+            else:
+                r = sh(["heptabase", "card", "set-property", card_id,
+                        "--property-id", pid, "--json-value", val])
+            return r.returncode == 0
+        except Exception:                                    # noqa: BLE001
+            return False
 
 
 # ---- chain walk + append -----------------------------------------------------
@@ -720,12 +810,16 @@ def append_or_spill(t, entry_id, new_md, dry_run=False):
     # real card node where we can (Mac); on the bridge, flag for a Mac-side
     # `repair_chain.py --seal` pass.
     sealed = t.seal_continuation(tail, child_id, entry_id)
+    # entry-pointer relation: lets tag-level scans tell continuations from
+    # entries. Needs the tag to be ON the card already, so skip when untagged.
+    related = bool(tagged) and t.set_project_relation(child_id, entry_id)
     notes = []
     if not tagged:
         notes.append(
-            f"子卡 {child_id} 未上 tag（bridge 無 tag 能力）——回 Mac 跑 "
-            f"`heptabase tag add --card-id {child_id} --tag-name {t.tag}`，"
-            f"或由 project-card-merge 整併時處理")
+            f"子卡 {child_id} 未上 tag（hb client 過舊或 tag-add 失敗）——"
+            f"更新 cluster 端 hb client 後補 `hb tag-add {child_id} {t.tag}`，"
+            f"或回 Mac 跑 `heptabase tag add --card-id {child_id} "
+            f"--tag-name {t.tag}`（之後再補 relation 指回 {entry_id}）")
     if not sealed:
         notes.append(
             f"tail {tail} 的續卡 link 是文字型（此傳輸層無法轉真 card 節點）——"
@@ -734,6 +828,7 @@ def append_or_spill(t, entry_id, new_md, dry_run=False):
     return {"entry": entry_id, "tail": child_id, "appended_to": child_id,
             "overflowed": True, "child": child_id, "chain_len": len(chain) + 1,
             "dry_run": False, "tagged": tagged, "sealed": sealed,
+            "related": related,
             "note": "；".join(notes) if notes else None}
 
 
@@ -746,6 +841,7 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
     timeline; the full context lives on the log card."""
     full_body = (body if body.lstrip().startswith("#")
                  else f"# {log_title}\n\n{body}")
+    log_tag = log_tag_name(t.cfg)   # resolved once — every return reports it
     # obsidian: file-backed vault, NO hard cap and no chains — the link line
     # goes straight onto the entry file (matching main()'s plain-append
     # contract); wikilink targets the FILENAME (create_card de-dupes
@@ -755,9 +851,9 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
         if dry_run:
             return {"entry": entry_id, "tail": entry_id,
                     "log_card": "<dry-run>", "chain_len": 1, "dry_run": True,
-                    "mode": "log-card",
+                    "mode": "log-card", "log_tag": log_tag,
                     "note": f"would create log card「{log_title}」+ 時間線行"}
-        log_id, tagged = t.create(log_title, full_body)
+        log_id, tagged = t.create(log_title, full_body, tag=log_tag)
         base = log_id.rsplit("/", 1)[-1]
         link_md = (f"\n{LOG_MARK} {datetime.date.today().isoformat()}"
                    f"　[[{base}]]　{summary}\n")
@@ -775,7 +871,8 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
         return {"entry": entry_id, "tail": entry_id, "appended_to": entry_id,
                 "overflowed": False, "chain_len": 1, "mode": "log-card",
                 "log_card": log_id, "log_title": log_title,
-                "log_tagged": tagged, "link_sealed": True}
+                "log_tagged": tagged, "log_tag": log_tag,
+                "link_sealed": True}
 
     # walk FIRST: if the bridge is down or the chain is unwalkable we must
     # find out BEFORE creating the log card (a create followed by a failed
@@ -784,8 +881,9 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
     if dry_run:
         return {"entry": entry_id, "tail": tail, "log_card": "<dry-run>",
                 "chain_len": len(chain), "dry_run": True, "mode": "log-card",
+                "log_tag": log_tag,
                 "note": f"would create log card「{log_title}」+ 時間線行 on {tail}"}
-    log_id, tagged = t.create(log_title, full_body)
+    log_id, tagged = t.create(log_title, full_body, tag=log_tag)
     link_md = log_link_line(log_id, summary)
 
     def _orphan_exit(reason):
@@ -807,8 +905,16 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
         _orphan_exit(e.code if isinstance(e.code, str) else repr(e.code))
     except Exception as e:                                   # noqa: BLE001
         _orphan_exit(str(e)[:300])
+    # entry-pointer relation on the log card too — looked up in the LOG tag's
+    # schema (it has none out of the box → quiet False; add a relation
+    # property named like relation_property to that tag in-app and log cards
+    # start carrying their "belongs to <entry>" edge automatically).
     rep.update({"mode": "log-card", "log_card": log_id,
-                "log_title": log_title, "log_tagged": tagged})
+                "log_title": log_title, "log_tagged": tagged,
+                "log_tag": log_tag,
+                "log_related": bool(tagged) and
+                               t.set_project_relation(log_id, entry_id,
+                                                      tag=log_tag)})
     target = rep.get("appended_to") or rep.get("tail")
     if t.kind == "heptabase" and target:
         rep["link_sealed"] = t._seal_card(target, seal_loglink_paragraphs)
@@ -818,8 +924,10 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
                  f"repair_chain.py --card {entry_id} --seal 收斂")
         rep["note"] = f"{rep['note']}；{extra}" if rep.get("note") else extra
     if not tagged:
-        extra = (f"log 卡 {log_id} 未上 tag（此傳輸層無 tag 能力）——回 Mac "
-                 f"heptabase tag add --card-id {log_id} --tag-name {t.tag}")
+        extra = (f"log 卡 {log_id} 未上 tag（hb client 過舊或 tag-add 失敗）——"
+                 f"更新 cluster 端 hb client 後補 `hb tag-add {log_id} '{log_tag}'`，"
+                 f"或回 Mac heptabase tag add --card-id {log_id} "
+                 f"--tag-name '{log_tag}'")
         rep["note"] = f"{rep['note']}；{extra}" if rep.get("note") else extra
     return rep
 
@@ -884,6 +992,44 @@ def _self_test():
     assert tag_name({}) == "project"
     assert tag_name({"heptabase": {"collections": {"projects": {"tag_name": "proj"}}}}) == "proj"
     assert cap_threshold({}) == (DEFAULT_CAP, DEFAULT_THRESHOLD)
+    # relation property name: defaults to the tag's own name; config overrides;
+    # "<placeholder>" values are ignored like tag_name's
+    assert relation_property_name({}) == "project"
+    assert relation_property_name(
+        {"heptabase": {"collections": {"projects": {"tag_name": "proj"}}}}) == "proj"
+    assert relation_property_name(
+        {"heptabase": {"collections": {"projects":
+                                       {"relation_property": "parent"}}}}) == "parent"
+    assert relation_property_name(
+        {"heptabase": {"collections": {"projects":
+                                       {"relation_property": "<name>"}}}}) == "project"
+    # entry-pointer pid lookup from `card properties` output
+    props = {"tags": [{"tagName": "project", "properties": [
+        {"id": "PID-1", "name": "Status", "type": "select"},
+        {"id": "PID-2", "name": "project", "type": "relation"}]}]}
+    assert find_relation_pid(props, "project", "project") == "PID-2"
+    assert find_relation_pid(props, "project", "parent") is None  # name mismatch
+    assert find_relation_pid(props, "other", "project") is None   # tag absent
+    assert find_relation_pid({}, "project", "project") is None    # no tags at all
+    # type must be relation — a text property with the right name never matches
+    text_only = {"tags": [{"tagName": "project", "properties": [
+        {"id": "PID-3", "name": "project", "type": "text"}]}]}
+    assert find_relation_pid(text_only, "project", "project") is None
+    # log tag: defaults to the projects tag's `progress` child; config overrides
+    assert log_tag_name({}) == "project/progress"
+    assert log_tag_name(
+        {"heptabase": {"collections": {"projects": {"tag_name": "proj"}}}}) == "proj/progress"
+    assert log_tag_name(
+        {"heptabase": {"collections": {"projects":
+                                       {"log_tag_name": "logs"}}}}) == "logs"
+    assert log_tag_name(
+        {"heptabase": {"collections": {"projects":
+                                       {"log_tag_name": "<tag>"}}}}) == "project/progress"
+    # relation lookup honours the log tag's OWN schema section
+    log_props = {"tags": [{"tagName": "project/progress", "properties": [
+        {"id": "PID-9", "name": "project", "type": "relation"}]}]}
+    assert find_relation_pid(log_props, "project/progress", "project") == "PID-9"
+    assert find_relation_pid(log_props, "project", "project") is None
     print("append_card self-test: OK")
 
 

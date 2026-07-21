@@ -48,6 +48,10 @@
         "tag_name": "project",
         "tag_id": "<tag-uuid-optional>",
         "$overflow_comment": "續卡鏈（CARD-OVERFLOW.md）：char_cap=Heptabase 卡上限；spill_threshold=append/merge 觸發溢位的門檻（量測 stored 表示，需 < cap）；overflow_spill=append 側滿卡時自動建續卡——**預設即開**（0.24.1 起；無 config 的機器如 cluster bridge 也適用），顯式設 false 可改回滿卡 fail-fast。merge 側 finalize_chain 不受此鍵控制，超限一律 spill 不濃縮。",
+        "$relation_comment": "relation_property 選填：tag schema 裡「指回 entry 卡」的 relation property 名（spill 續卡/log 卡自動設值＝entry id，tag 掃描即可區分 entry 與非 entry）；預設＝tag_name 同名（tag `project` 配 relation property `project`）。schema 沒這個 property 時功能安靜跳過。",
+        "relation_property": "project",
+        "$log_tag_comment": "log_tag_name 選填：log-as-card 建的 log 卡出生掛的 tag；留 <占位> 或刪掉本鍵＝預設「tag_name 的 child tag」（tag_name=project → project/progress；log 卡自成一族、不淹沒 project tag 掃描；0.40.0 起）。設成與 tag_name 相同可恢復舊行為。relation 查的是這個 tag 自己的 schema——在 app 給它加同名 relation property 即自動帶 entry 歸屬。",
+        "log_tag_name": "<optional-log-tag-name>",
         "char_cap": 100000,
         "spill_threshold": 80000,
         "overflow_spill": true

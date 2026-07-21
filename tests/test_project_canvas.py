@@ -11,7 +11,7 @@ for p in ("_shared", "project-card-merge", "card-rewrite"):
 
 spec = importlib.util.spec_from_file_location(
     "project_canvas_under_test",
-    os.path.join(REPO, "skills", "project-card-log", "project_canvas.py"))
+    os.path.join(REPO, "skills", "project-card-canvas", "project_canvas.py"))
 PC = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(PC)
 

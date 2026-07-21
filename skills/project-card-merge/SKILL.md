@@ -222,7 +222,7 @@ remaining 待補 items.
 ## Step 5.5 — 刷新 project canvas（git-graph 視圖）
 
 ```bash
-python3 <plugin 的 skills/project-card-log 目錄>/project_canvas.py --card <ENTRY_ID>
+python3 <plugin 的 skills/project-card-canvas 目錄>/project_canvas.py --card <ENTRY_ID>
 ```
 （與本 skill 同層的 `project-card-log` 目錄；plugin 內相對位置固定。）
 merge 後 📎→📗 的顏色翻轉會反映在 canvas 上（橙＝待蒸餾、綠＝已蒸餾）。

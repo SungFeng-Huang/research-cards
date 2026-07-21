@@ -1,5 +1,157 @@
 # Changelog
 
+## 0.50.0 — story mode: the dirty audit shows itself on the canvas
+
+- When a story render's coverage audit is dirty, a red 「⚠️ 待補」 banner
+  now appears beside the legend listing the uncovered logs (date +
+  summary) and sections — canvas-only, never written into the graph JSON
+  (a stub in the graph would read as an authored node); it regenerates
+  from the audit each render and vanishes once the gaps are claimed.
+  Opening the canvas is enough to know the map lags reality.
+- The DIRECT-FILL path is now wired into the workflows: project-card-log
+  Step 4 tells the logging agent to append the story node right after
+  writing the log card (context in hand, sources=[new log id], edges from
+  what the 前情提要 cites) — the banner is the fallback for renders that
+  happen without an authoring agent, not the primary mechanism.
+- Field-proven live: a parallel retro-split landed 7 new log cards on the
+  A案 chain mid-development — the audit flagged all 7 + a new TOC
+  section; claiming them via `sources` on the existing matching nodes
+  (same distilled material) and one `coverage_ignore` entry returned the
+  audit to clean and dissolved the banner.
+
+## 0.49.0 — story mode: coverage audit (the map knows what it's missing)
+
+- Every story render now reports `coverage`: which timeline LOG CARDS no
+  node claims and which chain H2 SECTIONS no node anchors — so after new
+  logs land or a merge distills them into the body, the refreshing agent
+  reads ONLY the uncovered material instead of the whole chain. Nodes
+  gain `sources` (log-card ids or ≥8-char unambiguous prefixes — log
+  cards are never trashed, so ids are stable across distillation);
+  `anchor` accepts ・-separated multi-section strings; a top-level
+  `coverage_ignore` exempts deliberately unmapped reference sections
+  (方法/評估協定) so audits converge to empty. `--dry-run` = audit
+  without writing. load_story_graph returns a 4th `meta` element.
+  A案 graph retrofitted (E9 log card claimed, anchors completed,
+  ignore list) — live audit: 0 uncovered logs, 0 uncovered sections.
+  SKILL.md documents the expansion loop (audit → read uncovered →
+  append nodes with sources/anchor → re-render → audit clean).
+
+## 0.48.0 — project-card-canvas: the view family becomes its own skill
+
+- New skill `project-card-canvas` packages the visual-view family that
+  had accreted inside project-card-log: `project_canvas.py` (timeline)
+  and `context_mindmap.py` (logs/chain/story mind maps) move to
+  `skills/project-card-canvas/`, and the SKILL.md is the contract of
+  record for the story-graph authoring workflow (view selection guide,
+  graph schema + writing rules — stable slugs, narrative order, stage
+  boundaries, short edge connectives, self-contained node texts —
+  refresh timing, Mac-only boundary). project-card-log / merge SKILLs
+  now point at the sibling skill; tests re-anchored; READMEs (×4
+  languages) gain the skill row. No behavior change to the scripts
+  themselves.
+
+## 0.47.0 — story mode: stages render as rows (multi-row line wrap) + legends
+
+- Story graphs gain an optional per-node `stage` field — annotate only
+  each stage's FIRST node; later nodes inherit along narrative order.
+  Each stage renders as its own ROW: x restarts at 0 (a line wrap for
+  long narratives — the A案 map went from ~16000px wide to 6520px in
+  six rows), the stage title sits at the row's top-left, every row is
+  its own layered DAG with flow-tracking lanes and in-row branches, and
+  cross-stage edges flow bottom→top into the later row (backward links
+  climb top→bottom). Root connects only the FIRST row's sources; the
+  report gains `stages`. No stage fields → single unlabeled row
+  (0.46.x behavior).
+- Every mode's canvas now carries a color LEGEND node (deterministic
+  id, uncolored, parked above the graph): palette-emoji lines matching
+  each mode's semantics (story kinds / chain section roles / logs leaf
+  roles).
+
+## 0.46.2 — story mode: flow-tracking lanes + bypass arcs (edge overlap fix)
+
+- Columns are no longer vertically centered (which piled every node —
+  and thus every edge — into one central band): each node now sits at
+  its predecessors' mean height (story_y_positions), so a straight
+  chain renders as ONE straight lane and branches fan downward into
+  their own lanes; collisions push down deterministically, layout
+  normalized to top=0, the root centers on the layer-0 span. On the
+  A案 graph 31/42 lateral edges became perfectly flat.
+- Edges spanning ≥2 layers used to plow straight through intermediate
+  columns — they now route bottom→bottom (a bypass arc under the
+  graph, labels landing in open space). 4 such edges on the A案 map
+  (the 回頭重審/方法論重演 long links).
+
+## 0.46.1 — story mode: edge labels get room to breathe
+
+- Story columns now sit STORY_HGAP (240px) apart instead of the shared
+  80px — edge labels render mid-edge in Obsidian and were buried under
+  the next column's nodes. New soft budget: a label over ~12 display
+  units (CJK≈2) is reported in `label_warnings` (never truncated — the
+  author owns the words; move nuance into the node text and keep a
+  short connective). The A案 graph's 13 long connectives were shortened
+  accordingly (semantics already live in the node texts).
+
+## 0.46.0 — EXPERIMENTAL: story mode — the research narrative as a DAG
+
+- `context_mindmap.py --mode story --graph <json>`: the reasoning chain
+  (因為想法→做了實驗→結果→轉向/分岔/回頭) lives in prose no parser
+  can extract, so the contract splits: an AGENT reads the chain and
+  authors a graph JSON (nodes: id-slug + kind idea/question/experiment/
+  result/finding/decision/pivot/open + label/text/anchor/date; edges
+  with connective labels 所以/但是/回頭…; node order = narrative
+  order), and the script does deterministic validation + layered-DAG
+  layout (longest-path layers, input-order stacking, vertically
+  centered columns; kind → icon+color; sources hang off the entry-card
+  root; cycle stalls force-place deterministically). `--limit N`
+  replays the first N narrative nodes and stays a node-id subset of
+  the full map; graph JSON lives beside the canvas
+  (`<title>·脈絡心智圖.graph.json`) and only grows. Field-tested on
+  the Cosyvoice chain: 41 nodes / 45 edges render as a 26-layer story
+  with parallel threads (metric-audit vs data-surgery), a revisit
+  branch (E8a re-judging the six levers on the clean baseline), and
+  the E9 double-isolation fork — exactly the shape a section tree
+  can't show.
+
+## 0.45.0 — EXPERIMENTAL: mind map learns to decompose the CHAIN BODY
+
+- `context_mindmap.py --mode chain`: for projects whose history was
+  distilled INTO the chain body by merges (pre-log-as-card era), the
+  decomposition unit becomes the SECTION — root (entry card) → H2 hubs
+  in chain order (labeled 〔續N〕 when from a continuation, colored by
+  role: green = 定位/現狀/進展/Findings, yellow = 實驗統整, cyan =
+  方法/評估, red = 🔍/下一步/發想/待補) → H3 leaves with excerpts;
+  leafless hubs carry their own excerpt inline. 📜 log 時間線 and
+  card-header plumbing are skipped. Node ids key on (card, title,
+  occurrence) — stable under edits to DIFFERENTLY-titled sections
+  (same-titled ones shift occurrence numbers). Heading normalization
+  now also strips numbering prefixes ("1. 現狀"／"（一）實驗統整"),
+  digit-safe ("3D 視覺化" keeps its 3). `--limit` stays logs-mode-only.
+  Layout fix found on the real Cosyvoice chain
+  (5 cards / 17 sections / 33 subsections): a RUN of leafless hubs used
+  to overflow their slots — slots now budget the rendered height.
+
+## 0.44.0 — EXPERIMENTAL: context mind map (grown log card by log card)
+
+- New `context_mindmap.py` (project-card-log): one JSON Canvas per
+  project that decomposes each self-contained weekly-report log card
+  into a mind-map subtree — hub (date + topic + 開卡 link, cyan) with
+  ❓這次要回答 (orange), 🔬做了什麼, 📊結果, 💡這代表什麼 (green),
+  ⚖️待裁決 (red) leaves — and hangs it where its 前情提要 citations
+  point: parent = the LATEST cited log (the section's contract is
+  "conclusions WITH sources", so the context web is machine-readable);
+  extra citations become gray 「也承接」 edges; citation-less logs hang
+  off the root (the 軸卡, purple). Build order is citation-topological
+  (recovers the true narrative even where the visible timeline got
+  uuid-shuffled by a pre-0.43 merge), `--limit N` replays only the
+  first N — `--limit 1` = the project's earliest root log decomposed
+  alone — and node ids are deterministic, so regenerating with more
+  logs only ADDS subtrees (verified: the limit-1 node set is a strict
+  subset of the full map). Written as `<title>·脈絡心智圖.canvas`
+  beside the timeline canvas; generated view, never hand-arranged.
+  Sections are read from H2 fuzzy matches; tables collapse to a
+  marker; leaves hard-trim at 220 chars.
+
+
 ## 0.43.1 — canvases get their own folder
 
 - Project canvases now live in `<projects folder>/Canvas/` (they are
@@ -8,6 +160,7 @@
   optional `progress` mirror collection (log cards → vault, making
   canvas nodes clickable).
 
+||||||| parent of 772e8d1 (release: 0.44.0 — 實驗：脈絡心智圖（隨 log 卡逐張擴充）)
 ## 0.43.0 — canvas: color by origin machine + true chronological order
 
 - `project_canvas.py --color-by origin` recolors log cards by which

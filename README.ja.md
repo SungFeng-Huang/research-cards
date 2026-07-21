@@ -72,6 +72,7 @@
 |---|---|
 | `project-card-log` | プロジェクト repo のセッション（ローカルでもリモートでも）からこのプロジェクトのカードを解決し、日付つき・コードに裏づけられた進捗を追記——追記のみで書き換えません。カードが容量上限に達したら**継続カードチェーンを自動で開始**（無損失。100K に収めるための要約圧縮は決してしません） |
 | `project-card-merge` | もう片方の相棒：溜まった進捗ブロックを 1 枚の paper 級の完全なカードへ統合（フル編集側）。**chain-aware**：継続カードチェーン全体をまとめて読み、統合結果が上限を超えたら H2 セクション単位で新しいチェーンへオーバーフローさせ、孤児になった継続カードも自動回収 |
+| `project-card-canvas` | プロジェクトチェーンの視覚ビュー（生成型 JSON Canvas）：git-graph 式**タイムライン**（entry＝HEAD、log カード＝commits、蒸留状態または実行マシンで色分け）と**コンテキストマインドマップ**の 3 モード——log カードごとのサブツリー、チェーン本文の H2/H3 構造、または研究の**ストーリー**を幕ごとの複数行 DAG で（agent がチェーンを読んで「アイデア→実験→結果→転換」の物語グラフを執筆し、script が決定的にレイアウト） |
 | `research-campaign` | 自律的な実験キャンペーンのミッションブリーフ形式＋記帳ルール：MISSION.md は repo へ、queue/ledger による中断・再開、有意性 gate の計測規律、進捗はプロジェクトカードへ自動還流。オプションのショーケース層：レポートページ＋**トレーニング log 曲線ダッシュボード**を GitHub/GitLab Pages へ自動デプロイ |
 
 **✍️ 論文執筆**——paper を書くときにナレッジベースを収穫する
@@ -284,6 +285,7 @@ python3 ../_shared/topology.py refresh    # 全トピック。または refresh 
 | 「今日の進捗を project card に記録して」——プロジェクト repo のセッション内で言うだけで OK。agent が対応するカードを解決し（marker → registry）、カードがなければ作るかどうか尋ねます | `/research-cards:project-card-log`（プロジェクト repo 内で、引数なし） |
 | 「このプロジェクトに project card を 1 枚作って」——カード作成＋スケルトン＋tag 付け＋対応の固定までワンステップ | `/research-cards:project-card-log カード作成 "My Project"` |
 | 「project card の進捗を paper 級に統合して」——溜まった進捗ブロックをまとめ上げる | `/research-cards:project-card-merge 〈プロジェクト名〉` |
+| 「このプロジェクトの canvas を描いて／更新して」——git-graph タイムライン＋コンテキストマインドマップ。story ビューは agent がチェーンを読んで物語グラフを執筆し、coverage 監査が図にまだ何が欠けているかを教えてくれます | `/research-cards:project-card-canvas`（プロジェクト repo のセッション内で） |
 | 「ナレッジグラフで私の project card の research-gap 分析をして」——分野の地図をプロジェクトカードと突き合わせ、まだ答えられていないギャップを見つける（Operation 5） | `/research-cards:overview-graph gap 〈プロジェクトカード〉` |
 | 「この repo に研究実験 campaign を立ち上げて」——repo の準備状況チェック → 対話式 intake → MISSION.md ミッションブリーフ＋queue/ledger を生成 | `/research-cards:research-campaign init` |
 | 「campaign を続けて」／「campaign の進捗は？」 | `/research-cards:research-campaign`（その repo のセッション内で）／`… status` |

@@ -75,6 +75,7 @@
 |---|---|
 | `project-card-log` | 프로젝트 repo의 session(로컬 또는 원격)에서 이 프로젝트의 카드를 찾아내고, 날짜와 코드 근거가 있는 진행 기록을 덧붙입니다 — 추가만 하고 고치지 않습니다. 카드가 용량 상한에 도달하면 **자동으로 연속 카드 체인을 엽니다**(무손실, 100K에 욱여넣으려고 요약·압축하는 일은 절대 없음) |
 | `project-card-merge` | 나머지 반쪽: 쌓인 진행 블록들을 paper 수준의 완결된 카드 한 장으로 통합합니다(풀 편집 환경 측). **chain-aware**: 연속 카드 체인 전체를 함께 읽고, 통합 결과가 상한을 넘으면 H2 섹션 단위로 새 체인으로 오버플로하며, 고아가 된 연속 카드는 자동 회수 |
+| `project-card-canvas` | 프로젝트 체인의 시각 뷰(생성형 JSON Canvas): git-graph식 **타임라인**(entry=HEAD, log 카드=commits, 증류 상태 또는 실행 머신별 색상)과 **컨텍스트 마인드맵** 3가지 모드 — log 카드별 서브트리, 체인 본문 H2/H3 구조, 또는 연구 **스토리**를 막(幕) 단위 다중 행 DAG로(agent가 체인을 읽고 "아이디어→실험→결과→전환" 서사 그래프를 작성, script가 결정적으로 배치) |
 | `research-campaign` | 자율 실험 캠페인의 미션 브리프 포맷 + 부기 관례: MISSION.md는 repo에 들어가고, queue/ledger로 중단 지점부터 재개하며, 유의성 gate 측정 규율을 지키고, 진행 상황은 프로젝트 카드로 자동 환류됩니다. 선택형 쇼케이스 레이어: 리포트 페이지 + **학습 log 곡선 대시보드**를 GitHub/GitLab Pages에 자동 배포 |
 
 **✍️ 논문 작성** — paper를 쓸 때 지식 베이스를 수확합니다
@@ -290,6 +291,7 @@ python3 ../_shared/topology.py refresh    # 전체 토픽; 또는 refresh <topic
 | "오늘 진행 상황을 project card에 기록해 줘" — 프로젝트 repo의 session에서 말하기만 하면 됩니다; agent가 해당 카드를 찾아내고(marker → registry), 카드가 없으면 만들지 물어봅니다 | `/research-cards:project-card-log`(프로젝트 repo 안에서, 인자 없이) |
 | "이 프로젝트에 project card 한 장 만들어 줘" — 카드 생성 + 스켈레톤 + 태그 부착 + 매핑 고정을 한 번에 | `/research-cards:project-card-log 카드 생성 "My Project"` |
 | "project card의 진행 기록을 paper 수준으로 통합해 줘" — 쌓인 진행 블록을 거둬들입니다 | `/research-cards:project-card-merge 〈프로젝트 이름〉` |
+| "이 프로젝트의 canvas를 그려/업데이트해 줘" — git-graph 타임라인 + 컨텍스트 마인드맵; story 뷰는 agent가 체인을 읽고 서사 그래프를 작성하며, coverage 감사가 지도에 아직 무엇이 빠졌는지 알려 줍니다 | `/research-cards:project-card-canvas`(프로젝트 repo의 session 안에서) |
 | "지식 그래프로 내 project card의 research-gap 분석을 해 줘" — 분야 지도를 프로젝트 카드와 대조해 아직 답해지지 않은 갭을 찾습니다(Operation 5) | `/research-cards:overview-graph gap 〈프로젝트 카드〉` |
 | "이 repo에 연구 실험 campaign을 하나 열어 줘" — repo 준비 상태 점검 → 인터랙티브 intake → MISSION.md 미션 브리프 + queue/ledger 생성 | `/research-cards:research-campaign init` |
 | "campaign 이어서 해 줘" / "campaign 진행 상황 어때" | `/research-cards:research-campaign`(해당 repo session 안에서) / `… status` |

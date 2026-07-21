@@ -71,6 +71,7 @@
 |---|---|
 | `project-card-log` | 在專案 repo 的 session（本機或遠端）解析出這個專案的卡，附加有日期、有程式碼依據的進度——只增不改。卡片到達容量上限時**自動開續卡鏈**（無損，絕不為了塞進 100K 而濃縮） |
 | `project-card-merge` | 另一半：把累積的進度區塊整併成一張 paper 級的完整卡（全編輯端）。**chain-aware**：整條續卡鏈一起讀、整併結果超限就按 H2 章節溢位成新鏈、孤兒續卡自動回收 |
+| `project-card-canvas` | 專案卡鏈的視覺化視圖（生成式 JSON Canvas）：git-graph **時間線**（entry＝HEAD、log 卡＝commits，依蒸餾狀態或來源機器分色）＋**脈絡心智圖**三模式——逐 log 卡子樹、卡鏈 H2/H3 結構、或**研究敘事**分幕多列 DAG（agent 讀鏈撰寫「想法→實驗→結果→轉向」敘事 graph，script 確定性佈局） |
 | `research-campaign` | 自主實驗戰役的任務書格式＋記帳慣例：MISSION.md 進 repo、queue/ledger 斷點續跑、顯著性 gate 量測紀律，進度自動回流專案卡。選配展示層：報告頁＋**訓練 log 曲線儀表**自動部署到 GitHub/GitLab Pages |
 
 **✍️ 論文寫作**——寫 paper 時收割知識庫
@@ -277,6 +278,7 @@ python3 ../_shared/topology.py refresh    # 全部主題；或 refresh <topic>
 | 「把今天的進度記到 project card」——在專案 repo 的 session 裡說即可；agent 會解析對應的卡（marker → registry），沒有卡會問你要不要建 | `/research-cards:project-card-log`（在專案 repo 內，無參數） |
 | 「幫這個專案建一張 project card」——建卡＋骨架＋上 tag＋固定對應一步完成 | `/research-cards:project-card-log 建卡 "My Project"` |
 | 「把 project card 的進度整併成 paper 級」——收攏累積的進度區塊 | `/research-cards:project-card-merge 〈專案名〉` |
+| 「幫我畫／更新這個專案的 canvas」——git-graph 時間線＋脈絡心智圖；story 視圖由 agent 讀鏈撰寫敘事 graph，coverage 稽核告訴你圖還缺什麼 | `/research-cards:project-card-canvas`（專案 repo 的 session 內） |
 | 「用知識圖幫我的 project card 做 research-gap 分析」——拿領域地圖對照專案卡，找出還沒被回答的缺口（Operation 5） | `/research-cards:overview-graph gap 〈專案卡〉` |
 | 「幫這個 repo 開一個研究實驗 campaign」——檢查 repo 就緒度 → 互動 intake → 產 MISSION.md 任務書＋queue/ledger | `/research-cards:research-campaign init` |
 | 「接續 campaign」／「campaign 進度如何」 | `/research-cards:research-campaign`（在該 repo session 內）／`… status` |

@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.52.1 — workflow rule: note-sync brackets the card-chain skills
+
+- New hard rule across the four chain skills (user request, after two
+  live misses on 0.51.0 launch day): **project-card-log /
+  project-card-merge / project-card-cleanup run note-sync AFTER they
+  mutate cards; project-card-canvas runs it BEFORE rendering.** The
+  canvas reads the vault mirror on both axes — heptabase-sync's state
+  ledger decides mirrored-vs-text nodes, and origin sniffing reads the
+  mirror's opening lines — so rendering against a stale mirror degrades
+  fresh cards to 「未鏡像」 text nodes and unknown origins.
+- Placement: log SKILL Step 4 gains a sync bullet ahead of the two
+  view-refresh bullets; merge gains Step 5.2 (before the canvas step);
+  cleanup gains Step 6 (sync + view refresh — it had no view step at
+  all); canvas 刷新時機 gains the precondition (and its stale
+  「顏色/鏈型」 wording catches up to the 0.51.0 HEAD-attachment
+  semantics). Cluster sessions skip (no vault/CLI) and backfill on the
+  Mac.
+
+## 0.52.0 — no-jargon canvases: glossary node + logs mode goes horizontal
+
+- Root-cause fix for unreadable story nodes (user caught "h2h",
+  "uv 副作用"): the authoring step never inherited the log-card
+  weekly-report NO-ABBREVIATION rule, and canvas nodes are read
+  standalone (no 名詞備忘 section to fall back on). The story contract
+  now makes it a hard rule — expand on first use in node texts, and put
+  recurring codes in a new top-level `glossary` field rendered as a
+  名詞 node beside the legend (deterministic id, absent when empty).
+  A案/B案 graphs updated accordingly.
+- logs mode layout v2 (user design): log hubs now run HORIZONTALLY in
+  citation-topological order — the timeline reads left→right — with
+  each hub's section leaves hanging in a vertical thread below it;
+  non-adjacent parent links and 也承接 edges fly over the lane as
+  top→top arcs. Node ids unchanged.
+
+
+## 0.51.0 — timeline canvas: HEAD rides the newest distilled log (topology IS the state)
+
+- git-graph layout upgrade (user design): the log column runs newest-on-
+  top at x=0 as before, but the entry card no longer caps the column —
+  it is now the **HEAD pointer**, sitting beside the newest distilled
+  (📗) log and pointing at it with a lateral edge. Everything stacked
+  above the entry is therefore exactly the un-distilled (📎) backlog:
+  distillation state is carried by the topology, like unmerged commits
+  ahead of HEAD. Nothing distilled yet → HEAD sinks below the column;
+  no logs → the entry stands alone. Continuation children ride beside
+  HEAD (pages of the README travel with it).
+- With state readable off the shape, the color axis defaults to
+  **origin** (Mac=cyan / cluster=yellow); `--color-by state` (📎 orange /
+  📗 green) remains as the now-redundant legacy axis, and
+  `projects.canvas_color_by` still overrides. Unmirrored text nodes keep
+  their 📎/📗 mark in both modes.
+- Edge id changes: log→log edges keep their ids; the newest log's edge
+  to the entry is replaced by a `head`-salted entry→📗 edge (ids stay
+  deterministic — Obsidian doesn't flicker on regeneration).
+- Fixed a latent flag-loss bug the new anchor exposed: scan() buckets
+  loglinks by a done flag yielded OUT-OF-BAND (the entry dicts never
+  carry it), and render() concatenated the bare buckets — so state mode
+  had silently colored every log as pending since the skill's extraction.
+  `scan_entries()` now re-annotates done when flattening.
+- Docs synced across the four-language README table, SKILL.md ×3
+  (canvas / log Step 5 / merge Step 5.5), and the wiki Project-Canvas
+  page ×4.
+
 ## 0.50.0 — story mode: the dirty audit shows itself on the canvas
 
 - When a story render's coverage audit is dirty, a red 「⚠️ 待補」 banner

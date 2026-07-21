@@ -110,6 +110,20 @@ python3 ~/.claude/skills/research-cards/skills/project-card-merge/merge_lib.py <
 被刪內容的權威落點對照。清理本身**不 append 記錄**(卡的新狀態即記錄);若清理
 連帶動了稿件才照慣例 append 稿件側進度。
 
+## Step 6 — 跑 note-sync ＋ 刷視圖（硬規則）
+
+```bash
+python3 <plugin 的 skills/note-sync 目錄>/sync.py   # 全鏈；趕時間至少 --mode heptabase
+python3 <plugin 的 skills/project-card-canvas 目錄>/project_canvas.py --card <ENTRY_ID>
+```
+
+cleanup 重排了整條鏈（trash 子卡、改 entry），鏡像與 heptabase-sync 的
+state 帳全部落後——先 sync 再刷 canvas（canvas 讀 vault mirror 的帳與
+內容；順序反了＝未鏡像節點與 trash 殘影入圖）。story graph 若存在，
+照 canvas skill 的 coverage 稽核循環補（`--dry-run` 看缺口）。
+（本 skill 與 merge 同為 Mac-only——overwrite/trash 是 bridge 做不到
+的；萬一在 cluster 端執行到這裡，跳過本步、回 Mac 補跑。）
+
 ## Notes
 
 - **供 cluster 的 handoff 指針是一級公民**:view-only link、HANDOFF_*.md 路徑、

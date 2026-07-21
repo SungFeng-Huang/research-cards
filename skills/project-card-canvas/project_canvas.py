@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
 """project_canvas — a git-graph style JSON Canvas per project card chain.
 
-One canvas per project: the entry card (the chain "README"/HEAD) sits on
-top, log cards (the "commits") hang below it newest-first along a vertical
-trunk, edges point in the direction of time (old → new → entry). Colors
-carry the distillation state straight from the timeline marks (default
---color-by state):
-
-    📎 not yet distilled  → orange ("2")
-    📗 distilled by merge → green  ("4")
-    entry (README)        → purple ("6")
-    continuation children → gray side row next to the entry
-
---color-by origin recolors the LOG cards by where the session that wrote
-them ran (the machine axis of a handoff):
+One canvas per project, laid out like a real git graph: log cards (the
+"commits") run newest-on-top along a vertical trunk, edges pointing in
+the direction of time (old → new). The entry card is the HEAD pointer —
+it sits BESIDE the newest distilled (📗) log and points at it laterally,
+so everything ABOVE the entry is exactly the not-yet-distilled (📎)
+backlog. Distillation state is thus carried by TOPOLOGY (where HEAD
+attaches), which frees the color axis for origin — the default:
 
     Mac session      → cyan   ("5")
     cluster session  → yellow ("3")
     undeterminable   → gray   (uncolored)
+    entry (HEAD)     → purple ("6")
+    continuation children → gray row riding beside the entry
+
+--color-by state recolors the LOG cards by their timeline mark instead
+(the pre-0.51 axis, now redundant with the topology):
+
+    📎 not yet distilled  → orange ("2")
+    📗 distilled by merge → green  ("4")
 
 Origin is read from the log card itself: the weekly-report header's
 `**環境**：<host>` field (0.42.0 spec), falling back to the retro-split
 provenance line `原段：📥 Mac 補充…`/`📥 cluster 補充…` (cards split out
-of legacy 📥 append blocks). Distillation state stays visible in origin
-mode via the 📎/📗 mark on unmirrored text nodes. Default mode comes from
-config heptabase.collections.projects.canvas_color_by (state|origin).
+of legacy 📥 append blocks). Unmirrored text nodes keep their 📎/📗 mark
+in both modes. Default mode comes from config
+heptabase.collections.projects.canvas_color_by (origin|state).
 
 The canvas is a GENERATED VIEW (rebuilt from scan() every run — do not
 hand-arrange it; that's what the knowledge-map canvas is for). Node ids
@@ -109,34 +111,20 @@ def safe_filename(title):
 
 
 def build_canvas(entry_id, entry_title, chain_ids, entries, vault_file_of,
-                 color_by="state"):
+                 color_by="origin"):
     """Pure layout: timeline entries (each {log, date, summary, done}
-    [+ origin when color_by="origin"]) → JSON Canvas dict. newest-first
-    below the entry — ordered by (date, append position), so same-day
-    logs keep their real chronological sequence; edges old→new→entry.
+    [+ origin when color_by="origin"]) → JSON Canvas dict.
+
+    git-graph semantics: the commit column (log cards) runs newest-on-top
+    at x=0 — ordered by (date, append position), so same-day logs keep
+    their real chronological sequence — edges pointing in the direction
+    of time (old → new). The entry card is the HEAD pointer: it sits
+    beside the newest distilled (📗) log and points at it laterally, so
+    the nodes above the entry are exactly the un-distilled (📎) backlog.
+    Nothing distilled yet → the entry sinks below the column (HEAD has
+    merged nothing); no logs at all → the entry stands alone at (0,0).
     vault_file_of(card_id) -> vault-relative .md path or None."""
     nodes, edges = [], []
-    entry_file = vault_file_of(entry_id)
-    entry_node = {"id": _nid(entry_id), "x": 0, "y": 0,
-                  "width": NODE_W, "height": ENTRY_H, "color": COLOR_ENTRY}
-    if entry_file:
-        entry_node.update({"type": "file", "file": entry_file})
-    else:
-        entry_node.update({"type": "text",
-                           "text": f"# {entry_title}\n（entry 卡未鏡像）"})
-    nodes.append(entry_node)
-
-    # continuation children: a gray side row next to the entry (they are
-    # pages of the README, not commits)
-    for i, cid in enumerate(c for c in chain_ids if c != entry_id):
-        f = vault_file_of(cid)
-        n = {"id": _nid(cid, "chain"), "x": NODE_W + 80 + i * (CHILD_W + 30),
-             "y": 0, "width": CHILD_W, "height": CHILD_H}
-        if f:
-            n.update({"type": "file", "file": f})
-        else:
-            n.update({"type": "text", "text": f"續卡 {cid[:8]}（未鏡像）"})
-        nodes.append(n)
 
     # true chronological order: timeline lines are APPENDED in time order,
     # so an entry's position in the scan (chain walk) is its timestamp —
@@ -147,9 +135,44 @@ def build_canvas(entry_id, entry_title, chain_ids, entries, vault_file_of,
     ordered = sorted(entries,
                      key=lambda e: (e.get("date") or "", e["seq"]),
                      reverse=True)                      # newest on top
-    prev_node_id = _nid(entry_id)
+
+    # HEAD anchor: the newest distilled log's row (vertically centered on
+    # it); sunk one row below the column when nothing is distilled yet.
+    head_row = next((i for i, e in enumerate(ordered) if e.get("done")),
+                    None)
+    if not ordered:
+        entry_x = entry_y = 0
+    else:
+        entry_x = NODE_W + 80
+        entry_y = (len(ordered) * (NODE_H + GAP) if head_row is None
+                   else head_row * (NODE_H + GAP) + (NODE_H - ENTRY_H) // 2)
+
+    entry_file = vault_file_of(entry_id)
+    entry_node = {"id": _nid(entry_id), "x": entry_x, "y": entry_y,
+                  "width": NODE_W, "height": ENTRY_H, "color": COLOR_ENTRY}
+    if entry_file:
+        entry_node.update({"type": "file", "file": entry_file})
+    else:
+        entry_node.update({"type": "text",
+                           "text": f"# {entry_title}\n（entry 卡未鏡像）"})
+    nodes.append(entry_node)
+
+    # continuation children: a gray row riding beside the entry (they are
+    # pages of the README, not commits — they travel with HEAD)
+    for i, cid in enumerate(c for c in chain_ids if c != entry_id):
+        f = vault_file_of(cid)
+        n = {"id": _nid(cid, "chain"),
+             "x": entry_x + NODE_W + 30 + i * (CHILD_W + 30),
+             "y": entry_y, "width": CHILD_W, "height": CHILD_H}
+        if f:
+            n.update({"type": "file", "file": f})
+        else:
+            n.update({"type": "text", "text": f"續卡 {cid[:8]}（未鏡像）"})
+        nodes.append(n)
+
+    prev_node_id = None
     for i, e in enumerate(ordered):
-        y = ENTRY_H + GAP + i * (NODE_H + GAP)
+        y = i * (NODE_H + GAP)
         f = vault_file_of(e["log"])
         if color_by == "origin":
             color = origin_color(e.get("origin"))       # None → gray
@@ -169,10 +192,15 @@ def build_canvas(entry_id, entry_title, chain_ids, entries, vault_file_of,
                                f"（未鏡像；Heptabase card {e['log'][:8]}）")})
         nodes.append(n)
         # time flows upward: this (older) node points at the newer one above
-        edges.append({"id": _nid(e["log"], "edge"),
-                      "fromNode": n["id"], "fromSide": "top",
-                      "toNode": prev_node_id, "toSide": "bottom"})
+        if prev_node_id:
+            edges.append({"id": _nid(e["log"], "edge"),
+                          "fromNode": n["id"], "fromSide": "top",
+                          "toNode": prev_node_id, "toSide": "bottom"})
         prev_node_id = n["id"]
+        if i == head_row:                    # HEAD → its distilled tip
+            edges.append({"id": _nid(entry_id, "head"),
+                          "fromNode": _nid(entry_id), "fromSide": "left",
+                          "toNode": n["id"], "toSide": "right"})
     return {"nodes": nodes, "edges": edges}
 
 
@@ -244,19 +272,32 @@ def head_text(cid, cfg, vault_file_of):
         return ""
 
 
+def scan_entries(s):
+    """scan() buckets loglinks by a done flag that scan_loglinks_ordered
+    yields OUT-OF-BAND — the entry dicts themselves never carry it. Put it
+    back when concatenating: the HEAD anchor, state colors, and the 📎/📗
+    mark on unmirrored text nodes all read e["done"]. (Before 0.51 the
+    canvas concatenated the bare buckets — state mode silently colored
+    every log as pending.)"""
+    return ([dict(e, done=True) for e in s["done_logs"]]
+            + [dict(e, done=False) for e in s["pending_logs"]])
+
+
 def resolve_color_by(cfg, cli_value=None):
-    """CLI flag > config projects.canvas_color_by > "state". Placeholder
-    ("<…>") and unknown values fall through to the default."""
+    """CLI flag > config projects.canvas_color_by > "origin". Placeholder
+    ("<…>") and unknown values fall through to the default. (origin became
+    the default in 0.51.0 — distillation state now reads off the topology:
+    HEAD attaches to the newest distilled log, 📎 backlog stacks above.)"""
     v = cli_value or (((cfg.get("heptabase") or {}).get("collections") or {})
                       .get("projects") or {}).get("canvas_color_by")
-    return v if v in ("state", "origin") else "state"
+    return v if v in ("state", "origin") else "origin"
 
 
-def render(entry_id, dry=False, color_by="state"):
+def render(entry_id, dry=False, color_by="origin"):
     import merge_lib as M
     cfg = hbconfig.load_config()
     s = M.scan(entry_id)
-    entries = s["done_logs"] + s["pending_logs"]
+    entries = scan_entries(s)
     title = next((h for h in s.get("headings", [])), "")
     # scan headings are H2s; get the real title from the entry read
     _, doc = M.L.read_card(entry_id)
@@ -314,9 +355,10 @@ def main():
     ap.add_argument("--all", action="store_true",
                     help="rebuild the canvas of every hub-listed project")
     ap.add_argument("--color-by", choices=("state", "origin"),
-                    help="log-card color axis: state（📎橙/📗綠，預設）or "
-                         "origin（Mac=cyan／cluster=yellow）; default from "
-                         "config projects.canvas_color_by")
+                    help="log-card color axis: origin（Mac=cyan／cluster="
+                         "yellow，預設——蒸餾狀態改由拓撲表達：HEAD 側貼"
+                         "最新 📗）or state（📎橙/📗綠，舊軸）; default "
+                         "from config projects.canvas_color_by")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     if not args.card and not args.all:

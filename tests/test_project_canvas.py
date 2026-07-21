@@ -99,16 +99,60 @@ class TestBuildCanvas(unittest.TestCase):
         c = self.build([
             {"log": L1, "date": "2026-07-18", "summary": "舊", "done": True},
             {"log": L2, "date": "2026-07-21", "summary": "新", "done": False}],
-            mapping={E: "Projects/專案.md"})
+            mapping={E: "Projects/專案.md"}, color_by="state")
         nodes = {n["id"]: n for n in c["nodes"]}
         n_new, n_old = nodes[PC._nid(L2)], nodes[PC._nid(L1)]
         self.assertLess(n_new["y"], n_old["y"])          # newest on top
         self.assertEqual(n_new["color"], PC.COLOR_PENDING)   # 📎 orange
         self.assertEqual(n_old["color"], PC.COLOR_DONE)      # 📗 green
-        # edges: old→new, newest→entry (time flows upward)
+        # edges: old→new between commits; HEAD points at the newest
+        # DISTILLED log (the pending one above HEAD has no entry edge)
         e = {(x["fromNode"], x["toNode"]) for x in c["edges"]}
         self.assertIn((PC._nid(L1), PC._nid(L2)), e)
-        self.assertIn((PC._nid(L2), PC._nid(E)), e)
+        self.assertIn((PC._nid(E), PC._nid(L1)), e)
+        self.assertNotIn((PC._nid(L2), PC._nid(E)), e)
+
+    def test_head_rides_beside_newest_distilled(self):
+        # L1 done(舊)、L2 done(新)、L3 pending(最新) → HEAD 貼 L2 那排、
+        # 側向 edge HEAD→L2、L3 疊在 HEAD 之上（拓撲即蒸餾狀態）
+        L3 = "aaaaaaaa-0000-0000-0000-00000000000c"
+        c = self.build([
+            {"log": L1, "date": "2026-07-18", "summary": "舊", "done": True},
+            {"log": L2, "date": "2026-07-20", "summary": "新", "done": True},
+            {"log": L3, "date": "2026-07-21", "summary": "未蒸餾",
+             "done": False}])
+        nodes = {n["id"]: n for n in c["nodes"]}
+        entry, n2, n3 = nodes[PC._nid(E)], nodes[PC._nid(L2)], nodes[PC._nid(L3)]
+        self.assertGreater(entry["x"], PC.NODE_W)        # side column
+        # vertically centered on L2's row
+        self.assertEqual(entry["y"],
+                         n2["y"] + (PC.NODE_H - PC.ENTRY_H) // 2)
+        self.assertLess(n3["y"], entry["y"])             # backlog above HEAD
+        head_edges = [x for x in c["edges"]
+                      if x["fromNode"] == PC._nid(E)]
+        self.assertEqual(len(head_edges), 1)
+        self.assertEqual(head_edges[0]["toNode"], PC._nid(L2))
+        self.assertEqual(head_edges[0]["fromSide"], "left")
+
+    def test_head_sinks_when_nothing_distilled(self):
+        c = self.build([
+            {"log": L1, "date": "2026-07-20", "summary": "a", "done": False},
+            {"log": L2, "date": "2026-07-21", "summary": "b", "done": False}])
+        nodes = {n["id"]: n for n in c["nodes"]}
+        entry = nodes[PC._nid(E)]
+        self.assertGreater(entry["y"], nodes[PC._nid(L1)]["y"])
+        self.assertGreater(entry["y"], nodes[PC._nid(L2)]["y"])
+        # no HEAD edge — nothing merged yet
+        self.assertEqual([x for x in c["edges"]
+                          if x["fromNode"] == PC._nid(E)], [])
+
+    def test_children_travel_with_head(self):
+        c = self.build([{"log": L1, "date": "2026-07-20", "summary": "s",
+                         "done": True}], chain=[E, C1])
+        nodes = {n["id"]: n for n in c["nodes"]}
+        entry, child = nodes[PC._nid(E)], nodes[PC._nid(C1, "chain")]
+        self.assertEqual(child["y"], entry["y"])
+        self.assertGreater(child["x"], entry["x"])
 
     def test_same_date_ordered_by_append_position(self):
         # timeline lines append in time order → later input position =
@@ -153,19 +197,33 @@ class TestBuildCanvas(unittest.TestCase):
 
     def test_state_mode_unchanged_by_origin_field(self):
         c = self.build([{"log": L1, "date": "2026-07-20",
-                         "summary": "s", "done": True, "origin": "cluster"}])
+                         "summary": "s", "done": True, "origin": "cluster"}],
+                       color_by="state")
         n = next(x for x in c["nodes"] if x["id"] == PC._nid(L1))
         self.assertEqual(n["color"], PC.COLOR_DONE)      # origin ignored
 
+    def test_scan_entries_reannotates_done(self):
+        # scan() buckets by an out-of-band flag; the concat must put it
+        # back or HEAD anchoring + state colors read None for everything
+        s = {"done_logs": [{"log": L1, "date": "2026-07-18", "summary": "d",
+                            "seq": 0}],
+             "pending_logs": [{"log": L2, "date": "2026-07-21",
+                               "summary": "p", "seq": 1}]}
+        out = PC.scan_entries(s)
+        self.assertEqual([(e["log"], e["done"]) for e in out],
+                         [(L1, True), (L2, False)])
+        # source buckets stay untouched (scan_entries copies)
+        self.assertNotIn("done", s["done_logs"][0])
+
     def test_resolve_color_by_precedence(self):
-        cfg_o = {"heptabase": {"collections": {"projects":
-                                               {"canvas_color_by": "origin"}}}}
-        self.assertEqual(PC.resolve_color_by({}, None), "state")
-        self.assertEqual(PC.resolve_color_by(cfg_o, None), "origin")
-        self.assertEqual(PC.resolve_color_by(cfg_o, "state"), "state")  # CLI wins
+        cfg_s = {"heptabase": {"collections": {"projects":
+                                               {"canvas_color_by": "state"}}}}
+        self.assertEqual(PC.resolve_color_by({}, None), "origin")  # 0.51 預設
+        self.assertEqual(PC.resolve_color_by(cfg_s, None), "state")
+        self.assertEqual(PC.resolve_color_by(cfg_s, "origin"), "origin")  # CLI wins
         bad = {"heptabase": {"collections": {"projects":
                                              {"canvas_color_by": "<state-or-origin>"}}}}
-        self.assertEqual(PC.resolve_color_by(bad, None), "state")
+        self.assertEqual(PC.resolve_color_by(bad, None), "origin")
 
     def test_mirrored_becomes_file_node_else_text(self):
         c = self.build([{"log": L1, "date": "2026-07-20",

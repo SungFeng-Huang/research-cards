@@ -168,6 +168,38 @@ class TestBuildMindmap(unittest.TestCase):
         # L1 hangs off the root
         self.assertIn((PCV._nid(E, "mm-root"), hub(L1)), pairs)
 
+    def test_v2_horizontal_spine_leaves_below(self):
+        c, order = self.build()
+        by = {n["id"]: n for n in c["nodes"]}
+        hubs = [by[PCV._nid(cid, "mm-hub")] for cid in order]
+        self.assertEqual({h["y"] for h in hubs}, {0})      # one lane
+        self.assertEqual([h["x"] for h in hubs],
+                         sorted(h["x"] for h in hubs))     # left→right
+        leaf = by[PCV._nid(L1, "mm-leaf0")]
+        hub = by[PCV._nid(L1, "mm-hub")]
+        self.assertGreater(leaf["y"], hub["y"] + hub["height"])  # below
+        self.assertLess(abs(leaf["x"] - hub["x"]), 60)     # same column
+
+    def test_second_forest_root_flies_over_the_lane(self):
+        decomp = decomp_fixture()
+        decomp[L2]["cites"] = []          # two roots: L1 and L2
+        c, _ = CM.build_mindmap(E, "軸卡", LOGS, decomp, lambda cid: None)
+        sides = {(e["fromNode"], e["toNode"]): (e["fromSide"], e["toSide"])
+                 for e in c["edges"]}
+        r = PCV._nid(E, "mm-root")
+        hub = lambda cid: PCV._nid(cid, "mm-hub")  # noqa: E731
+        # topo order (tie by date,seq) seats L2 first → it gets the
+        # lateral edge; L1 (second root) flies over the lane
+        self.assertEqual(sides[(r, hub(L2))], ("right", "left"))
+        self.assertEqual(sides[(r, hub(L1))], ("top", "top"))
+
+    def test_glossary_node_only_when_terms(self):
+        self.assertIsNone(CM.glossary_node(E, [], 0))
+        n = CM.glossary_node(E, ["st1＝最細串流檔", "CMOS＝人耳對比評分"], -260)
+        self.assertEqual(n["id"], PCV._nid(E, "mm-glossary"))
+        self.assertIn("st1＝最細串流檔", n["text"])
+        self.assertLess(n["y"] + n["height"], 0)
+
     def test_leaf_colors_and_hub_color(self):
         c, _ = self.build(limit=1)
         by_id = {n["id"]: n for n in c["nodes"]}

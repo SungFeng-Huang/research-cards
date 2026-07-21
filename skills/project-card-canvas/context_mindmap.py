@@ -130,6 +130,22 @@ def audit_node(entry_id, coverage, x):
             "text": "**⚠️ 待補（coverage 稽核）**\n" + "\n".join(lines)}
 
 
+GLOSSARY_W = 360
+
+
+def glossary_node(entry_id, terms, x):
+    """名詞 node beside the legend — the canvas counterpart of a weekly
+    report's mini-glossary: recurring codes get ONE home viewers can
+    glance at (one-off abbreviations must be expanded in place in node
+    texts — the authoring hard rule). None when no terms."""
+    if not terms:
+        return None
+    h = 64 + 30 * len(terms)
+    return {"id": PCV._nid(entry_id, "mm-glossary"), "x": x, "y": -(h + 48),
+            "width": GLOSSARY_W, "height": h, "type": "text",
+            "text": "**名詞**\n" + "\n".join(terms)}
+
+
 def legend_node(entry_id, mode, x):
     """A fixed legend text node ABOVE the graph (content starts at y=0 in
     every mode, so negative y never collides). Deterministic id; uncolored
@@ -269,11 +285,16 @@ def topo_order(logs, cites):
     return order
 
 
+
+
 def build_mindmap(entry_id, entry_title, logs, decomp, vault_file_of,
                   limit=None):
-    """Pure assembly. logs: scan timeline entries; decomp[cid]:
-    {"title","question","sections":[(label,color,text)…],"cites":[ids…]}.
-    Returns (canvas_dict, build_order)."""
+    """Pure assembly, logs mode — v2 layout: log hubs run HORIZONTALLY
+    (citation-topological order — the project timeline reads left→right)
+    and each hub's section leaves hang in a vertical thread BELOW it.
+    Parent→child hub edges are lateral when adjacent and fly over the
+    lane (top→top arcs) when the child sits further right — same for
+    「也承接」 secondary citations. Returns (canvas, order)."""
     cites = {cid: d.get("cites", []) for cid, d in decomp.items()}
     order = topo_order(logs, cites)
     if limit:
@@ -281,19 +302,15 @@ def build_mindmap(entry_id, entry_title, logs, decomp, vault_file_of,
     rank = {cid: i for i, cid in enumerate(order)}
     date_of = {e["log"]: e.get("date") or "" for e in logs}
 
-    # tree: children[parent] = [cid…] in build order. Only BACKWARD
-    # citations (rank[cited] < rank[citer]) may parent or edge — a cycle's
-    # dropped back-edge must vanish here too, or the loop's members would
-    # parent each other and detach from the root (breaking the --limit
-    # subset invariant).
-    children, secondary = {entry_id: []}, {}
+    parent_of, secondary = {}, {}
     for cid in order:
         back = [c for c in cites.get(cid, [])
                 if c in rank and rank[c] < rank[cid]]
-        p = max(back, key=lambda c: rank[c]) if back else entry_id
+        p = max(back, key=lambda c: rank[c]) if back else None
+        parent_of[cid] = p
         secondary[cid] = [c for c in back if c != p]
-        children.setdefault(p, []).append(cid)
 
+    col_step = max(HUB_W, LEAF_W) + 60
     nodes, edges = [], []
 
     def hub_id(cid):
@@ -307,82 +324,69 @@ def build_mindmap(entry_id, entry_title, logs, decomp, vault_file_of,
         out.extend(d.get("sections", []))
         return out
 
-    # subtree heights: children before parents (reversed build order), so
-    # one iterative pass suffices — no recursion, no repeated recomputation
-    height = {}
-    for cid in reversed(order):
-        kids = [LEAF_H] * len(leaves_of(cid)) + \
-               [height[c] for c in children.get(cid, [])]
-        height[cid] = (max(HUB_H, sum(kids) + VGAP * (len(kids) - 1))
-                       if kids else HUB_H)
-
-    def place(cid, depth, y_top):
-        """Emit cid's hub + leaves, return child work items (iterative
-        caller drives the traversal — deep chains must not recurse)."""
-        x = (HUB_W + HGAP) * depth
-        hub_y = y_top + (height[cid] - HUB_H) // 2
+    for i, cid in enumerate(order):
+        x = i * col_step
         f = vault_file_of(cid)
         link = (f"[[{f[:-3] if f and f.endswith('.md') else f}|→ 開卡]]"
                 if f else f"（Heptabase card {cid[:8]}）")
-        nodes.append({"id": hub_id(cid), "x": x, "y": hub_y,
+        nodes.append({"id": hub_id(cid), "x": x, "y": 0,
                       "width": HUB_W, "height": HUB_H, "color": COLOR_HUB,
                       "type": "text",
                       "text": f"**{date_of.get(cid, '')[5:]}｜"
                               f"{decomp[cid].get('title', cid[:8])}**\n{link}"})
-        y = y_top
+        y = HUB_H + 40
+        prev = None
         for j, (label, color, text) in enumerate(leaves_of(cid)):
-            n = {"id": PCV._nid(cid, f"mm-leaf{j}"), "x": x + HUB_W + HGAP,
-                 "y": y, "width": LEAF_W, "height": LEAF_H, "type": "text",
+            n = {"id": PCV._nid(cid, f"mm-leaf{j}"),
+                 "x": x + (HUB_W - LEAF_W) // 2, "y": y,
+                 "width": LEAF_W, "height": LEAF_H, "type": "text",
                  "text": f"**{label}**\n{text}"}
             if color:
                 n["color"] = color
             nodes.append(n)
             edges.append({"id": PCV._nid(cid, f"mm-eleaf{j}"),
-                          "fromNode": hub_id(cid), "fromSide": "right",
-                          "toNode": n["id"], "toSide": "left"})
+                          "fromNode": prev or hub_id(cid),
+                          "fromSide": "bottom",
+                          "toNode": n["id"], "toSide": "top"})
+            prev = n["id"]
             y += LEAF_H + VGAP
-        todo = []
-        for c in children.get(cid, []):
-            edges.append({"id": PCV._nid(c, "mm-edge"),
-                          "fromNode": hub_id(cid), "fromSide": "right",
-                          "toNode": hub_id(c), "toSide": "left"})
-            todo.append((c, depth + 1, y))
-            y += height[c] + VGAP
-        return todo
-
-    # root node spans the whole first column
-    roots = children[entry_id]
-    total_h = (sum(height[c] for c in roots)
-               + VGAP * max(0, len(roots) - 1)) or HUB_H
+    for cid in order:
+        p = parent_of[cid]
+        if p is not None:
+            adjacent = rank[cid] == rank[p] + 1
+            edges.append({"id": PCV._nid(cid, "mm-edge"),
+                          "fromNode": hub_id(p),
+                          "fromSide": "right" if adjacent else "top",
+                          "toNode": hub_id(cid),
+                          "toSide": "left" if adjacent else "top"})
+        for c in secondary.get(cid, []):
+            edges.append({"id": PCV._nid(cid, f"mm-esec-{len(c)}:{c}:"),
+                          "fromNode": hub_id(c), "fromSide": "top",
+                          "toNode": hub_id(cid), "toSide": "top",
+                          "label": "也承接"})
     ef = vault_file_of(entry_id)
-    root = {"id": PCV._nid(entry_id, "mm-root"), "x": -(HUB_W + HGAP),
-            "y": (total_h - PCV.ENTRY_H) // 2, "width": HUB_W,
+    root = {"id": PCV._nid(entry_id, "mm-root"), "x": -(HUB_W + HGAP + 80),
+            "y": (HUB_H - PCV.ENTRY_H) // 2, "width": HUB_W,
             "height": PCV.ENTRY_H, "color": COLOR_ROOT}
     if ef:
         root.update({"type": "file", "file": ef})
     else:
         root.update({"type": "text", "text": f"# {entry_title}"})
     nodes.append(root)
-    nodes.append(legend_node(entry_id, "logs", -(HUB_W + HGAP)))
-    stack, y = [], 0
-    for c in roots:
-        edges.append({"id": PCV._nid(c, "mm-edge"),
-                      "fromNode": root["id"], "fromSide": "right",
-                      "toNode": hub_id(c), "toSide": "left"})
-        stack.append((c, 0, y))
-        y += height[c] + VGAP
-    while stack:                          # explicit DFS — no RecursionError
-        stack.extend(reversed(place(*stack.pop())))
-    # secondary citation edges (gray, labeled); salt carries BOTH full ids,
-    # length-prefixed — variable-length local ids must not be able to shift
-    # the salt/id boundary into a collision ("ab"+"c" vs "a"+"bc")
+    nodes.append(legend_node(entry_id, "logs", -(HUB_W + HGAP + 80)))
+    first = True                       # roots of the citation forest
     for cid in order:
-        for c in secondary.get(cid, []):
-            edges.append({"id": PCV._nid(cid, f"mm-esec-{len(c)}:{c}:"),
-                          "fromNode": hub_id(c), "fromSide": "right",
-                          "toNode": hub_id(cid), "toSide": "left",
-                          "label": "也承接"})
-    return {"nodes": nodes, "edges": edges}, order
+        if parent_of[cid] is None:
+            # only the FIRST root gets the lateral edge — a later root's
+            # lateral edge would plow through every hub before it; those
+            # fly over the lane like non-adjacent parents do
+            edges.append({"id": PCV._nid(cid, "mm-edge"),
+                          "fromNode": root["id"],
+                          "fromSide": "right" if first else "top",
+                          "toNode": hub_id(cid),
+                          "toSide": "left" if first else "top"})
+            first = False
+    return ({"nodes": nodes, "edges": edges}, order)
 
 
 # ── chain mode: decompose the CHAIN BODY (distilled knowledge) ─────────────
@@ -521,7 +525,10 @@ def build_chainmap(entry_id, entry_title, per_card, vault_file_of,
 #                         沿輸入（敘事）序繼承，直到下一個 stage 標記"}],
 #    "edges": [{"from": "slug", "to": "slug", "label": "所以/但是（選填）"}],
 #    "coverage_ignore": ["方法", "評估協定", "…（選填——刻意不入圖的
-#                        section，稽核豁免；比對規則同 anchor）"]}
+#                        section，稽核豁免；比對規則同 anchor）"],
+#    "glossary": ["st1＝…", "…（選填——整圖反覆使用的代號，一行一個；
+#                 渲染成 legend 旁的名詞節點。一次性縮寫請在節點 text
+#                 就地展開——無縮寫是撰寫硬規則）"]}
 # (This block is the schema of record — the module docstring points here.)
 #
 # Coverage audit: every story render reports which timeline LOG CARDS no
@@ -580,7 +587,8 @@ def load_story_graph(path):
             warnings.append(f"label 過長（{e.get('label')}）@ "
                             f"{e['from']}→{e['to']}——縮成短連接詞、"
                             f"語義放節點內文")
-    meta = {"coverage_ignore": g.get("coverage_ignore") or []}
+    meta = {"coverage_ignore": g.get("coverage_ignore") or [],
+            "glossary": g.get("glossary") or []}
     return nodes, edges, warnings, meta
 
 
@@ -895,6 +903,10 @@ def render(entry_id, limit=None, dry=False, mode="logs", graph=None):
                         -(STORY_W + STORY_HGAP) + LEGEND_W + 40)
         if an:                       # dirty audit → red banner beside legend
             canvas["nodes"].append(an)
+        gn = glossary_node(entry_id, gmeta.get("glossary"),
+                           -(STORY_W + STORY_HGAP) + LEGEND_W + AUDIT_W + 80)
+        if gn:
+            canvas["nodes"].append(gn)
     elif mode == "chain":
         # distilled knowledge lives in the chain BODY (pre-log-as-card
         # history): decompose H2/H3 sections card by card, chain order

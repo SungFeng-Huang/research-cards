@@ -3,8 +3,9 @@ name: project-card-canvas
 description: >-
   Generate and refresh the VISUAL views of a research-project card chain
   as Obsidian JSON Canvas files: the timeline canvas (git-graph style —
-  entry card as HEAD, log cards as commits, colored by distillation state
-  or by origin machine) and the context mind map (three decomposition
+  log cards as a commit column, the entry card as the HEAD pointer riding
+  beside the newest distilled log with the 📎 backlog stacking above it,
+  colored by origin machine by default) and the context mind map (three decomposition
   modes: logs = per-log-card subtrees hung on the 前情提要 citation graph;
   chain = the chain body's H2/H3 sections; story = the research NARRATIVE
   as a staged, multi-row DAG — the agent reads the chain and authors a
@@ -35,14 +36,19 @@ allowed-tools: Bash(python3 *) Bash(heptabase:*) Bash(ls *) Bash(cat *) Read Wri
 
 ## 怎麼選視圖
 
-- **時間線**：想看「發生過什麼、哪些已蒸餾」——entry＝HEAD（紫）、
-  log 卡＝commits 由新到舊。`--color-by state`（預設：📎橙＝待蒸餾／
-  📗綠＝已入正文）或 `--color-by origin`（Mac=cyan／cluster=yellow；
-  讀 log 卡的 `環境` 欄或回溯卡 `原段：📥 …` 行）；config
+- **時間線**：想看「發生過什麼、哪些已蒸餾」——log 卡＝commit 直欄
+  （由新到舊、時間往上流），entry＝HEAD 指標（紫）**側貼在最新已蒸餾
+  （📗）log 那排**並以側向箭頭指向它——所以 HEAD 之上堆的就是還沒
+  蒸餾（📎）的 backlog，**蒸餾狀態由拓撲表達**（全未蒸餾＝HEAD 沉到
+  欄底；無 log＝entry 獨立一格）。顏色軸因此讓給機器來源：
+  `--color-by origin`（預設：Mac=cyan／cluster=yellow；讀 log 卡的
+  `環境` 欄或回溯卡 `原段：📥 …` 行）或 `--color-by state`（📎橙／
+  📗綠，與拓撲重複的舊軸）；config
   `heptabase.collections.projects.canvas_color_by` 改預設軸。
-- **心智圖 logs**：專案用 log-as-card 週報體系——每張 log 卡拆成
-  ❓這次要回答／🔬做了什麼／📊結果／💡這代表什麼／⚖️待裁決 分支，
-  掛點＝前情提要引用的最新 log（引用圖）。`--limit 1`＝最早根卡。
+- **心智圖 logs**：專案用 log-as-card 週報體系——log 卡沿引用拓撲序
+  **水平往右排成主幹**（時間線左→右），每張的 ❓這次要回答／🔬做了
+  什麼／📊結果／💡這代表什麼／⚖️待裁決 分支**垂直垂在該卡下方**；
+  非相鄰承接與「也承接」邊從主幹上方飛越。`--limit 1`＝最早根卡。
 - **心智圖 chain**：舊 log 已蒸餾進卡鏈正文的專案——拆 H2（角色配色）
   →H3 結構目錄。
 - **心智圖 story**：要看**研究思考脈絡**（因為想法→做了實驗→結果→
@@ -91,6 +97,12 @@ load_story_graph 上方註解；此處為撰寫規則）
   重演＝跨幕邊（自動 bottom→top 下行）。
 - 引用先前結論時，該結論就該是一個節點——寧可多切節點，別把兩步
   推理擠在一個節點裡。
+- **無縮寫（硬規則，同 log 卡週報規格）**：canvas 節點是**獨立閱讀**的
+  （沒有卡片「名詞備忘」兜底）——label/text 中的代號、縮寫**首現必
+  展開**（「同句對決（head-to-head）」「清濁邊界（unvoiced↔voiced）」）；
+  **整圖反覆使用的代號收進 top-level `glossary`**（一行一個，渲染成
+  legend 旁的名詞節點），正文即可放心用。撰寫時自問：沒讀過這條鏈的
+  人看得懂這個節點嗎？
 
 ## 擴充工作流：coverage 稽核（新 log／蒸餾後怎麼知道缺什麼）
 
@@ -126,8 +138,15 @@ python3 <此 skill 目錄>/context_mindmap.py --card <ENTRY> --mode story \
 
 ## 刷新時機
 
+- **render 之前先跑 note-sync（硬規則）**——canvas 判「已鏡像」讀
+  heptabase-sync 的 state 帳、origin 嗅探優先讀 vault mirror 內容；
+  卡側剛動過（log/merge/cleanup/拆卡）而沒 sync，節點會降級「未鏡像」
+  text、origin 判 unknown（0.51.0 上線當日兩度實測踩坑）：
+  ```bash
+  python3 <plugin 的 skills/note-sync 目錄>/sync.py   # 全鏈；趕時間至少 --mode heptabase
+  ```
 - `project-card-log` 寫完 log、`project-card-merge` 整併完 → 重跑
-  **時間線**（顏色/鏈型會變）；story 模式跑 `--dry-run` 稽核 →
+  **時間線**（HEAD 貼點/鏈型會變）；story 模式跑 `--dry-run` 稽核 →
   按上節循環擴充 graph → 重渲染。
 - cluster 端無 vault：跳過，回 Mac 再刷。
 

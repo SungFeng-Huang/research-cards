@@ -71,7 +71,7 @@
 |---|---|
 | `project-card-log` | 在專案 repo 的 session（本機或遠端）解析出這個專案的卡，附加有日期、有程式碼依據的進度——只增不改。卡片到達容量上限時**自動開續卡鏈**（無損，絕不為了塞進 100K 而濃縮） |
 | `project-card-merge` | 另一半：把累積的進度區塊整併成一張 paper 級的完整卡（全編輯端）。**chain-aware**：整條續卡鏈一起讀、整併結果超限就按 H2 章節溢位成新鏈、孤兒續卡自動回收 |
-| `project-card-canvas` | 專案卡鏈的視覺化視圖（生成式 JSON Canvas）：git-graph **時間線**（entry＝HEAD、log 卡＝commits，依蒸餾狀態或來源機器分色）＋**脈絡心智圖**三模式——逐 log 卡子樹、卡鏈 H2/H3 結構、或**研究敘事**分幕多列 DAG（agent 讀鏈撰寫「想法→實驗→結果→轉向」敘事 graph，script 確定性佈局） |
+| `project-card-canvas` | 專案卡鏈的視覺化視圖（生成式 JSON Canvas）：git-graph **時間線**（log 卡＝commit 直欄，entry＝HEAD 側貼最新已蒸餾 log、📎 backlog 堆其上——蒸餾狀態由拓撲表達，顏色預設依來源機器分色）＋**脈絡心智圖**三模式——逐 log 卡子樹、卡鏈 H2/H3 結構、或**研究敘事**分幕多列 DAG（agent 讀鏈撰寫「想法→實驗→結果→轉向」敘事 graph，script 確定性佈局） |
 | `research-campaign` | 自主實驗戰役的任務書格式＋記帳慣例：MISSION.md 進 repo、queue/ledger 斷點續跑、顯著性 gate 量測紀律，進度自動回流專案卡。選配展示層：報告頁＋**訓練 log 曲線儀表**自動部署到 GitHub/GitLab Pages |
 
 **✍️ 論文寫作**——寫 paper 時收割知識庫

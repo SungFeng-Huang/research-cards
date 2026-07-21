@@ -117,6 +117,18 @@ existing cards use this arc):
    - Multiple dated analysis sections merge into ONE: 洞/發想 resolved by
      later progress are removed (same supersede principle as `📥`); still-open
      ones stay, lightly dated.
+6.7. **log 卡蒸餾（log-as-card 時間線，0.37.0 起）** — `scan` 的
+   `pending_logs`＝鏈尾 `📎 date [[log卡]] 摘要` 行（尚未蒸餾）：
+   - **逐張讀 log 卡**（`L.read_card(<log id>)`）——它們是 self-contained
+     的蒸餾素材，地位同 `📥` blocks：結果/數字進實驗統整、意義進
+     Findings、待裁決進下一步（同 supersede 原則）。
+   - **log 卡本身不 trash**：它是一等歷史記錄，永久保留。
+   - **時間線＝永久記錄，link 絕不能丟**：重建時用
+     `M.timeline_section(done_logs + 剛蒸餾的 pending_logs)` 在卡尾
+     （待補之後）生成 `## 📜 log 時間線` 區——每行 `📗 date [[log卡]] 摘要`
+     （真 card node）。`📎`（未蒸餾）→`📗`（已蒸餾）的標記轉換就是
+     「分辨新舊」的機制：merge 後新 append 的 `📎` 行自然落在時間線區
+     之後的卡尾，下輪 scan 再收。
 7. **計畫 / 下一步 + 發想** — update; drop items the new progress resolved.
    **下一步只放「還沒做的事」（hard rule，2026-07-18 教訓）**：
    - 已完成項**不留殼**——連「✅ 已完成」行都不留：其內容的歸宿是 現狀／

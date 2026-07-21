@@ -115,6 +115,25 @@ def scan(cid):
             orphans = find_orphans(cid, title, known_ids=chain_ids)
         except Exception as e:
             orphan_scan_error = str(e)
+    # the permanent timeline must not lose links parked on ORPHAN children
+    # either (a 📎 appended to an old tail during a merge survives as an
+    # orphan via the md5 guard) — scan them alongside the chain, dedup by
+    # log-card id
+    pending_logs, done_logs, _seen_logs = [], [], set()
+    for link_id in chain_ids + [o[0] for o in orphans]:
+        try:
+            _, d = (md5, doc) if link_id == cid else L.read_card(link_id)
+        except Exception:                                    # noqa: BLE001
+            continue
+        p, dn = scan_loglinks(d["content"])
+        for e in p:
+            if e["log"] not in _seen_logs:
+                _seen_logs.add(e["log"])
+                pending_logs.append(e)
+        for e in dn:
+            if e["log"] not in _seen_logs:
+                _seen_logs.add(e["log"])
+                done_logs.append(e)
     appended = [h for h in headings if any(m in h for m in APPENDED_MARKERS)]
     has_brief = any(BRIEF_MARKER in h for h in headings)
     unfolded = _unfolded_analysis(headings)
@@ -126,7 +145,9 @@ def scan(cid):
             "unfolded_analysis": unfolded,
             "chain": chain_ids, "orphans": orphans, "chain_error": chain_error,
             "orphan_scan_error": orphan_scan_error,
+            "pending_logs": pending_logs, "done_logs": done_logs,
             "needs_merge": (bool(appended) or has_brief or bool(unfolded)
+                            or bool(pending_logs)
                             or bool(orphans) or bool(chain_error)
                             or bool(orphan_scan_error)),
             "headings": headings}
@@ -160,6 +181,76 @@ def cardlink(card_id):
 # fresh continuation chain (same sentinel contract as append_card.py).
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "project-card-log"))
 import append_card as AC         # noqa: E402  (LINK_MARK/parse_continuation/config helpers)
+
+
+# ── log timeline（log-as-card 契約, 0.38.0）─────────────────────────────────
+# The chain doubles as a permanent LOG LINK RECORD: 📎 lines are log cards
+# not yet distilled into the body; a merge distills them and REWRITES the
+# line as 📗 under the "📜 log 時間線" H2 — the link itself is never lost.
+_LOGLINK_TEXT_RE = None
+
+
+def loglink_of(n):
+    """Parse one timeline paragraph → {log, date, summary, done} or None.
+    Recognizes BOTH shapes: a sealed real card node, and the bridge's
+    plain-text `[[card:id]]` literal."""
+    import re as _re
+    if n.get("type") != "paragraph":
+        return None
+    txt = L._txt(n).strip()
+    done = txt.startswith(AC.LOG_DONE_MARK)
+    if not done and not txt.startswith(AC.LOG_MARK):
+        return None
+    cid = next(((c.get("attrs") or {}).get("cardId")
+                for c in n.get("content") or [] if c.get("type") == "card"),
+               None)
+    body = txt[len(AC.LOG_MARK):].strip()
+    # L._txt renders a REAL card node as the same [[card:id]] literal a
+    # bridge write leaves as text — strip it from the body either way
+    m = _re.search(r"\[\[card:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\]\]",
+                   body)
+    if not cid:
+        if not m:
+            return None
+        cid = m.group(1)
+    if m:
+        body = body.replace(m.group(0), " ")
+    m = _re.match(r"^(\d{4}-\d{2}-\d{2})", body)
+    date = m.group(1) if m else ""
+    summary = body[m.end():].strip("　 ") if m else body.strip("　 ")
+    return {"log": cid, "date": date, "summary": summary, "done": done}
+
+
+def scan_loglinks(content):
+    """(pending, done) timeline entries across a card's top-level nodes."""
+    pending, done = [], []
+    for n in content or []:
+        e = loglink_of(n)
+        if e:
+            (done if e.pop("done") else pending).append(e)
+    return pending, done
+
+
+def loglink_node(log_id, date, summary, done=True):
+    """Rebuild one timeline line WITH a real card node (never a text
+    literal)."""
+    mark = AC.LOG_DONE_MARK if done else AC.LOG_MARK
+    out = [{"type": "text", "text": f"{mark} {date}　"},
+           {"type": "card", "attrs": {"cardId": log_id}}]
+    if summary:
+        out.append({"type": "text", "text": f"　{summary}"})
+    return {"type": "paragraph", "attrs": {"id": None}, "content": out}
+
+
+def timeline_section(entries):
+    """The permanent record block: H2 + one 📗 line per DISTILLED log card,
+    date-ascending. Feed it every entry ever seen (old 📗 + freshly
+    distilled 📎) — the record only grows."""
+    nodes = [L.h(2, AC.TIMELINE_HEADING)]
+    for e in sorted(entries, key=lambda x: (x.get("date") or "", x["log"])):
+        nodes.append(loglink_node(e["log"], e.get("date", ""),
+                                  e.get("summary", ""), done=True))
+    return nodes
 import json as _json             # noqa: E402
 import subprocess as _sp         # noqa: E402
 

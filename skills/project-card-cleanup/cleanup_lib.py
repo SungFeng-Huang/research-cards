@@ -113,6 +113,16 @@ def emit(C, text, repl=()):
             M.L.add(C, M.L.h(len(m.group(1)), m.group(2)))
             i += 1
             continue
+        lm = re.match(
+            rf"^({re.escape(M.AC.LOG_MARK)}|{re.escape(M.AC.LOG_DONE_MARK)})"
+            rf"\s*(\d{{4}}-\d{{2}}-\d{{2}})?[　\s]*"
+            rf"\[\[card:([0-9a-f-]+)\]\][　\s]*(.*)$", ln.strip())
+        if lm:      # timeline lines rebuild WITH a real card node — the log
+            M.L.add(C, M.loglink_node(   # link record must never degrade
+                lm.group(3), lm.group(2) or "", lm.group(4).strip(),
+                done=lm.group(1) == M.AC.LOG_DONE_MARK))
+            i += 1
+            continue
         cm = re.fullmatch(r"\[\[card:([0-9a-f-]+)\]\]", ln.strip())
         if cm:
             M.L.add(C, M.cardlink(cm.group(1)))

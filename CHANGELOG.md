@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.38.0 — merge learns the log timeline (permanent link record)
+
+- project-card-merge now understands log-as-card chains: `scan` collects
+  📎 lines (log cards not yet distilled — they flag needs_merge, including
+  ones parked on orphan children) and 📗 lines (already distilled). A
+  merge distills each pending log card's content into the body under the
+  existing hard rules, then rewrites its line as 📗 under a permanent
+  `📜 log 時間線` section — the link itself is NEVER lost (think of git
+  history surviving a README update), and log cards are never trashed.
+  The 📎→📗 mark flip is exactly how you tell fresh appends from
+  already-distilled ones; new 📎 lines land after the timeline section
+  and get collected next round.
+- merge_lib gains loglink_of (parses both a sealed card-node line and the
+  bridge's plain-text literal), scan_loglinks, and loglink_node /
+  timeline_section builders that always emit REAL card nodes; cleanup's
+  emit() rebuilds timeline lines with card nodes too, and the timeline is
+  an unconditional KEEP for cleanup (history is not the thing you rebase
+  away).
+
 ## 0.37.0 — log-as-card: the project chain becomes a readable timeline
 
 - project-card-log's default flow changes shape: every log event now

@@ -240,7 +240,9 @@ def seal_backref_paragraphs(nodes, parent_id=None):
     return sealed
 
 
-LOG_MARK = "📎"          # timeline link-line prefix (log-as-card mode)
+LOG_MARK = "📎"          # timeline link-line prefix: NOT yet distilled
+LOG_DONE_MARK = "📗"     # distilled by project-card-merge — link kept forever
+TIMELINE_HEADING = "📜 log 時間線"   # merge collects 📗 lines under this H2
 
 
 def log_link_line(log_id, summary, date_str=None):

@@ -565,5 +565,57 @@ class TestScanSemantics(unittest.TestCase):
         self.assertTrue(M.scan(E)["needs_merge"])
 
 
+LOG1 = "aaaaaaaa-0000-0000-0000-00000000000a"
+
+
+def loglink_sealed(log_id, date, summary, mark="📎"):
+    return {"type": "paragraph", "attrs": {"id": None}, "content": [
+        {"type": "text", "text": f"{mark} {date}　"},
+        {"type": "card", "attrs": {"cardId": log_id}},
+        {"type": "text", "text": f"　{summary}"}]}
+
+
+class TestLogTimeline(TestScanSemantics):
+    def test_loglink_of_both_shapes(self):
+        sealed = M.loglink_of(loglink_sealed(LOG1, "2026-07-21", "一句摘要"))
+        self.assertEqual(sealed, {"log": LOG1, "date": "2026-07-21",
+                                  "summary": "一句摘要", "done": False})
+        literal = M.loglink_of(p(f"📎 2026-07-21　[[card:{LOG1}]]　文字形摘要"))
+        self.assertEqual(literal["log"], LOG1)
+        self.assertEqual(literal["summary"], "文字形摘要")
+        done = M.loglink_of(loglink_sealed(LOG1, "2026-07-20", "已蒸餾", "📗"))
+        self.assertTrue(done["done"])
+        self.assertIsNone(M.loglink_of(p("內文提到 📎 但不是時間線")))
+
+    def test_scan_pending_log_flags_merge_done_does_not(self):
+        # pending 📎 on the tail → needs_merge
+        self._cards({
+            E: {"content": [h(1, "T"), p("body"),
+                            loglink_sealed(LOG1, "2026-07-21", "s")]}})
+        s = M.scan(E)
+        self.assertEqual(len(s["pending_logs"]), 1)
+        self.assertTrue(s["needs_merge"])
+        # only 📗 (already distilled) → record, not a todo
+        self._cards({
+            E: {"content": [h(1, "T"), p("body"),
+                            h(2, "📜 log 時間線"),
+                            loglink_sealed(LOG1, "2026-07-20", "s", "📗")]}})
+        s = M.scan(E)
+        self.assertEqual(len(s["done_logs"]), 1)
+        self.assertFalse(s["pending_logs"])
+        self.assertFalse(s["needs_merge"])
+
+    def test_timeline_section_builds_sorted_done_nodes(self):
+        nodes = M.timeline_section([
+            {"log": LOG1, "date": "2026-07-21", "summary": "後"},
+            {"log": E, "date": "2026-07-18", "summary": "先"}])
+        self.assertEqual(nodes[0]["type"], "heading")
+        self.assertIn("📜", nodes[0]["content"][0]["text"])
+        # date-ascending, each line has a REAL card node + 📗 mark
+        self.assertEqual(nodes[1]["content"][1]["attrs"]["cardId"], E)
+        self.assertTrue(nodes[1]["content"][0]["text"].startswith("📗"))
+        self.assertEqual(nodes[2]["content"][1]["attrs"]["cardId"], LOG1)
+
+
 if __name__ == "__main__":
     unittest.main()

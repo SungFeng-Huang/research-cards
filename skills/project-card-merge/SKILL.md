@@ -1,7 +1,7 @@
 ---
 name: project-card-merge
 description: >-
-  Consolidate a Heptabase research-project card on the Mac: fold the cluster's
+  Consolidate a Heptabase research-project card on the Mac into a STANDALONE full report for the project lead (前情提要 + evolution story + current state — readable without session memory): fold the cluster's
   append-only `📥 cluster 補充/進度` blocks (and any `📝 待補成 paper 級參考`
   brief) into ONE focused, paper-grade, coherent card — update 現狀 to the latest
   state, supersede stale info, keep all paper-grade detail + figures + file
@@ -97,7 +97,19 @@ PM level if you need the nodes; the dumps above are for reading.)
 Rebuild a single coherent card (adapt section names to the project; the two
 existing cards use this arc):
 
-1. **定位** — 一句話目標 + Codebase + 權威紀錄（codebase docs / wandb）+ 母題/子題 card-link.
+**讀者設定（hard rule，同 log 卡總綱）**：merged 卡＝一份**完整報告**，
+讀者是單獨打開這張卡的專案主持人／mentor——不靠 session 記憶、不用
+回翻 log 卡，就能理解專案的整體狀況與進度。無縮寫規則同 log 卡：盡量避免；
+代號首現必展開，整卡反覆使用的代號集中在「定位與前情提要」末尾的
+小詞彙表定義。
+
+1. **定位與前情提要** — 完整報告的開場，三件事：
+   (a) **專案一句話**：目標＋為什麼重要（動機——讀者記得大方向、
+   不記得細節）；
+   (b) **演進故事**（3–6 句，敘事線不是列點，同 overview 卡導讀的
+   寫法）：從起點到現在走過哪幾個階段、每階段的關鍵結論——單獨看
+   這段就知道專案怎麼走到今天；
+   (c) Codebase + 權威紀錄（codebase docs / wandb）+ 母題/子題 card-link.
 2. **現狀（一眼掌握）** — **rewrite to the LATEST state** from the newest `📥` block
    (supersede the old 現狀; note 資料事件/blockers if any).
 3. **進展里程碑（已完成）** — fold in newly-completed milestones (infra changes, runs finished).

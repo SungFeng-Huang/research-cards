@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.42.0 — log/merge cards address the project lead (spec change)
+
+- The writing contract for project-card-log and project-card-merge now
+  names its reader: the project manager / lead / mentor — someone who
+  remembers the project's goal, NOT last week's details, and oversees
+  several projects at once.
+  - A log card is a standalone WEEKLY REPORT: the opening section is now
+    前情提要 (three beats — the project in one sentence; what was
+    established so far, with source links; what this round answers and
+    why now), playing the same role the 先備知識 glossary plays on paper
+    cards. Recurring jargon is defined there as a mini-glossary;
+    one-off abbreviations are expanded in place. Avoid abbreviations
+    where possible at all.
+  - A merged card is a standalone FULL REPORT: 定位 becomes
+    定位與前情提要 — the project in one sentence, then the evolution
+    story (3–6 narrative sentences: the stages the project went through
+    and each stage's key conclusion), then pointers. Same
+    no-abbreviation + glossary rules.
+
 ## 0.41.0 — project canvas: the git graph of a research project
 
 - New `project_canvas.py` (project-card-log): one JSON Canvas per project

@@ -115,6 +115,7 @@ def seal_chain(entry_id, dry_run=False):
         md5, doc = L.read_card(cur)
         nodes = doc["content"]
         n_sealed = AC.seal_sentinel_paragraphs(nodes)
+        n_sealed += AC.seal_loglink_paragraphs(nodes)
         if cur != entry_id:
             n_sealed += AC.seal_backref_paragraphs(nodes, entry_id)
         if n_sealed and not dry_run:

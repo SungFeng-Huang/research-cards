@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.37.0 — log-as-card: the project chain becomes a readable timeline
+
+- project-card-log's default flow changes shape: every log event now
+  becomes its OWN self-contained card (background context, what was done,
+  results with explained metrics, what it means, decisions pending — and a
+  hard no-unexplained-abbreviations rule), while the project chain only
+  gains one human-readable timeline line: 📎 date [[card]] one-sentence
+  summary. The chain reads as a project timeline for handoff (to your
+  future self, across machines, to the paper side); distilling it into
+  the card body remains project-card-merge's job.
+- Mechanics: `append_card.py --log-title/--log-summary`; the timeline
+  line is a top-level paragraph the seal pass rebuilds into a real card
+  node (local CLI seals immediately; the bridge degrades to a
+  repair_chain --seal note, which now also seals timeline lines). The
+  chain is walked BEFORE the card is created (a bridge outage never
+  orphans a log card), and any post-create failure saves a recovery file
+  with the exact repair command. Obsidian keeps its no-cap plain-append
+  contract with filename-accurate wikilinks. The old direct-append mode
+  stays for small mechanical additions and internal flows.
+
 ## 0.36.0 — progress page declutter
 
 - The campaign progress page stays readable at scale (validated on a

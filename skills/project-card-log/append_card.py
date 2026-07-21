@@ -240,6 +240,60 @@ def seal_backref_paragraphs(nodes, parent_id=None):
     return sealed
 
 
+LOG_MARK = "📎"          # timeline link-line prefix (log-as-card mode)
+
+
+def log_link_line(log_id, summary, date_str=None):
+    """One human-readable timeline line for the chain tail. Kept to a single
+    paragraph (NOT a bullet) so the seal pass can rebuild the [[card:…]]
+    literal into a real card node at the top level."""
+    import datetime
+    d = date_str or datetime.date.today().isoformat()
+    return f"\n{LOG_MARK} {d}　[[card:{log_id}]]　{summary}\n"
+
+
+def seal_loglink_paragraphs(nodes):
+    """Convert TEXT-form timeline link lines (📎 date [[card:id]] summary)
+    into real card nodes, keeping the surrounding prose — same split shape
+    as seal_backref_paragraphs. Idempotent; non-📎 paragraphs untouched."""
+    pat = re.compile(r"\[\[card:(" + _UUID + r")\]\]")
+    sealed = 0
+    for n in nodes or []:
+        if n.get("type") != "paragraph":
+            continue
+        kids = n.get("content") or []
+        if any(c.get("type") == "card" for c in kids):
+            continue
+        full = "".join(c.get("text", "") for c in kids
+                       if c.get("type") == "text")
+        if not full.strip().startswith(LOG_MARK):
+            continue
+        for i, c in enumerate(kids):
+            if c.get("type") != "text":
+                continue
+            m = pat.search(c.get("text", ""))
+            if not m:
+                continue
+            marks = c.get("marks")
+            pieces = []
+            before, after = c["text"][:m.start()], c["text"][m.end():]
+            if before:
+                seg = {"type": "text", "text": before}
+                if marks:
+                    seg["marks"] = marks
+                pieces.append(seg)
+            pieces.append({"type": "card", "attrs": {"cardId": m.group(1)}})
+            if after:
+                seg = {"type": "text", "text": after}
+                if marks:
+                    seg["marks"] = marks
+                pieces.append(seg)
+            n["content"] = kids[:i] + pieces + kids[i + 1:]
+            sealed += 1
+            break
+    return sealed
+
+
 def continuation_block(child_id):
     return f"\n\n---\n▶ **{LINK_MARK}**：[[card:{child_id}]]\n"
 
@@ -682,6 +736,92 @@ def append_or_spill(t, entry_id, new_md, dry_run=False):
 
 
 # ---- self-test (pure logic; no network / no CLI) -----------------------------
+def log_card_and_link(t, entry_id, log_title, body, summary,
+                      dry_run=False):
+    """log-as-card mode: every log event is its OWN self-contained card;
+    the chain tail only gains one human-readable timeline line
+    (📎 date [[card]] summary). The chain stays a readable project
+    timeline; the full context lives on the log card."""
+    full_body = (body if body.lstrip().startswith("#")
+                 else f"# {log_title}\n\n{body}")
+    # obsidian: file-backed vault, NO hard cap and no chains — the link line
+    # goes straight onto the entry file (matching main()'s plain-append
+    # contract); wikilink targets the FILENAME (create_card de-dupes
+    # same-titled files to "Title (2)")
+    if t.kind == "obsidian":
+        import datetime
+        if dry_run:
+            return {"entry": entry_id, "tail": entry_id,
+                    "log_card": "<dry-run>", "chain_len": 1, "dry_run": True,
+                    "mode": "log-card",
+                    "note": f"would create log card「{log_title}」+ 時間線行"}
+        log_id, tagged = t.create(log_title, full_body)
+        base = log_id.rsplit("/", 1)[-1]
+        link_md = (f"\n{LOG_MARK} {datetime.date.today().isoformat()}"
+                   f"　[[{base}]]　{summary}\n")
+        try:
+            t.append(entry_id, link_md)
+        except Exception as e:                               # noqa: BLE001
+            rec = os.path.join(tempfile.gettempdir(),
+                               f"research-cards-loglink-{base[:24]}.md")
+            with open(rec, "w") as f:
+                f.write(link_md)
+            sys.exit(f"log 卡 {log_id} 已建立，但時間線行 append 失敗："
+                     f"{str(e)[:200]}。→ 行內容已存 {rec}，恢復後手動補："
+                     f"python3 append_card.py --card {entry_id} "
+                     f"--content-file {rec}（不補則 log 卡成孤兒）")
+        return {"entry": entry_id, "tail": entry_id, "appended_to": entry_id,
+                "overflowed": False, "chain_len": 1, "mode": "log-card",
+                "log_card": log_id, "log_title": log_title,
+                "log_tagged": tagged, "link_sealed": True}
+
+    # walk FIRST: if the bridge is down or the chain is unwalkable we must
+    # find out BEFORE creating the log card (a create followed by a failed
+    # link append would orphan it)
+    tail, chain = walk_to_tail(t, entry_id)
+    if dry_run:
+        return {"entry": entry_id, "tail": tail, "log_card": "<dry-run>",
+                "chain_len": len(chain), "dry_run": True, "mode": "log-card",
+                "note": f"would create log card「{log_title}」+ 時間線行 on {tail}"}
+    log_id, tagged = t.create(log_title, full_body)
+    link_md = log_link_line(log_id, summary)
+
+    def _orphan_exit(reason):
+        rec = os.path.join(tempfile.gettempdir(),
+                           f"research-cards-loglink-{log_id[:8]}.md")
+        with open(rec, "w") as f:
+            f.write(link_md)
+        sys.exit(f"log 卡 {log_id} 已建立，但時間線行落鏈被擋：{reason}。"
+                 f"→ 行內容已存 {rec}，處理完原因後手動補："
+                 f"python3 append_card.py --card {entry_id} "
+                 f"--content-file {rec}（不補則 log 卡 {log_id} 成孤兒）")
+
+    try:
+        rep = append_or_spill(t, entry_id, link_md, dry_run=False)
+    except SystemExit as e:
+        # append_or_spill exits for pending outbox / spill-disabled / link
+        # failures — all AFTER the log card exists. Re-raise with the
+        # orphan-recovery instructions attached.
+        _orphan_exit(e.code if isinstance(e.code, str) else repr(e.code))
+    except Exception as e:                                   # noqa: BLE001
+        _orphan_exit(str(e)[:300])
+    rep.update({"mode": "log-card", "log_card": log_id,
+                "log_title": log_title, "log_tagged": tagged})
+    target = rep.get("appended_to") or rep.get("tail")
+    if t.kind == "heptabase" and target:
+        rep["link_sealed"] = t._seal_card(target, seal_loglink_paragraphs)
+    elif t.kind == "hb":
+        rep["link_sealed"] = False
+        extra = (f"時間線行是文字型（bridge 無 seal loglink）——回 Mac 跑 "
+                 f"repair_chain.py --card {entry_id} --seal 收斂")
+        rep["note"] = f"{rep['note']}；{extra}" if rep.get("note") else extra
+    if not tagged:
+        extra = (f"log 卡 {log_id} 未上 tag（此傳輸層無 tag 能力）——回 Mac "
+                 f"heptabase tag add --card-id {log_id} --tag-name {t.tag}")
+        rep["note"] = f"{rep['note']}；{extra}" if rep.get("note") else extra
+    return rep
+
+
 def _self_test():
     # mark-heavy pathologies must clear the spill threshold (stored ~82-88k)
     assert est_stored_len("**x**" * 2000) > 100000
@@ -689,6 +829,18 @@ def _self_test():
     # ...while a normal bold experiment log must NOT false-trip an 80k threshold
     assert est_stored_len(("**step 1234** loss=0.123 **val** wer=5.6\n" * 155).rstrip()) < 60000
     cid = "12345678-1234-1234-1234-1234567890ab"
+    # log-as-card: timeline line format + sealer
+    line = log_link_line(cid, "一句摘要", "2026-07-21").strip()
+    assert line.startswith(LOG_MARK) and "[[card:" + cid + "]]" in line
+    para = {"type": "paragraph", "attrs": {}, "content": [
+        {"type": "text", "text": line}]}
+    assert seal_loglink_paragraphs([para]) == 1
+    kinds = [c["type"] for c in para["content"]]
+    assert "card" in kinds and kinds[0] == "text", kinds
+    assert seal_loglink_paragraphs([para]) == 0          # idempotent
+    prose = {"type": "paragraph", "attrs": {}, "content": [
+        {"type": "text", "text": f"內文提到 [[card:{cid}]] 但不是時間線行"}]}
+    assert seal_loglink_paragraphs([prose]) == 0         # non-📎 untouched
     assert parse_continuation("no link here") is None
     assert parse_continuation(f"body\n▶ **{LINK_MARK}**：[[card:{cid}]]\n") == cid
     # wrapper-agnostic: pmmd.Converter round-trips the link to %%HEPTA-CARD:<id>%%
@@ -737,6 +889,11 @@ def main():
     ap = argparse.ArgumentParser(description="Append to a project card; spill to a "
                                              "continuation sub-card on overflow.")
     ap.add_argument("--card", help="ENTRY card id (chain head; never a child)")
+    ap.add_argument("--log-title",
+                    help="log-as-card 模式：建立此標題的 self-contained log 卡，"
+                         "鏈尾只 append 一行時間線連結（content＝log 卡內文）")
+    ap.add_argument("--log-summary",
+                    help="時間線行的一句人話摘要（--log-title 模式必填）")
     ap.add_argument("--content", help="markdown, or '-' for stdin")
     ap.add_argument("--content-file", help="read markdown from a file")
     ap.add_argument("--dry-run", action="store_true",
@@ -767,6 +924,13 @@ def main():
 
     cfg = load_cfg()
     t = Transport(detect_transport(cfg), cfg)
+    if args.log_title:
+        if not args.log_summary:
+            ap.error("--log-title 模式需要 --log-summary（時間線行的一句摘要）")
+        out = log_card_and_link(t, args.card, args.log_title, new_md,
+                                args.log_summary, dry_run=args.dry_run)
+        out["transport"] = t.kind
+        return print(json.dumps(out, ensure_ascii=False))
     if t.kind == "obsidian":   # file-backed: no hard cap → always plain append
         if not args.dry_run:
             t.append(args.card, new_md)

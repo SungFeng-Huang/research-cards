@@ -1,6 +1,6 @@
 {
   "name": "research-cards",
-  "version": "0.36.0",
+  "version": "0.37.0",
   "description": "Learn research the Hung-yi Lee way — teaching-style research-card automation: digest emails become teaching cards, topic comparison overviews and a knowledge map, research-project journals, and official BibTeX export. Works with plain .md / Obsidian / Heptabase (bidirectional sync) and Claude Code / Codex.",
   "interface": {
     "displayName": "Research Cards",

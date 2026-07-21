@@ -1,14 +1,17 @@
 ---
 name: project-card-log
 description: >-
-  From a project-wise cluster session, find THIS project's Heptabase card and
-  enrich it from the local codebase — fill the card's "📝 待補成 paper 級參考"
-  brief (Method / Experiments / Findings / Figures) with evidenced detail, and
-  log new experiment results. Auto-resolves which card via a per-repo
-  .heptabase-card marker, then a registry (projects.json), then `hb search`. Use
-  when the user says 補卡 / 記實驗 / update my Heptabase project card / 把進度寫進
-  Heptabase / enrich the project card for paper writing. Transport: local `heptabase` CLI when
-  available (Mac, desktop app), else the `hb` bridge (remote sessions over SSH).
+  From a project-wise session, find THIS project's Heptabase card and log
+  progress as SELF-CONTAINED log cards: each log event becomes its own card
+  (background context, what was done, results, what it means, decisions
+  pending — no unexplained abbreviations), and the project chain only gains
+  one human-readable timeline line (📎 date [[card]] one-sentence summary) —
+  the chain stays a readable project timeline for handoff (to the user, to
+  the Mac, to the paper side). Auto-resolves which card via a per-repo
+  .heptabase-card marker, then a registry (projects.json), then search. Use
+  when the user says 補卡 / 記實驗 / log progress / 記進度 / handoff 實驗進度 /
+  update my Heptabase project card / 把進度寫進 Heptabase. Transport: local
+  `heptabase` CLI when available (Mac), else the `hb` bridge (remote over SSH).
 allowed-tools: Bash(hb:*) Bash(heptabase:*) Bash(python3 *) Bash(git *) Bash(rg *) Bash(grep *) Bash(ls *) Bash(cat *) Read
 ---
 
@@ -101,13 +104,62 @@ baselines, design rationale (the WHY), figure sources.
   can't be found, write it as `（待確認：…）` rather than inventing it.
 - Keep model/metric/config names verbatim; numbers exact.
 
-## Step 4 — Append the enrichment（overflow-safe）
-Append one dated, brief-aligned section (Markdown) via **`append_card.py`** —
-group under the same headings the brief uses so it's paper-ready. The helper
-walks the card **續卡 chain** to the current tail and appends there:
+## Step 4 — 寫進度：log-as-card（預設）
+
+**每次 log＝建立一張 self-contained 的新 log 卡，鏈尾只 append 一行時間線
+連結**——專案卡鏈保持成一條**人看得懂的時間線**（一行一事件），完整脈絡
+住在 log 卡上；把時間線蒸餾回正文是 project-card-merge 的事。
+
+```bash
+python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> \
+    --log-title "<專案短名>｜<一句主題>（YYYY-MM-DD）" \
+    --log-summary "<一句人話摘要——不用代號>" \
+    --content-file log_body.md
+```
+
+鏈尾長出的一行：`📎 2026-07-21　[[card:<log卡>]]　<一句人話摘要>`
+（Mac 直連會自動 seal 成可點的卡片節點；bridge 端是文字型——輸出的
+`note` 會提醒回 Mac 跑 `repair_chain.py --card <ENTRY> --seal` 收斂。）
+
+### log 卡寫作規格（handoff 的 hard rules——寫給「兩週後的人」看）
+
+1. **無縮寫**：任何代號／縮寫**首次出現必須展開或一句話解釋**——
+   「E0（＝baseline 訓練、無 curriculum）」「RTF（real-time factor，
+   越低越快）」。第二次以後可直接用。
+2. **背景脈絡先行**（2–4 句）：接續哪個先前結果、這次要回答什麼問題、
+   為什麼現在做。讀者沒有你的 session 記憶。
+3. **結構模板**：
+
+   ```markdown
+   # <專案短名>｜<一句主題>（YYYY-MM-DD）
+
+   **專案**：[[card:<ENTRY_ID>]]　**環境**：<cluster host／Mac>　**代碼**：<repo>@<short-sha>
+
+   ## 背景脈絡
+   （2–4 句，無縮寫——接續什麼、要回答什麼）
+   ## 做了什麼
+   ## 結果
+   （數字表格；每個指標一句「這個數字是什麼、越高還越低好」）
+   ## 這代表什麼
+   （對專案的意義，1–3 句）
+   ## 待裁決／下一步
+   （需要使用者拍板的事**逐條列**，每條含裁決選項與你的建議）
+   ```
+
+4. **--log-summary 用人話**：時間線行是使用者掃鏈時唯一看到的字——
+   「課程學習讓 val loss 再降 8%，但推理變慢待裁決」勝過「E3 done」。
+
+- `--card` 一律傳 **Step 1 的 ENTRY 卡**（母卡）；script 沿鏈走到 tail。
+- `--dry-run` 先看計畫（不建卡、不寫入）。
+- 離線（bridge down）會 fail-fast 不建孤兒卡；create 成功但 link 失敗時
+  會存 recovery 檔並印補救指令。
+
+### 舊模式：直接 append 段落（相容保留）
+
+小型機械性補充（不值一張卡的一兩行）仍可直接 append；campaign step 7
+等內部流程也還走這條：
 ```bash
 python3 <此 skill 目錄>/append_card.py --card <ENTRY_CARD_ID> --content-file section.md
-# 或 pipe： printf '## 📥 cluster 補充 …' | python3 <…>/append_card.py --card <ENTRY_CARD_ID> --content -
 ```
 - `--card` 一律傳 **Step 1 的 ENTRY 卡**（母卡）。script 自己沿鏈走到 tail——**絕不傳子卡 id**。
 - **卡沒滿**（常態）：`overflowed:false` → 內容直接 append 到 tail。

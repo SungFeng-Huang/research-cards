@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.43.1 — canvases get their own folder
+
+- Project canvases now live in `<projects folder>/Canvas/` (they are
+  generated views, not cards) — overridable via
+  `local.folders.project_canvas`. config.example also documents the
+  optional `progress` mirror collection (log cards → vault, making
+  canvas nodes clickable).
+
+## 0.43.0 — canvas: color by origin machine + true chronological order
+
+- `project_canvas.py --color-by origin` recolors log cards by which
+  machine's session wrote them — Mac = cyan ("5"), cluster = yellow
+  ("3"), undeterminable = gray — the machine axis of a handoff, next to
+  the default distillation axis (`state`: 📎 orange / 📗 green, still
+  the default). Origin is sniffed from the log card's opening lines
+  only (first 800 chars, so body prose QUOTING the patterns can't flip
+  it): the weekly-report `**環境**：<host>` field first (0.42.0 spec;
+  a value naming the Mac wins as mac, any other non-empty value is a
+  remote host → cluster), else the retro-split provenance line
+  `原段：📥 Mac 補充…` / `📥 cluster 補充/進度…`. Reads go through the
+  mirrored vault file when available (no CLI round-trip), else one CLI
+  read; unreadable → gray. Config default:
+  `heptabase.collections.projects.canvas_color_by` (CLI flag wins);
+  distillation state stays readable in origin mode via the 📎/📗 mark
+  on unmirrored text nodes, and the report gains `color_by` +
+  `origins` counts.
+- Log nodes now stack in TRUE chronological order: sort key is
+  (date, append position in the chain scan) instead of (date, log-card
+  uuid) — same-day logs used to land in effectively random uuid order.
+  Timeline lines are appended in time order, so scan position IS the
+  intra-day timestamp; callers can pass an explicit `seq` to override.
+
 ## 0.42.0 — log/merge cards address the project lead (spec change)
 
 - The writing contract for project-card-log and project-card-merge now
@@ -50,7 +82,6 @@
   their "belongs to <entry>" edge with no code change (`log_related`).
 - Output gains `log_tag`; untagged-log recovery notes quote the log tag.
 
-||||||| parent of 2d5315d (release: 0.39.0 — project canvas（專案的 git graph 視圖）)
 ## 0.39.0 — spill children carry their own provenance (tag + entry relation)
 
 - Continuation children and log cards created over the hb bridge are now

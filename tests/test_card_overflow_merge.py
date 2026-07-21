@@ -616,6 +616,31 @@ class TestLogTimeline(TestScanSemantics):
         self.assertTrue(nodes[1]["content"][0]["text"].startswith("📗"))
         self.assertEqual(nodes[2]["content"][1]["attrs"]["cardId"], LOG1)
 
+    def test_timeline_section_same_date_keeps_input_order(self):
+        # stable sort on date ONLY: same-day lines keep scan (=append=time)
+        # order. LOG1's uuid sorts BEFORE E's — the old uuid tiebreak would
+        # flip this pair.
+        nodes = M.timeline_section([
+            {"log": E, "date": "2026-07-19", "summary": "上午"},
+            {"log": LOG1, "date": "2026-07-19", "summary": "下午"}])
+        self.assertEqual(nodes[1]["content"][1]["attrs"]["cardId"], E)
+        self.assertEqual(nodes[2]["content"][1]["attrs"]["cardId"], LOG1)
+
+    def test_scan_assigns_traversal_seq(self):
+        # seq numbers the unified walk (done in the timeline section first,
+        # then trailing pendings) — same-day canvas ordering hangs off it
+        LOG2 = "aaaaaaaa-0000-0000-0000-00000000000b"
+        self._cards({
+            E: {"content": [h(1, "T"), p("body"),
+                            h(2, "📜 log 時間線"),
+                            loglink_sealed(LOG1, "2026-07-19", "早", "📗"),
+                            loglink_sealed(LOG2, "2026-07-19", "晚"),
+                            loglink_sealed(E, "2026-07-20", "更晚")]}})
+        s = M.scan(E)
+        self.assertEqual([e["seq"] for e in s["done_logs"]], [0])
+        self.assertEqual([e["seq"] for e in s["pending_logs"]], [1, 2])
+        self.assertEqual([e["log"] for e in s["pending_logs"]], [LOG2, E])
+
 
 if __name__ == "__main__":
     unittest.main()

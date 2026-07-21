@@ -119,21 +119,24 @@ def scan(cid):
     # either (a 📎 appended to an old tail during a merge survives as an
     # orphan via the md5 guard) — scan them alongside the chain, dedup by
     # log-card id
+    # each entry carries `seq` = its position in the unified traversal
+    # (chain order, then document order) — timeline lines are appended in
+    # time order, so seq IS the intra-day timestamp consumers (the project
+    # canvas) sort by; the per-state buckets alone lose that interleave
     pending_logs, done_logs, _seen_logs = [], [], set()
+    _seq = 0
     for link_id in chain_ids + [o[0] for o in orphans]:
         try:
             _, d = (md5, doc) if link_id == cid else L.read_card(link_id)
         except Exception:                                    # noqa: BLE001
             continue
-        p, dn = scan_loglinks(d["content"])
-        for e in p:
-            if e["log"] not in _seen_logs:
-                _seen_logs.add(e["log"])
-                pending_logs.append(e)
-        for e in dn:
-            if e["log"] not in _seen_logs:
-                _seen_logs.add(e["log"])
-                done_logs.append(e)
+        for done_flag, e in scan_loglinks_ordered(d["content"]):
+            if e["log"] in _seen_logs:
+                continue
+            _seen_logs.add(e["log"])
+            e["seq"] = _seq
+            _seq += 1
+            (done_logs if done_flag else pending_logs).append(e)
     appended = [h for h in headings if any(m in h for m in APPENDED_MARKERS)]
     has_brief = any(BRIEF_MARKER in h for h in headings)
     unfolded = _unfolded_analysis(headings)
@@ -221,13 +224,22 @@ def loglink_of(n):
     return {"log": cid, "date": date, "summary": summary, "done": done}
 
 
-def scan_loglinks(content):
-    """(pending, done) timeline entries across a card's top-level nodes."""
-    pending, done = [], []
+def scan_loglinks_ordered(content):
+    """[(done_flag, entry), …] in DOCUMENT order across a card's top-level
+    nodes — the order timeline lines were appended, i.e. time order."""
+    out = []
     for n in content or []:
         e = loglink_of(n)
         if e:
-            (done if e.pop("done") else pending).append(e)
+            out.append((e.pop("done"), e))
+    return out
+
+
+def scan_loglinks(content):
+    """(pending, done) timeline entries across a card's top-level nodes."""
+    pending, done = [], []
+    for done_flag, e in scan_loglinks_ordered(content):
+        (done if done_flag else pending).append(e)
     return pending, done
 
 
@@ -245,9 +257,11 @@ def loglink_node(log_id, date, summary, done=True):
 def timeline_section(entries):
     """The permanent record block: H2 + one 📗 line per DISTILLED log card,
     date-ascending. Feed it every entry ever seen (old 📗 + freshly
-    distilled 📎) — the record only grows."""
+    distilled 📎) — the record only grows. The sort is STABLE on date
+    alone: same-day lines keep their input (scan/traversal = append/time)
+    order — a uuid tiebreak would shuffle a day's history."""
     nodes = [L.h(2, AC.TIMELINE_HEADING)]
-    for e in sorted(entries, key=lambda x: (x.get("date") or "", x["log"])):
+    for e in sorted(entries, key=lambda x: x.get("date") or ""):
         nodes.append(loglink_node(e["log"], e.get("date", ""),
                                   e.get("summary", ""), done=True))
     return nodes

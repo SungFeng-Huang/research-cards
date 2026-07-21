@@ -42,6 +42,7 @@
         "tag_id": "<tag-uuid>",
         "tag_name": "study/overview"
       },
+      "$progress_comment": "選配 collection：log-as-card 的 log 卡鏡像。加一個 progress 條目（tag_id=project/progress tag 的 uuid、tag_name=project/progress）＋ local.folders.progress，log 卡就會鏡像進 vault（canvas 節點變可點的 file 節點）。",
       "projects": {
         "$comment": "project 方向用：hub_card=Research-Projects hub（其 card mentions=各專案卡）；tag_name=自動建卡時上的 tag（create_project_card.py）。 tag_id 選填：填上 project tag 的 uuid 後，heptabase-sync 會把 project 卡也鏡像成一個 collection（放進 obsidian.folders.projects，預設 Projects/）；不填則此條目只作為 project 方向的 metadata、sync 略過。",
         "hub_card": "<research-projects-hub-card-uuid>",
@@ -52,6 +53,8 @@
         "relation_property": "project",
         "$log_tag_comment": "log_tag_name 選填：log-as-card 建的 log 卡出生掛的 tag；留 <占位> 或刪掉本鍵＝預設「tag_name 的 child tag」（tag_name=project → project/progress；log 卡自成一族、不淹沒 project tag 掃描；0.40.0 起）。設成與 tag_name 相同可恢復舊行為。relation 查的是這個 tag 自己的 schema——在 app 給它加同名 relation property 即自動帶 entry 歸屬。",
         "log_tag_name": "<optional-log-tag-name>",
+        "$canvas_comment": "canvas_color_by 選填：project canvas log 卡的顏色軸——state（📎橙＝待蒸餾／📗綠＝已蒸餾，預設）或 origin（寫 log 的 session 在哪台機器：Mac=cyan／cluster=yellow／判不出=灰；讀 log 卡的 環境 欄或回溯卡 原段 行）。CLI --color-by 蓋過本鍵。",
+        "canvas_color_by": "<state-or-origin>",
         "char_cap": 100000,
         "spill_threshold": 80000,
         "overflow_spill": true
@@ -90,7 +93,8 @@
     "folders": {
       "papers": "Papers",
       "overviews": "Overviews",
-      "projects": "Projects"
+      "projects": "Projects",
+      "$comment": "選配鍵：progress＝log 卡（project/progress tag）鏡像資料夾（搭配 heptabase.collections.progress 條目啟用）；project_canvas＝專案 git-graph canvas 的輸出資料夾（預設 <projects>/Canvas）。"
     },
     "graph": {
       "$comment": "overview-graph 用（obsidian 模式）。canvas=知識地圖（JSON Canvas，工具只加節點不動你的排版）；root_card=📚 目錄卡的 id（Folder/Name）；canvas_optional=允許不在地圖上的卡 id。",

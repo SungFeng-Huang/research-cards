@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.54.0 — timeline legend + full-text logs leaves
+
+- The timeline canvas gains its legend node (origin-mode lines by
+  default: entry-as-HEAD, Mac/cluster colors, 📎/📗 marks; a state-mode
+  variant when --color-by state) — the last legend-less view.
+- logs-mode mind map leaves now show their FULL text: extraction limits
+  lifted (4000 chars) and leaf nodes auto-size to wrapped content
+  (display-unit row estimate, clamped) — no more mid-sentence 「…」.
+
+
+## 0.53.1 — wiki-demo: readable type + fully localized images
+
+- canvas2html gains scale-compensated typography: the EFFECTIVE on-image
+  font stays ~18px however far a canvas is scaled down (edge-label pills
+  size along). gen_wiki_demo post-processes each demo canvas per
+  language: legend/glossary/audit nodes dropped, degradation/card-id
+  noise lines stripped, and the builder's Chinese leaf headers translated
+  — a non-Chinese page's image now contains no Chinese.
+
+
+## 0.53.0 — wiki-demo tool: the wiki's example images, rendered by the real engine
+
+- New `skills/project-card-canvas/tools/wiki_demo/`: `gen_wiki_demo.py`
+  renders ALL four canvas views (timeline / logs / chain / story) for a
+  synthetic fictional project through the REAL layout builders — fidelity
+  by construction — one PNG set per language (en/zh-TW/ja/ko, 16 images),
+  via the bundled `canvas2html.py` (JSON Canvas → SVG) + headless Chrome.
+  Mermaid sketches are retired from the wiki: nested-direction and
+  cross-subgraph anchoring limits make chain/story geometry inexpressible,
+  and the unified real-render look wins for the rest. Builder-baked UI
+  strings (legend, leaf headers, 幕) stay Chinese — that is what the
+  product renders; demo content is translated per language.
+
+
 ## 0.52.1 — workflow rule: note-sync brackets the card-chain skills
 
 - New hard rule across the four chain skills (user request, after two

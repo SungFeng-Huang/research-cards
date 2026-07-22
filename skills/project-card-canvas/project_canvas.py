@@ -61,6 +61,20 @@ CHILD_W, CHILD_H = 260, 90
 COLOR_PENDING, COLOR_DONE, COLOR_ENTRY = "2", "4", "6"
 COLOR_MAC, COLOR_CLUSTER = "5", "3"
 
+TL_LEGENDS = {   # timeline 圖例（色塊 emoji ≈ palette；依 color_by 選款）
+    "origin": ["🟪 entry（HEAD→最新 📗）", "🟦 Mac 端", "🟨 cluster 端",
+               "⬜ 判不出來源", "📎 待蒸餾（HEAD 上方）／📗 已蒸餾"],
+    "state": ["🟪 entry（HEAD→最新 📗）", "🟧 📎 待蒸餾", "🟩 📗 已蒸餾"],
+}
+
+
+def tl_legend_node(entry_id, color_by):
+    lines = TL_LEGENDS.get(color_by) or TL_LEGENDS["origin"]
+    h = 64 + 30 * len(lines)
+    return {"id": _nid(entry_id, "legend"), "x": 0, "y": -(h + 48),
+            "width": 340, "height": h, "type": "text",
+            "text": "**圖例**\n" + "\n".join(lines)}
+
 # origin signals live in the log card's OPENING lines (title + header /
 # retro-split provenance); cap the scan so prose QUOTING one of these
 # patterns deeper in the body can never flip a card's origin
@@ -148,6 +162,7 @@ def build_canvas(entry_id, entry_title, chain_ids, entries, vault_file_of,
                    else head_row * (NODE_H + GAP) + (NODE_H - ENTRY_H) // 2)
 
     entry_file = vault_file_of(entry_id)
+    nodes.append(tl_legend_node(entry_id, color_by))
     entry_node = {"id": _nid(entry_id), "x": entry_x, "y": entry_y,
                   "width": NODE_W, "height": ENTRY_H, "color": COLOR_ENTRY}
     if entry_file:

@@ -287,6 +287,16 @@ def topo_order(logs, cites):
 
 
 
+def leaf_height(text, width=LEAF_W):
+    """Full-text leaves: estimate wrapped rows from display units（CJK≈2）
+    at ~16px Obsidian body type and size the node to fit — no more
+    mid-sentence 「…」. Clamped to keep pathological blobs bounded."""
+    units = _disp_units(text or "")
+    per_row = max(20, (width - 28) // 9)     # ≈ 半形字元寬 9px
+    rows = max(1, -(-units // per_row)) + (text or "").count("\n")
+    return max(120, min(52 + 26 * rows, 900))
+
+
 def build_mindmap(entry_id, entry_title, logs, decomp, vault_file_of,
                   limit=None):
     """Pure assembly, logs mode — v2 layout: log hubs run HORIZONTALLY
@@ -337,9 +347,10 @@ def build_mindmap(entry_id, entry_title, logs, decomp, vault_file_of,
         y = HUB_H + 40
         prev = None
         for j, (label, color, text) in enumerate(leaves_of(cid)):
+            lh = leaf_height(text)          # 全文顯示：高度隨內容
             n = {"id": PCV._nid(cid, f"mm-leaf{j}"),
                  "x": x + (HUB_W - LEAF_W) // 2, "y": y,
-                 "width": LEAF_W, "height": LEAF_H, "type": "text",
+                 "width": LEAF_W, "height": lh, "type": "text",
                  "text": f"**{label}**\n{text}"}
             if color:
                 n["color"] = color
@@ -349,7 +360,7 @@ def build_mindmap(entry_id, entry_title, logs, decomp, vault_file_of,
                           "fromSide": "bottom",
                           "toNode": n["id"], "toSide": "top"})
             prev = n["id"]
-            y += LEAF_H + VGAP
+            y += lh + VGAP
     for cid in order:
         p = parent_of[cid]
         if p is not None:
@@ -870,11 +881,11 @@ def decompose(cid, in_set, M):
             continue                      # synthesized below, not an H2
         nodes = section_named(secs, key)
         if nodes:
-            t = leaf_text(nodes, M.L._txt)
+            t = leaf_text(nodes, M.L._txt, limit=4000)
             if t and not any(lbl == label for lbl, _, _ in sections):
                 sections.append((label, color, t))
     return {"title": topic,
-            "question": question_of(pre, M.L._txt),
+            "question": question_of(pre, M.L._txt, limit=4000),
             "sections": sections,
             "cites": citations_of(pre, M.L._txt, in_set, cid)}
 

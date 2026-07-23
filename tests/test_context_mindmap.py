@@ -760,6 +760,95 @@ class TestStoryCoverage(unittest.TestCase):
 
 
 import json  # noqa: E402  (used by TestStoryMode.test_graph_validation)
+import tempfile  # noqa: E402
+
+
+class TestModeDetectAndResolve(unittest.TestCase):
+    """A bare re-run EXTENDS the existing canvas in its own mode instead
+    of resetting to logs — detect_existing_mode / resolve_render_mode."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="cm-mode-")
+        self.canvas = os.path.join(self.tmp, "軸卡·脈絡心智圖.canvas")
+        self.graph = os.path.join(self.tmp, "軸卡·脈絡心智圖.graph.json")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_legend(self, mode):
+        leg = CM.legend_node(E, mode, 0)
+        json.dump({"nodes": [leg], "edges": []},
+                  open(self.canvas, "w"), ensure_ascii=False)
+
+    def test_none_when_no_canvas(self):
+        self.assertIsNone(CM.detect_existing_mode(self.canvas, E))
+
+    def test_legend_is_authoritative_over_stale_graph(self):
+        # story→chain/logs switch leaves .graph.json behind; the LEGEND
+        # (rewritten each render) is the source of truth, so a lingering
+        # graph must NOT drag detection back to story
+        self._write_legend("logs")
+        json.dump({"nodes": []}, open(self.graph, "w"))
+        self.assertEqual(CM.detect_existing_mode(self.canvas, E), "logs")
+
+    def test_legend_signatures_per_mode(self):
+        for mode in ("logs", "chain", "story"):
+            self._write_legend(mode)          # no graph.json sibling
+            self.assertEqual(
+                CM.detect_existing_mode(self.canvas, E), mode,
+                f"{mode} legend misread")
+
+    def test_foreign_canvas_is_none(self):
+        json.dump({"nodes": [{"id": "x", "type": "text", "text": "手排的"}],
+                   "edges": []}, open(self.canvas, "w"))
+        self.assertIsNone(CM.detect_existing_mode(self.canvas, E))
+
+    def test_resolve_explicit_mode_wins(self):
+        self._write_legend("chain")
+        self.assertEqual(
+            CM.resolve_render_mode(E, "logs", None, self.canvas, self.graph),
+            ("logs", None, False))
+
+    def test_resolve_graph_implies_story(self):
+        self.assertEqual(
+            CM.resolve_render_mode(E, None, "g.json", self.canvas, self.graph),
+            ("story", "g.json", False))
+
+    def test_resolve_extends_detected_mode(self):
+        self._write_legend("chain")
+        self.assertEqual(
+            CM.resolve_render_mode(E, None, None, self.canvas, self.graph),
+            ("chain", None, True))
+
+    def test_resolve_story_auto_adopts_graph(self):
+        self._write_legend("story")
+        json.dump({"nodes": []}, open(self.graph, "w"))
+        mode, graph, ext = CM.resolve_render_mode(
+            E, None, None, self.canvas, self.graph)
+        self.assertEqual((mode, ext), ("story", True))
+        self.assertEqual(graph, self.graph)
+
+    def test_resolve_story_without_graph_raises(self):
+        self._write_legend("story")           # story legend, graph.json gone
+        with self.assertRaises(ValueError):
+            CM.resolve_render_mode(E, None, None, self.canvas, self.graph)
+
+    def test_resolve_switched_away_from_story_extends_new_mode(self):
+        # P1 regression: build story (graph.json exists) → switch to chain
+        # (legend now chain, graph.json lingers) → bare re-run must extend
+        # CHAIN, not snap back to story on the stale graph
+        self._write_legend("chain")
+        json.dump({"nodes": []}, open(self.graph, "w"))
+        self.assertEqual(
+            CM.resolve_render_mode(E, None, None, self.canvas, self.graph),
+            ("chain", None, True))
+
+    def test_resolve_fresh_is_logs(self):
+        self.assertEqual(
+            CM.resolve_render_mode(E, None, None, self.canvas, self.graph),
+            ("logs", None, False))
+
 
 if __name__ == "__main__":
     unittest.main()

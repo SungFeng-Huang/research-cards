@@ -26,13 +26,25 @@ allowed-tools: Bash(python3 *) Bash(heptabase:*) Bash(ls *) Bash(cat *) Read Wri
 | 視圖 | 檔案 | 指令 |
 |---|---|---|
 | 時間線（git graph） | `<專案>.canvas` | `project_canvas.py --card <ENTRY>` |
-| 心智圖 logs 模式 | `<專案>·脈絡心智圖.canvas` | `context_mindmap.py --card <ENTRY>` |
+| 心智圖（沿用既有模式擴充） | `<專案>·脈絡心智圖.canvas` | `context_mindmap.py --card <ENTRY>` |
+| 心智圖 logs 模式（新建/切換） | 同上（共用檔） | `context_mindmap.py --card <ENTRY> --mode logs` |
 | 心智圖 chain 模式 | 同上（共用檔） | `context_mindmap.py --card <ENTRY> --mode chain` |
 | 心智圖 story 模式 | 同上（共用檔） | `context_mindmap.py --card <ENTRY> --mode story --graph <graph.json>` |
 
 輸出資料夾＝`<vault>/<projects>/Canvas/`（config
 `local.folders.project_canvas` 可覆蓋）。三種心智圖模式共用一個 canvas
-檔（一專案一張脈絡圖；切模式＝整圖重建）；canvas 左上皆有色彩圖例節點。
+檔（一專案一張脈絡圖）；canvas 左上皆有色彩圖例節點。
+
+**裸跑 `context_mindmap.py --card <ENTRY>`（不給 `--mode`）＝就地擴充**
+既有 canvas：讀 canvas 的**圖例節點文字**判斷它現在是哪個模式
+（logs／chain／story——圖例每次 render 都重寫，必然反映當前模式）並用
+**同模式**重生——生成式視圖的節點 id 是確定性的，重生本質上就是「加進
+新內容、既有節點不動」，所以刷新永遠不會把 chain／story 卡洗回 logs。
+偵測到是 story 卡時才自動接上同名 `.graph.json`（不用再手打 `--graph`）；
+反過來說，story 切成 chain／logs 後即使殘留舊 `.graph.json`，圖例已改、
+不會被硬拉回 story。**沒有既有 canvas → logs**（首建）；**明確給
+`--mode X` ＝切換模式**（report 的 `extended` 欄：`true`＝沿用擴充／
+`false`＝明確指定或首建）。
 
 ## 怎麼選視圖
 
@@ -146,9 +158,15 @@ python3 <此 skill 目錄>/context_mindmap.py --card <ENTRY> --mode story \
   python3 <plugin 的 skills/note-sync 目錄>/sync.py   # 全鏈；趕時間至少 --mode heptabase
   ```
 - `project-card-log` 寫完 log、`project-card-merge` 整併完 → 重跑
-  **時間線**（HEAD 貼點/鏈型會變）；story 模式跑 `--dry-run` 稽核 →
-  按上節循環擴充 graph → 重渲染。
+  **時間線**（HEAD 貼點/鏈型會變）＋**裸跑心智圖**（`context_mindmap.py
+  --card <ENTRY>`，不帶 `--mode`）就地擴充既有那張——不用記它是 story
+  還是 chain/logs，偵測到什麼就沿用什麼。story 卡則先 `--dry-run` 看
+  coverage 稽核 → 按上節循環擴充 graph JSON → 再裸跑重渲染。
 - cluster 端無 vault：跳過，回 Mac 再刷。
+- 啟用 cluster project-log handoff 時，Mac drainer 會由
+  `project-card-log/post_log_sync.py` 在 repair＋note-sync 成功後自動跑
+  timeline 與裸跑心智圖；同一批 entry 會去重。story graph 的 coverage
+  會照常稽核，但新增語義節點仍是 agent 工作，純 hook 不猜研究敘事。
 
 ## 已知邊界
 

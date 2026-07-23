@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.56.0 — cluster project logs auto-converge on the Mac
+
+- `project-card-log` now writes a durable semantic event after an `hb` log card
+  and its timeline link both succeed. The event carries the entry, log, and
+  actual timeline-tail card ids plus a failed-spill-seal flag, so a Mac can
+  repair exactly the two text-form link locations without sweeping every
+  project, while still invoking the canonical chain walker when the old tail's
+  continuation edge needs recovery.
+- New `project-card-log/post_log_sync.py` atomically consumes the Mac inbox,
+  coalesces repeated projects/cards, and enforces the safe pipeline:
+  pinpoint `project-card-repair` → one batch `note-sync` → each entry's timeline
+  canvas + bare existing-mode mind map. Any command failure, malformed report,
+  per-card repair error, or note-sync conflict requeues the idempotent batch.
+  Invalid events are quarantined separately.
+- The handoff remains honest about story mode: the existing graph is rendered
+  and coverage gaps surface, but a mechanical hook never invents semantic
+  narrative nodes.
+- The companion `heptabase-ssh-bridge` drainer can now pull the sibling project
+  event queue even when ordinary writes landed online, fsync it locally before
+  remote ACK, wait behind failed older writes, and invoke an optional
+  dependency-capable Python hook.
+- Tests cover durable queue shape, batch order/coalescing, conflict and canvas
+  retry, invalid-event quarantine, online-write event pulling, write-before-
+  event ordering, and hook invocation.
+
+## 0.55.0 — mind map: a bare re-run EXTENDS the existing canvas (never resets to logs)
+
+- `context_mindmap.py --card <ENTRY>` with no `--mode` now detects the
+  existing mind-map canvas's mode and regenerates IN THAT MODE — since
+  node ids are deterministic, that regeneration is additive (an "extend"),
+  so refreshing a chain/story canvas no longer silently rewrites it as a
+  logs canvas. Mode is read from the canvas's legend node (rewritten on
+  every render → always reflects the current mode; its lines are
+  mode-distinct), so an explicit `--mode` switch persists even though the
+  old story `.graph.json` lingers on disk. A detected-story canvas then
+  auto-adopts that sibling `.graph.json` (no need to re-type `--graph`).
+  No canvas yet → logs (fresh); an explicit `--mode X` still switches. The
+  render report gains `extended` (true = reused the detected mode, false =
+  explicit/fresh).
+- `--mode` default flips from `logs` to None (unset → resolve); resolution
+  lives in `resolve_render_mode()` (pure, tested), detection in
+  `detect_existing_mode()`. A detected-story canvas whose `.graph.json`
+  went missing raises a clear ask for `--graph`/`--mode` instead of
+  clobbering it as logs.
+- Version catch-up: plugin manifests had lagged at 0.52.1 while the
+  CHANGELOG reached 0.54.0 (0.53/0.54 bumped the log, not the manifest);
+  both manifests jump to 0.55.0 here.
+- Docs: canvas SKILL view table + refresh timing, and project-card-log's
+  mind-map bullet, now describe bare-run = extend.
+
 ## 0.54.0 — timeline legend + full-text logs leaves
 
 - The timeline canvas gains its legend node (origin-mode lines by

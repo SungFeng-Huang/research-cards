@@ -44,10 +44,16 @@ Written next to the timeline canvas as `<title>·脈絡心智圖.canvas`
 
 Mac-only (reads the chain via the local heptabase CLI).
 
+A bare re-run (no --mode) EXTENDS whatever canvas already exists — it
+re-detects the current mode (chain/story/logs) and regenerates in place
+(deterministic ids → additive), so refreshing never resets a chain/story
+canvas back to logs; a story canvas auto-adopts its sibling graph JSON.
+No canvas yet → logs. An explicit --mode switches modes.
+
 Usage:
-    python3 context_mindmap.py --card <ENTRY_ID>            # full map
+    python3 context_mindmap.py --card <ENTRY_ID>            # extend existing (logs if none)
     python3 context_mindmap.py --card <ENTRY_ID> --limit 1  # earliest only
-    python3 context_mindmap.py --card <ENTRY_ID> --mode chain
+    python3 context_mindmap.py --card <ENTRY_ID> --mode chain    # switch mode
     python3 context_mindmap.py --card <ENTRY_ID> --mode story --graph g.json
     python3 context_mindmap.py --card <ENTRY_ID> --dry-run
 """
@@ -890,7 +896,72 @@ def decompose(cid, in_set, M):
             "cites": citations_of(pre, M.L._txt, in_set, cid)}
 
 
-def render(entry_id, limit=None, dry=False, mode="logs", graph=None):
+def mindmap_paths(cfg, title):
+    """(out_dir, canvas_path, graph_path) for a project's mind map —
+    generated views live in <projects>/Canvas (override
+    local.folders.project_canvas); the story graph JSON sits beside the
+    canvas as <title>·脈絡心智圖.graph.json."""
+    folders = cfg["obsidian"].get("folders") or {}
+    canvas_folder = folders.get("project_canvas") or os.path.join(
+        folders.get("projects", "Projects"), "Canvas")
+    out_dir = os.path.join(cfg["obsidian"]["vault"], canvas_folder)
+    stem = os.path.join(out_dir, f"{PCV.safe_filename(title)}·脈絡心智圖")
+    return out_dir, stem + ".canvas", stem + ".graph.json"
+
+
+def detect_existing_mode(canvas_path, entry_id):
+    """Mode of an already-written mind-map canvas, so a bare re-run (no
+    --mode) EXTENDS it in its OWN mode rather than resetting to logs. The
+    LEGEND node is authoritative — it is rewritten on every render, so it
+    always reflects the canvas's CURRENT mode. (A sibling .graph.json is
+    NOT consulted here: it lingers after a story→chain/logs switch and
+    would wrongly drag the canvas back to story; the graph is a story
+    RENDERING input, adopted by resolve_render_mode only once the legend
+    says story.) Returns 'logs'|'chain'|'story', or None when there is no
+    canvas / a foreign canvas with no recognizable legend (caller then
+    falls back to logs)."""
+    if not os.path.exists(canvas_path):
+        return None
+    try:
+        canvas = json.load(open(canvas_path, encoding="utf-8"))
+    except Exception:                                        # noqa: BLE001
+        return None
+    legend_id = PCV._nid(entry_id, "mm-legend")
+    text = next((n.get("text", "") for n in canvas.get("nodes") or []
+                 if n.get("id") == legend_id), "")
+    if "實驗統整" in text:                        # chain legend's unique line
+        return "chain"
+    if "🧪 實驗" in text:                          # story legend's unique line
+        return "story"
+    if "log 卡" in text or "這次要回答" in text:   # logs legend
+        return "logs"
+    return None
+
+
+def resolve_render_mode(entry_id, mode, graph, canvas_path, graph_path):
+    """Effective (mode, graph, extended). Explicit --mode wins; else
+    --graph implies story; else EXTEND an existing canvas in its detected
+    mode (a bare re-run must not reset a chain/story canvas to logs); else
+    fresh → logs. A resolved story canvas auto-adopts its sibling graph
+    JSON; raises ValueError if that graph is missing."""
+    if mode is not None:
+        return mode, graph, False
+    if graph:
+        return "story", graph, False
+    detected = detect_existing_mode(canvas_path, entry_id)
+    if not detected:
+        return "logs", None, False
+    if detected == "story":
+        if os.path.exists(graph_path):
+            return "story", graph_path, True
+        raise ValueError(
+            "偵測到既有 story canvas，但找不到敘事 graph JSON"
+            f"（{os.path.basename(graph_path)}）——傳 --graph <path> 指定，"
+            "或 --mode logs／chain 改用其他模式")
+    return detected, None, True
+
+
+def render(entry_id, limit=None, dry=False, mode=None, graph=None):
     import merge_lib as M
     cfg = hbconfig.load_config()
     s = M.scan(entry_id)
@@ -898,6 +969,11 @@ def render(entry_id, limit=None, dry=False, mode="logs", graph=None):
     title = next((M.L._txt(n).strip() for n in doc["content"]
                   if n.get("type") == "heading"
                   and (n.get("attrs") or {}).get("level") == 1), entry_id[:8])
+    out_dir, canvas_path, graph_path = mindmap_paths(cfg, title)
+    mode, graph, extended = resolve_render_mode(
+        entry_id, mode, graph, canvas_path, graph_path)
+    if limit is not None and mode == "chain":
+        raise ValueError("--limit 只適用 logs／story 模式（chain 一律整鏈拆解）")
     if mode == "story":
         gnodes, gedges, gwarns, gmeta = load_story_graph(graph)
         canvas, order = build_storymap(entry_id, title, gnodes, gedges,
@@ -935,14 +1011,9 @@ def render(entry_id, limit=None, dry=False, mode="logs", graph=None):
         decomp = {e["log"]: decompose(e["log"], in_set, M) for e in logs}
         canvas, order = build_mindmap(entry_id, title, logs, decomp,
                                       PCV.vault_mapper(cfg), limit=limit)
-    folders = cfg["obsidian"].get("folders") or {}
-    # same home as the timeline canvas (0.43.1): generated views live in
-    # <projects folder>/Canvas, overridable via local.folders.project_canvas
-    canvas_folder = folders.get("project_canvas") or os.path.join(
-        folders.get("projects", "Projects"), "Canvas")
-    out_dir = os.path.join(cfg["obsidian"]["vault"], canvas_folder)
-    path = os.path.join(out_dir, f"{PCV.safe_filename(title)}·脈絡心智圖.canvas")
-    rep = {"entry": entry_id, "title": title, "canvas": path}
+    # paths were computed up front (mindmap_paths) so mode detection could
+    # read the existing canvas; reuse them for the write
+    rep = {"entry": entry_id, "title": title, "canvas": canvas_path}
     if mode == "story":
         rep.update({"story_nodes": len(order), "limit": limit})
         stages = [x for x in story_stages(gnodes)[1] if x]
@@ -959,12 +1030,13 @@ def render(entry_id, limit=None, dry=False, mode="logs", graph=None):
         rep.update({"logs_total": len(logs), "logs_mapped": len(order),
                     "limit": limit})
     rep.update({"nodes": len(canvas["nodes"]), "edges": len(canvas["edges"]),
-                "build_order": [c[:8] for c in order], "mode": mode})
+                "build_order": [c[:8] for c in order], "mode": mode,
+                "extended": extended})
     if dry:
         rep["dry_run"] = True
         return rep
     os.makedirs(out_dir, exist_ok=True)
-    json.dump(canvas, open(path, "w"), ensure_ascii=False, indent=1)
+    json.dump(canvas, open(canvas_path, "w"), ensure_ascii=False, indent=1)
     return rep
 
 
@@ -972,13 +1044,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--card", required=True, help="ENTRY card id")
     ap.add_argument("--mode", choices=("logs", "chain", "story"),
-                    default="logs",
-                    help="拆解單位：logs＝週報 log 卡（預設；引用圖掛枝）"
-                         "／chain＝卡鏈正文 H2/H3（結構目錄）"
+                    default=None,
+                    help="拆解單位（不給＝沿用既有 canvas 的模式就地擴充，"
+                         "無既有 canvas 才用 logs）：logs＝週報 log 卡"
+                         "（引用圖掛枝）／chain＝卡鏈正文 H2/H3（結構目錄）"
                          "／story＝研究敘事 DAG（agent 讀鏈產 --graph JSON）")
     ap.add_argument("--graph",
-                    help="story 模式必填：敘事 graph JSON 路徑"
-                         "（schema 見檔頭；由讀鏈的 agent 撰寫/更新）")
+                    help="story 模式的敘事 graph JSON 路徑（--mode story 必填；"
+                         "bare 重跑偵測到既有 story canvas 會自動接上同名 "
+                         ".graph.json）；schema 見檔頭")
     ap.add_argument("--limit", type=int,
                     help="only the first N logs (citation order) / story "
                          "nodes (narrative order); chain mode 不適用")
@@ -990,15 +1064,18 @@ def main():
         ap.error("--limit 只適用 logs／story 模式（chain 一律整鏈拆解）")
     if args.mode == "story" and not args.graph:
         ap.error("--mode story 需要 --graph <path>")
-    if args.graph and args.mode != "story":
+    if args.graph and args.mode not in (None, "story"):
         ap.error("--graph 只適用 story 模式")
     cfg = hbconfig.load_config()
     if cfg.get("backend") != "both":
         sys.exit("context mindmap 需要 heptabase＋local 雙底座（backend=both）"
                  "——卡片經 heptabase CLI 讀、canvas 檔住 vault")
-    print(json.dumps(render(args.card, limit=args.limit, dry=args.dry_run,
-                            mode=args.mode, graph=args.graph),
-                     ensure_ascii=False, indent=1))
+    try:
+        rep = render(args.card, limit=args.limit, dry=args.dry_run,
+                     mode=args.mode, graph=args.graph)
+    except ValueError as e:
+        sys.exit(str(e))
+    print(json.dumps(rep, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":

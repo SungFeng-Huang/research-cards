@@ -44,5 +44,7 @@ Heptabase ◀─（heptabase 段）─▶ local ◀─（hackmd 段）─▶ Hac
   的 SKILL.md／wiki——note-sync 只做編排，不改語義。
 - 單段引擎仍可直接執行（cron 相容；hackmd 段的 state 鎖防止與
   note-sync 併發互踩）。
-- 觸發時機：手動／agent 呼叫，無自動排程——想掛 cron 就對本 skill 的
-  `sync.py` 掛一條即可（一條就涵蓋全鏈）。
+- 觸發時機：手動／agent 呼叫，無獨立自動排程——想掛 cron 就對本 skill
+  的 `sync.py` 掛一條即可（一條就涵蓋全鏈）。例外是啟用 cluster
+  project-log handoff 時，Mac 的 `project-card-log/post_log_sync.py` 會在
+  repair 後對整批事件呼叫一次本入口，再刷新 canvas。

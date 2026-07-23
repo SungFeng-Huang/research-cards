@@ -2,7 +2,7 @@
 name: project-card-repair
 description: >-
   Repair broken card links in Heptabase project + project/progress cards —
-  the dead plain-text `[[card:<uuid>]]` literals left by a `hb` bridge append
+  the dead plain-text `[[card:UUID]]` literals left by a `hb` bridge append
   (remote cluster) or a bare CLI append, which the heptabase CLI never renders
   into a real, clickable card-mention. Seals three header/timeline shapes back
   into live mentions: a log/progress card's `專案：[[card:…]]` back-ref to its
@@ -97,6 +97,11 @@ Card ids are unchanged (only text→mention within a card), so overview links an
 chain edges still resolve. If the vault/HackMD mirrors matter, run **note-sync**
 afterwards so the sealed cards forward out (heptabase is canonical, so this is a
 forward mirror, never a write-back that could re-strand them).
+
+Cluster `project-card-log` events may automate this sequence through
+`project-card-log/post_log_sync.py`: it pinpoints the log card plus the actual
+timeline tail, then runs note-sync and refreshes both project canvases. Do not
+reverse that order.
 
 Related: **project-card-log** (writes these cards; owns the seal helpers +
 `repair_chain.py --seal` for chain edges), **project-card-merge** /

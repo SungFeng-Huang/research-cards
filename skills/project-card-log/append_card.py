@@ -48,6 +48,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import datetime
+import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                 "..", "_shared"))
@@ -63,6 +65,9 @@ NEAR_CAP_BAND = 20000              # within this of threshold → force sync (no
 CHAIN_MAX = 64                     # cycle / runaway guard when walking the chain
 LINK_MARK = "續卡（本卡已達容量上限）"   # sentinel that precedes the card-link
 HB_OUTBOX = os.path.expanduser("~/.heptabase-bridge/outbox.jsonl")  # hb offline queue
+HB_PROJECT_LOG_EVENTS = os.path.expanduser(
+    os.environ.get("HB_PROJECT_LOG_EVENT_QUEUE",
+                   "~/.heptabase-bridge/project-log-events.jsonl"))
 _UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 # The card link renders differently per read path: `hb read` → [[card:<id>]];
 # pmmd.Converter (local heptabase read) → %%HEPTA-CARD:<id>%%. Match the id right
@@ -109,6 +114,42 @@ def pending_outbox_len(card_id, outbox_path=None):
     except FileNotFoundError:
         pass
     return total
+
+
+def enqueue_project_log_event(report, path=None):
+    """Durably tell the Mac drainer that a bridge-created log is ready for
+    repair → note-sync → canvas refresh.
+
+    The event is deliberately a separate cluster-local JSONL queue rather than
+    another bridge write: online and offline log paths converge on the same
+    host-pulled handoff, and the project log itself never depends on a Mac-side
+    automation hook being installed.  One O_APPEND write keeps concurrent
+    project sessions from interleaving records."""
+    event = {
+        "schema": 1,
+        "kind": "project-card-log",
+        "event_id": str(uuid.uuid4()),
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "entry_card": report["entry"],
+        "log_card": report["log_card"],
+        "timeline_card": report.get("appended_to") or report.get("tail")
+                         or report["entry"],
+        # A spill may have created a child successfully but failed to seal the
+        # old tail's text-form ▶續卡 edge. Pinpoint repair of the new child
+        # cannot recover that edge; the Mac must walk+seal from the entry.
+        "repair_chain": bool(report.get("overflowed")
+                             and not report.get("sealed")),
+    }
+    target = os.path.expanduser(path or HB_PROJECT_LOG_EVENTS)
+    os.makedirs(os.path.dirname(target) or ".", mode=0o700, exist_ok=True)
+    line = (json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+            + "\n").encode()
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "ab") as f:
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
+    return event
 
 
 def est_stored_len(md):
@@ -939,6 +980,19 @@ def log_card_and_link(t, entry_id, log_title, body, summary,
                  f"或回 Mac heptabase tag add --card-id {log_id} "
                  f"--tag-name '{log_tag}'")
         rep["note"] = f"{rep['note']}；{extra}" if rep.get("note") else extra
+    if t.kind == "hb":
+        try:
+            event = enqueue_project_log_event(rep)
+            rep["automation_event"] = event["event_id"]
+            rep["automation_queued"] = True
+        except Exception as e:                                   # noqa: BLE001
+            # The Heptabase mutation already succeeded.  Never turn a healthy
+            # log card into an apparent failure solely because the optional
+            # Mac-side refresh queue could not be written.
+            rep["automation_queued"] = False
+            extra = ("Mac 自動 repair/sync/canvas 事件排隊失敗"
+                     f"（{str(e)[:160]}）——本次 log 已落卡，回 Mac 手動補跑")
+            rep["note"] = f"{rep['note']}；{extra}" if rep.get("note") else extra
     return rep
 
 

@@ -182,19 +182,28 @@ def seal_sentinel_paragraphs(nodes, child_id=None):
     return sealed
 
 
-BACKREF_MARK = "母卡："
+BACKREF_MARK = "母卡："       # continuation child → entry (chain)
+PROJECTREF_MARK = "專案："     # log/progress card → its project card (same seal shape)
 
 
-def seal_backref_paragraphs(nodes, parent_id=None):
-    """Convert the TEXT-form parent back-reference at the top of a child card
-    (`…母卡：[[card:<entry>]]。…` from child_header) into a real card-mention
-    node, in place — the sentinel seal fixes the tail→child edge, but the
-    child→parent link the UI navigates by was still plain text (gap observed
-    2026-07-18). Unlike the sentinel rebuild, the surrounding prose is kept:
-    the matching text node is SPLIT into text + card + text. Paragraphs that
-    carry the sentinel LINK_MARK are left to seal_sentinel_paragraphs; ones
-    that already contain a card node are done (idempotent). Returns the
-    number of paragraphs sealed."""
+def seal_backref_paragraphs(nodes, parent_id=None, marks=None):
+    """Convert a TEXT-form parent back-reference at the top of a child card
+    (`…母卡：[[card:<entry>]]。…` from child_header — or a progress/log card's
+    `專案：[[card:<project>]]　…` header, cf. project-card-repair) into a real
+    card-mention node, in place — the sentinel seal fixes the tail→child edge,
+    but the child→parent link the UI navigates by was still plain text (gap
+    observed 2026-07-18; the log→project variant 2026-07-23). Unlike the
+    sentinel rebuild, the surrounding prose is kept: the matching text node is
+    SPLIT into text + card + text. Paragraphs that carry the sentinel LINK_MARK
+    are left to seal_sentinel_paragraphs; ones that already contain a card node
+    are done (idempotent).
+
+    `marks` = which header labels qualify a paragraph (each must precede the
+    `[[card:…]]` literal in the same paragraph). Defaults to (BACKREF_MARK,) so
+    existing callers (repair_chain chain-walk) are unchanged; pass
+    (BACKREF_MARK, PROJECTREF_MARK) to also seal log→project back-refs. Returns
+    the number of paragraphs sealed."""
+    marks = tuple(marks) if marks else (BACKREF_MARK,)
     pat = re.compile(r"\[\[card:(" + _UUID + r")\]\]")
     sealed = 0
     for n in nodes or []:
@@ -209,10 +218,11 @@ def seal_backref_paragraphs(nodes, parent_id=None):
                        if c.get("type") == "text")
         if LINK_MARK in full:
             continue                      # a sentinel — not ours to touch
-        # only the child_header back-ref qualifies: the BACKREF_MARK must
-        # precede the literal IN THE SAME paragraph — user prose merely
-        # quoting [[card:id]] must never be rewritten
-        if BACKREF_MARK not in full.split(f"[[card:", 1)[0]:
+        # only a header back-ref qualifies: one of `marks` must precede the
+        # literal IN THE SAME paragraph — user prose merely quoting
+        # [[card:id]] must never be rewritten
+        prefix = full.split("[[card:", 1)[0]
+        if not any(mk in prefix for mk in marks):
             continue
         for i, c in enumerate(kids):
             if c.get("type") != "text":

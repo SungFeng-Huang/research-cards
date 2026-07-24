@@ -71,6 +71,7 @@ sys.path.insert(0, os.path.join(_HERE, "..", "card-rewrite"))
 
 import hbconfig  # noqa: E402
 import project_canvas as PCV  # noqa: E402  (_nid / safe_filename / vault_mapper)
+import story_graph as SG  # noqa: E402
 
 HUB_W, HUB_H = 380, 110
 LEAF_W, LEAF_H = 400, 190
@@ -538,6 +539,12 @@ def build_chainmap(entry_id, entry_title, per_card, vault_file_of,
 #               "date": "MM-DD（選填）",
 #               "sources": ["<log 卡 id 或 ≥8 碼前綴>…（選填——此節點蓋掉
 #                           的 log 卡；coverage 稽核的鍵）"],
+#               "semantic": "open_thread|open_hole|next_step|
+#                            pending_capture（選填；只有 lifecycle-managed
+#                            開放節點可有，角色本身不可變）",
+#               "lifecycle": {"state": "open|active|resolved|abandoned|
+#                                      superseded",
+#                             "revision": 0},
 #               "stage": "幕標題（選填）——只標每幕的第一個節點；後續節點
 #                         沿輸入（敘事）序繼承，直到下一個 stage 標記"}],
 #    "edges": [{"from": "slug", "to": "slug", "label": "所以/但是（選填）"}],
@@ -596,6 +603,8 @@ def load_story_graph(path):
         raise ValueError("story graph: node ids must be unique and non-empty")
     idset = set(ids)
     warnings = []
+    for n in nodes:
+        SG._validate_marker(n)
     for e in edges:
         if e.get("from") not in idset or e.get("to") not in idset:
             raise ValueError(f"story graph: edge {e.get('from')}→{e.get('to')} "
@@ -605,7 +614,11 @@ def load_story_graph(path):
                             f"{e['from']}→{e['to']}——縮成短連接詞、"
                             f"語義放節點內文")
     meta = {"coverage_ignore": g.get("coverage_ignore") or [],
-            "glossary": g.get("glossary") or []}
+            "glossary": g.get("glossary") or [],
+            "lifecycle_nodes": [
+                {"id": n["id"], "semantic": n["semantic"],
+                 **n["lifecycle"]}
+                for n in nodes if "lifecycle" in n]}
     return nodes, edges, warnings, meta
 
 
@@ -638,7 +651,8 @@ def story_coverage(graph_nodes, logs, sections_by_card, ignore=None):
         return any(lid == s or lid.startswith(s) for s in src)
 
     uncovered_logs = [
-        {"log": e["log"][:8], "date": e.get("date", ""),
+        {"log": e["log"][:8], "log_id": e["log"],
+         "date": e.get("date", ""),
          "summary": (e.get("summary") or "")[:60]}
         for e in logs if not log_covered(e["log"])]
 
@@ -652,7 +666,7 @@ def story_coverage(graph_nodes, logs, sections_by_card, ignore=None):
         return False
 
     uncovered_sections = [
-        {"card": cid[:8], "section": t}
+        {"card": cid[:8], "card_id": cid, "section": t}
         for cid, titles in sections_by_card
         for t in titles if not sec_covered(t)]
     # sources sanity: an ambiguous prefix silently claims several logs and
@@ -1022,10 +1036,15 @@ def render(entry_id, limit=None, dry=False, mode=None, graph=None):
         if gwarns:
             rep["label_warnings"] = gwarns
         rep["coverage"] = gcov
+        if gmeta["lifecycle_nodes"]:
+            rep["lifecycle_nodes"] = gmeta["lifecycle_nodes"]
     elif mode == "chain":
+        sections_total = sum(len(sections) for _, _, sections in per_card)
+        sections_mapped = sum(1 for n in canvas["nodes"] if n["x"] == 0)
         rep.update({"chain_cards": len(order),
-                    "sections": sum(1 for n in canvas["nodes"]
-                                    if n["x"] == 0)})
+                    "sections": sections_mapped,
+                    "sections_total": sections_total,
+                    "sections_mapped": sections_mapped})
     else:                       # keep the 0.44.0 logs-mode field order
         rep.update({"logs_total": len(logs), "logs_mapped": len(order),
                     "limit": limit})

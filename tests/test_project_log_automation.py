@@ -94,6 +94,8 @@ class TestPostLogConsume(unittest.TestCase):
             out = {"results": []}
         elif "note-sync" in cmd[1]:
             out = {"total_conflicts": 0}
+        elif "context_mindmap.py" in cmd[1]:
+            out = {"mode": "logs", "logs_total": 1, "logs_mapped": 1}
         else:
             out = {"ok": True}
         return subprocess.CompletedProcess(cmd, 0, json.dumps(out), "")
@@ -139,6 +141,51 @@ class TestPostLogConsume(unittest.TestCase):
         self.assertEqual(rep["status"], "retry")
         self.assertTrue(self.inbox.exists())
         self.assertEqual(rep["reports"][-1]["step"], "timeline")
+
+    def test_story_gap_runs_guarded_semantic_expansion(self):
+        self.write(event())
+
+        def runner(cmd, **kwargs):
+            if "repair.py" in cmd[1]:
+                out = {"results": []}
+            elif "note-sync" in cmd[1]:
+                out = {"total_conflicts": 0}
+            elif "context_mindmap.py" in cmd[1]:
+                out = {"mode": "story", "coverage": {
+                    "uncovered_logs": [{"log": "log-1"}],
+                    "uncovered_sections": []}}
+            elif "story_auto_expand.py" in cmd[1]:
+                out = {"status": "expanded"}
+            else:
+                out = {"ok": True}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(out), "")
+
+        rep = PLS.consume(self.inbox, runner=runner)
+        self.assertEqual(rep["status"], "ok")
+        self.assertEqual([r["step"] for r in rep["reports"]][-2:],
+                         ["mindmap", "story-expand"])
+
+    def test_story_agent_failure_requeues_batch(self):
+        self.write(event())
+
+        def runner(cmd, **kwargs):
+            if "repair.py" in cmd[1]:
+                out = {"results": []}
+            elif "note-sync" in cmd[1]:
+                out = {"total_conflicts": 0}
+            elif "context_mindmap.py" in cmd[1]:
+                out = {"mode": "story", "coverage": {
+                    "uncovered_logs": [{"log": "log-1"}],
+                    "uncovered_sections": []}}
+            elif "story_auto_expand.py" in cmd[1]:
+                return subprocess.CompletedProcess(cmd, 1, "{}", "agent down")
+            else:
+                out = {"ok": True}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(out), "")
+
+        rep = PLS.consume(self.inbox, runner=runner)
+        self.assertEqual(rep["status"], "retry")
+        self.assertEqual(rep["reports"][-1]["step"], "story-expand")
 
     def test_invalid_lines_are_quarantined_not_retried(self):
         self.write("not-json", {"kind": "wrong"}, event())

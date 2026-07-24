@@ -5,7 +5,7 @@ The bridge drainer copies the cluster's durable JSONL event queue into a local
 inbox, then invokes this script.  A batch is processed in the only safe order:
 
     optional chain repair → pinpoint repair → one note-sync
-    → timeline + existing-mode mind map
+    → timeline + existing-mode mind map → guarded story semantic expansion
 
 The inbox is claimed atomically, drained until empty, and re-queued on any
 failure.  Every operation is idempotent, so retrying a partially completed
@@ -112,6 +112,26 @@ def _json_stdout(run):
         return None
 
 
+def _validate_mindmap(parsed):
+    mode = parsed.get("mode")
+    if mode == "logs" and parsed.get("logs_mapped") != parsed.get("logs_total"):
+        return "logs canvas did not map every log"
+    if mode == "chain":
+        if parsed.get("sections_mapped") != parsed.get("sections_total"):
+            return "chain canvas did not map every section"
+    if mode == "story" and not isinstance(parsed.get("coverage"), dict):
+        return "story canvas returned no coverage audit"
+    if mode not in {"logs", "chain", "story"}:
+        return "mindmap returned an unknown mode"
+    return None
+
+
+def _story_has_gaps(parsed):
+    coverage = parsed.get("coverage") or {}
+    return bool(coverage.get("uncovered_logs")
+                or coverage.get("uncovered_sections"))
+
+
 def run_pipeline(events, runner=subprocess.run, capabilities=(True, True)):
     reports = []
     for step, entry, cmd in command_plan(events, capabilities=capabilities):
@@ -145,7 +165,43 @@ def run_pipeline(events, runner=subprocess.run, capabilities=(True, True)):
             rep["error"] = "note-sync reported conflicts"
             reports.append(rep)
             return False, reports
+        if step == "mindmap":
+            error = _validate_mindmap(parsed)
+            if error:
+                rep["error"] = error
+                reports.append(rep)
+                return False, reports
         reports.append(rep)
+        if step == "mindmap" and _story_has_gaps(parsed):
+            story_cmd = [
+                PYTHON,
+                str(SKILLS / "project-card-canvas" / "story_auto_expand.py"),
+                "--card", entry,
+            ]
+            try:
+                story_run = runner(
+                    story_cmd, capture_output=True, text=True, timeout=3600)
+            except Exception as e:                               # noqa: BLE001
+                reports.append({
+                    "step": "story-expand", "entry": entry,
+                    "error": f"{type(e).__name__}: {str(e)[:400]}"})
+                return False, reports
+            story_parsed = _json_stdout(story_run)
+            story_rep = {
+                "step": "story-expand", "entry": entry,
+                "rc": story_run.returncode, "report": story_parsed,
+            }
+            if story_run.returncode != 0 or not isinstance(story_parsed, dict):
+                story_rep["stderr"] = (story_run.stderr or "")[-500:]
+                story_rep["error"] = "guarded story expansion failed"
+                reports.append(story_rep)
+                return False, reports
+            if story_parsed.get("status") not in {"expanded", "clean"}:
+                story_rep["error"] = (
+                    "story expansion did not reach a clean state")
+                reports.append(story_rep)
+                return False, reports
+            reports.append(story_rep)
     return True, reports
 
 

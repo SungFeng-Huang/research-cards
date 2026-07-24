@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.57.0 — guarded semantic expansion for every active project canvas
+
+- The Mac post-log pipeline now validates the active context view after every
+  cluster log: logs mode must map every timeline log, chain mode must map every
+  H2/H3 section, and story mode must return a coverage audit.  Deterministic
+  modes fail closed on an incomplete render.
+- Story coverage gaps now invoke `story_auto_expand.py`.  It materializes only
+  the uncovered log/section evidence in a private task directory and lets a
+  headless Codex edit an isolated proposal copy.  The live graph is atomically
+  replaced only after the proposal passes the revision guard and rerenders with
+  zero coverage gaps; any failure restores the graph and keeps the durable
+  project-log event for retry.
+- Story history remains append-only, with one explicit exception:
+  lifecycle-managed open semantics.  `semantic` marks an `open_thread`,
+  `open_hole`, `next_step`, or `pending_capture`; `lifecycle` tracks
+  open/active → resolved/abandoned/superseded with a monotonic revision.
+  Managed nodes may update only a small field allowlist and may only append
+  sources.  Unmarked nodes, node order, and existing edges are immutable.
+- `story_graph.py` supplies the deterministic proposal validator and a
+  one-time migration that marks legacy `kind: open` nodes from their existing
+  labels without changing their prose.
+
 ## 0.56.0 — cluster project logs auto-converge on the Mac
 
 - `project-card-log` now writes a durable semantic event after an `hb` log card

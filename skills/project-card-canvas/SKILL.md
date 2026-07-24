@@ -77,8 +77,9 @@ allowed-tools: Bash(python3 *) Bash(heptabase:*) Bash(ls *) Bash(cat *) Read Wri
 1. **讀鏈**：把 chain 各卡的 sections 全文讀懂（重點：定位/演進故事、
    進展里程碑、各實驗統整的結論句、Findings/設計理路、🔍/下一步）。
 2. **撰寫/更新 graph JSON**：存 `<vault>/<projects>/Canvas/
-   <專案>·脈絡心智圖.graph.json`（canvas 同資料夾）。已存在＝**只增
-   不改**：新進展在尾端加節點/邊；既有節點 id（slug）與內文非必要不動。
+   <專案>·脈絡心智圖.graph.json`（canvas 同資料夾）。已存在＝歷史 graph
+   **只增不改**：新進展在尾端加節點/邊；唯一例外是下節明確標記的
+   lifecycle-managed 開放節點。
 3. **渲染**：`context_mindmap.py --card <ENTRY> --mode story --graph <path>`；
    讀 report 的 `label_warnings`（過長箭頭字）與 `stages`。
 
@@ -116,6 +117,34 @@ load_story_graph 上方註解；此處為撰寫規則）
   legend 旁的名詞節點），正文即可放心用。撰寫時自問：沒讀過這條鏈的
   人看得懂這個節點嗎？
 
+### 開放語義的受限 lifecycle
+
+「進行中／開放線／開放洞／下一步／待捕」不是永遠凍結的歷史結論；完成
+或放棄後，原節點應就地結案，而不是留下過時的「進行中」。因此只有這類
+節點可加顯式 marker：
+
+```json
+{"id": "open-e9", "kind": "open", "label": "E9 進行中",
+ "semantic": "open_thread",
+ "lifecycle": {"state": "open", "revision": 0}}
+```
+
+- `semantic` 描述這條線的角色，合法值：
+  `open_thread`／`open_hole`／`next_step`／`pending_capture`；一經建立
+  不可改。
+- `lifecycle.state`：`open`／`active` 可持續受限更新，之後只能收斂到
+  `resolved`／`abandoned`／`superseded`；結案後重新凍結。
+- 每次更新 `revision` **恰好 +1**；`sources` 只能附加。可改欄位只限
+  `kind/label/text/anchor/date/sources/lifecycle`，stage、id、semantic
+  不可改。
+- open/active 時 `kind` 必須仍是 `open`；結案時可依語義改成
+  `result/finding/decision/pivot`。
+- 未帶 marker 的既有節點與所有既有 edges 逐項不可變；新 node/edge
+  只能附加。`story_graph.py validate <before> <after>` 是機器守門員。
+- 舊 graph 的 `kind: open` 可用
+  `story_graph.py migrate <graph> --write` 一次性補 marker；依 label/text
+  區分開放線、開放洞、下一步、待捕，其餘歸 `open_thread`。
+
 ## 擴充工作流：coverage 稽核（新 log／蒸餾後怎麼知道缺什麼）
 
 story render 的 report **自帶 `coverage` 稽核**——machine 告訴你圖裡
@@ -134,7 +163,7 @@ python3 <此 skill 目錄>/context_mindmap.py --card <ENTRY> --mode story \
   刻意不入圖的參考型段落（方法／評估協定…）放 graph 頂層
   `coverage_ignore` 顯式豁免，稽核才能收斂到空。
 
-**擴充循環**：`--dry-run` 看 coverage → 只讀未覆蓋的 log 卡／section
+**手動擴充循環**：`--dry-run` 看 coverage → 只讀未覆蓋的 log 卡／section
 → graph 尾端加節點（記得 `sources`＋`anchor`；開新幕標 `stage`）→
 重渲染 → coverage 回到空。**加節點時同步補邊**：新節點的前情提要引用
 誰、承接哪個結論，邊就畫到哪。
@@ -166,7 +195,15 @@ python3 <此 skill 目錄>/context_mindmap.py --card <ENTRY> --mode story \
 - 啟用 cluster project-log handoff 時，Mac drainer 會由
   `project-card-log/post_log_sync.py` 在 repair＋note-sync 成功後自動跑
   timeline 與裸跑心智圖；同一批 entry 會去重。story graph 的 coverage
-  會照常稽核，但新增語義節點仍是 agent 工作，純 hook 不猜研究敘事。
+  會照常稽核；若有缺口，hook 會啟動 `story_auto_expand.py`：把缺的
+  log/section 材料放進隔離 task 目錄，由 Codex 只改 proposal copy，再經
+  `story_graph.py` 的 append/lifecycle guard 與 coverage=0 雙重驗證才
+  原子套用。失敗會回復 live graph 並保留 event 供重試。設定
+  `RESEARCH_CARDS_STORY_AGENT=off` 可停用 agent（有 story gap 時 pipeline
+  會 fail-closed，不會把落後 canvas 當成功）。
+- logs 與 chain 不需要語義 agent：裸跑已確定性包含所有 log/H2-H3，
+  hook 另外要求 `logs_mapped == logs_total` 或
+  `sections_mapped == sections_total`；不相等同樣 fail-closed。
 
 ## 已知邊界
 

@@ -688,6 +688,7 @@ class TestStoryCoverage(unittest.TestCase):
     def test_uncovered_logs_by_sources(self):
         cov = CM.story_coverage(self.graph_nodes(), self.LOGS_TL, self.SECS)
         self.assertEqual([u["log"] for u in cov["uncovered_logs"]], [L2[:8]])
+        self.assertEqual(cov["uncovered_logs"][0]["log_id"], L2)
         self.assertIn("新 log 未入圖", cov["uncovered_logs"][0]["summary"])
 
     def test_source_prefix_counts_as_covered(self):
@@ -706,6 +707,7 @@ class TestStoryCoverage(unittest.TestCase):
     def test_uncovered_sections_and_ignore(self):
         cov = CM.story_coverage(self.graph_nodes(), [], self.SECS)
         titles = [u["section"] for u in cov["uncovered_sections"]]
+        self.assertEqual(cov["uncovered_sections"][0]["card_id"], E)
         self.assertIn("實驗統整(八)：新段", titles)   # merge 後新長的段
         self.assertIn("方法(Method)", titles)
         self.assertNotIn("現狀（一眼掌握）", titles)   # anchor 蓋掉

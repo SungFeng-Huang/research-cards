@@ -110,17 +110,26 @@ python3 ~/.claude/skills/research-cards/skills/project-card-merge/merge_lib.py <
 被刪內容的權威落點對照。清理本身**不 append 記錄**(卡的新狀態即記錄);若清理
 連帶動了稿件才照慣例 append 稿件側進度。
 
-## Step 6 — 跑 note-sync ＋ 刷視圖（硬規則）
+## Step 6 — 自動收斂 repair → note-sync → 全視圖（硬規則）
 
 ```bash
-python3 <plugin 的 skills/note-sync 目錄>/sync.py   # 全鏈；趕時間至少 --mode heptabase
-python3 <plugin 的 skills/project-card-canvas 目錄>/project_canvas.py --card <ENTRY_ID>
+python3 <plugin 的 skills/project-card-log 目錄>/post_project_sync.py \
+  --card <ENTRY_ID>
 ```
 
-cleanup 重排了整條鏈（trash 子卡、改 entry），鏡像與 heptabase-sync 的
-state 帳全部落後——先 sync 再刷 canvas（canvas 讀 vault mirror 的帳與
-內容；順序反了＝未鏡像節點與 trash 殘影入圖）。story graph 若存在，
-照 canvas skill 的 coverage 稽核循環補（`--dry-run` 看缺口）。
+只在 Step 5 的 child cleanup＋verify 完成後呼叫。runner 與 cluster
+project-log drain **共用同一條實作**，固定依序：
+**repair_chain --seal → pinpoint project-card-repair → 一次 note-sync →
+timeline canvas → 裸跑 context mind map**；若既有 mind map 是 story 且
+coverage 有缺口，再進 `story_auto_expand.py` 的 guarded proposal 流程。
+
+cleanup 重排了整條鏈（trash 子卡、改 entry），所以 repair 與 sync 都
+必須先於視圖；順序反了會把未鏡像節點、trash 殘影或斷 link 畫進圖。
+任何一步失敗、note-sync conflict、canvas coverage 不完整都以非零退出，
+修好後重跑同一指令（全流程 idempotent）。Heptabase-only、沒有 local
+hub 時仍完成 repair，並略過不可用的 note-sync／canvas；`--dry-run`
+可先看完整 command plan。
+
 （本 skill 與 merge 同為 Mac-only——overwrite/trash 是 bridge 做不到
 的；萬一在 cluster 端執行到這裡，跳過本步、回 Mac 補跑。）
 

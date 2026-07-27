@@ -147,7 +147,8 @@ codex plugin add research-cards@my-plugins
 ```
 
 Codex executes a **static cached copy**: set `plugin_root` in your config (state reads/writes
-get anchored back to the live repo), and after a plugin update remember to refresh with `codex plugin remove` + `add`.
+get anchored back to the live repo). After a plugin update, refresh by rerunning
+`codex plugin add research-cards@my-plugins`; do not remove the installed plugin first.
 
 ## Configuration
 
@@ -497,7 +498,7 @@ Not installed → the export feature is unavailable; everything else works as us
 | A heptabase-mode command exits naming some config key | That id is unfilled — the message gives the exact key; look it up with `heptabase tag list` / `heptabase tag properties <tagId>` |
 | `Operation not permitted` when touching an iCloud vault | Grant the terminal (or the scheduler's interpreter) **Full Disk Access** |
 | A scheduled run can't read Mail | Automation permission follows "the launching executable" — run once interactively with the same interpreter and approve the prompt |
-| Codex runs an old plugin version | It executes a static cached copy — refresh with `codex plugin remove` + `add`, and confirm `plugin_root` points at your live clone |
+| Codex runs an old plugin version | It executes a static cached copy — rerun `codex plugin add research-cards@my-plugins` without removing the installed plugin first, and confirm `plugin_root` points at your live clone |
 | `note-sync` skips the heptabase segment | It only applies with both stores in `backends: ["heptabase", "local"]` — with a single store there is nothing to mirror |
 | Sync reports a conflict | Feature, not a bug: that card has a lossy edit or divergence on both sides. Check the block and reason in the report / `Sync Conflicts.md`, fix the side you want to keep, and rerun |
 

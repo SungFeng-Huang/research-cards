@@ -42,7 +42,17 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
      "collections": {
        "overviews": { "folder_id": "<folder-id>" },
        "projects":  { "folder_id": "<folder-id>",
+                      "read_permission": "owner", "write_permission": "owner" },
+       "progress":  { "folder_id": "<unassigned-logs-folder-id>",
                       "read_permission": "owner", "write_permission": "owner" }
+     },
+     "project_bundles": {
+       "<canonical-entry-card-uuid>": {
+         "folder_id": "<Projects/Project A folder-id>",
+         "logs_folder_id": "<Projects/Project A/Logs folder-id>",
+         "read_permission": "owner",
+         "write_permission": "owner"
+       }
      },
      "read_permission": "owner",
      "write_permission": "owner",
@@ -52,6 +62,11 @@ description: "Mirror research-cards collections to HackMD (the plugin's third no
 
    collection 條目內的 `read_permission`／`write_permission` 覆蓋全域——
    典型用法：全域開分享（signed_in／guest）但 projects 釘死私密。
+   `project_bundles` 再以 entry UUID 覆蓋 projects/progress：entry 與續卡
+   移入 `folder_id`、relation-linked log 移入 `logs_folder_id`，仍是原本
+   同一張 HackMD note，**不建立副本**。要分享單一專案只把該 bundle 的
+   `read_permission` 改成 `signed_in`（或明確要公開才用 `guest`）；
+   `write_permission` 建議維持 `owner`。
    `write_back` 開 level 2（需 backend obsidian／both）。
    `book_index`＝書本目錄卡 id：該卡 render 自動轉 Book mode 形態
    （setext 標題、`/noteId` 相對連結、自動補書名 H1——與官方

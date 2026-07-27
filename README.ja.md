@@ -147,7 +147,8 @@ codex plugin add research-cards@my-plugins
 ```
 
 Codex が実行するのは**静的な cache コピー**です：config に `plugin_root` を設定してください（状態の読み書き
-は生きている repo にアンカーされます）。plugin を更新したら `codex plugin remove` ＋ `add` でのリフレッシュを忘れずに。
+は生きている repo にアンカーされます）。plugin を更新したらインストール済み plugin を先に削除せず、
+`codex plugin add research-cards@my-plugins` を直接実行して cache をリフレッシュしてください。
 
 ## 設定
 
@@ -486,7 +487,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | heptabase モードのコマンドが終了し、特定の config key を名指しする | その id が未記入です——メッセージが正確な key を示します。`heptabase tag list` / `heptabase tag properties <tagId>` で調べてください |
 | iCloud の vault に触ると `Operation not permitted` が出る | ターミナル（またはスケジューラのインタープリタ）に**フルディスクアクセス権限**を与えてください |
 | スケジュール実行が Mail を読めない | 自動化権限は「起動する実行ファイル」に紐づきます——同じインタープリタで対話式に 1 回実行し、プロンプトを承認してください |
-| Codex が古い版の plugin を実行する | Codex は静的な cache コピーを実行しています——`codex plugin remove`＋`add` でリフレッシュし、`plugin_root` が生きている clone を指しているか確認してください |
+| Codex が古い版の plugin を実行する | Codex は静的な cache コピーを実行しています——インストール済み plugin を先に削除せず、`codex plugin add research-cards@my-plugins` を直接実行してリフレッシュし、`plugin_root` が生きている clone を指しているか確認してください |
 | `note-sync` が heptabase セグメントをスキップする | これは `backends: ["heptabase", "local"]` の二重ストアでのみ適用されます——単一ストアではミラーリングするものがありません |
 | 同期が conflict を報告する | 仕様であってバグではありません：そのカードに非可逆な編集があるか、両側で分岐しています。レポート／`Sync Conflicts.md` の中のブロックと理由を確認し、残したい側を直して、再実行してください |
 

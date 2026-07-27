@@ -146,7 +146,8 @@ codex plugin add research-cards@my-plugins
 ```
 
 Codex 執行的是**靜態 cache 副本**：請在 config 設 `plugin_root`（狀態讀寫
-會錨定回活的 repo），plugin 更新後記得 `codex plugin remove` ＋ `add` 刷新。
+會錨定回活的 repo）。plugin 更新後直接重跑
+`codex plugin add research-cards@my-plugins` 刷新；不要先移除已安裝的 plugin。
 
 ## 設定
 
@@ -479,7 +480,7 @@ pip install -r ~/.claude/skills/hung-yi-lee/requirements.txt
 | heptabase 模式指令退出並指名某個 config key | 那個 id 沒填——訊息會給出確切的 key；用 `heptabase tag list` / `heptabase tag properties <tagId>` 查 |
 | 碰 iCloud vault 出現 `Operation not permitted` | 給終端機（或排程器的直譯器）**完整磁碟取用權限** |
 | 排程跑起來讀不到 Mail | 自動化權限跟著「發動的執行檔」走——用同一個直譯器互動式跑一次並核准提示 |
-| Codex 跑到舊版 plugin | 它執行靜態 cache 副本——`codex plugin remove`＋`add` 刷新，並確認 `plugin_root` 指向你活的 clone |
+| Codex 跑到舊版 plugin | 它執行靜態 cache 副本——不要先移除已安裝的 plugin；直接重跑 `codex plugin add research-cards@my-plugins` 刷新，並確認 `plugin_root` 指向你活的 clone |
 | `note-sync` 跳過 heptabase 段 | 它只在 `backends: ["heptabase", "local"]` 雙庫時適用——單一庫沒有東西可鏡像 |
 | 同步報 conflict | 特性不是 bug：該卡有有損編輯或雙邊分歧。看報告／`Sync Conflicts.md` 裡的區塊與原因，修你要保留的那邊，重跑 |
 

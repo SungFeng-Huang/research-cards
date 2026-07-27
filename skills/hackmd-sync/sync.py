@@ -158,23 +158,28 @@ def perm(cfg, key, default, cc=None):
 
 def _folder_of(row):
     """Direct folder id of a listed note across API generations: newer
-    responses carry `folderPaths` (a list of folder dicts, [0] = the direct
-    folder), older ones a flat `parentFolderId`. Schema drift here silently
-    blinded adoption/stray scanning once (2026-07-18) — support both."""
+    responses carry `folderPaths` as a root→leaf breadcrumb (the LAST item is
+    the direct folder), older ones a flat `parentFolderId`. Schema drift here
+    silently blinded adoption/stray scanning once (2026-07-18) — support both,
+    including nested folders."""
     fp = row.get("folderPaths")
-    if isinstance(fp, list) and fp and isinstance(fp[0], dict):
-        return fp[0].get("id") or None
+    if isinstance(fp, list) and fp and isinstance(fp[-1], dict):
+        return fp[-1].get("id") or None
     return row.get("parentFolderId") or None
 
 
 def fetch_remote_index():
     """One GET /notes → {note_id: {last_changed_at, read_permission,
-    content_md5, title, folder}}. title+folder power phase-A adoption
-    (reclaiming notes a killed run created but never recorded)."""
+    write_permission, content_md5, title, folder}}. title+folder power phase-A adoption
+    (reclaiming notes a killed run created but never recorded). Newer list
+    responses omit `content`; keep that distinct from genuinely empty content
+    so adoption can fetch only the small set of unclaimed candidates."""
     rows = api("GET", "/notes")
     return {r["id"]: {"last_changed_at": r.get("lastChangedAt"),
                       "read_permission": r.get("readPermission"),
-                      "content_md5": content_md5(r.get("content") or ""),
+                      "write_permission": r.get("writePermission"),
+                      "content_md5": (content_md5(r.get("content") or "")
+                                      if "content" in r else None),
                       "title": r.get("title"),
                       "folder": _folder_of(r)}
             for r in rows if r.get("id")}
@@ -227,6 +232,20 @@ def note_set_read_permission(note_id, value):
     api("PATCH", f"/notes/{note_id}", {"readPermission": value})
 
 
+def note_set_metadata(note_id, read_permission=None, write_permission=None,
+                      parent_folder_id=None):
+    """Reconcile owned note metadata in one PATCH to avoid async races."""
+    body = {}
+    if read_permission is not None:
+        body["readPermission"] = read_permission
+    if write_permission is not None:
+        body["writePermission"] = write_permission
+    if parent_folder_id is not None:
+        body["parentFolderId"] = parent_folder_id
+    if body:
+        api("PATCH", f"/notes/{note_id}", body)
+
+
 # ── source side: cards as markdown via the active backend ────────────────────
 def load_source():
     """The plugin's backend abstraction already speaks markdown for both
@@ -264,6 +283,132 @@ def link_names(card):
         if base != card["title"]:
             names.append(base)
     return names
+
+
+def _wikilink_targets(md):
+    return re.findall(r"(?<!!)\[\[([^\]|#^]+)(?:\|[^\]]*)?\]\]", md)
+
+
+def _marked_project_target(md, marks=("專案", "母卡")):
+    """Return the first explicitly marked project wikilink.
+
+    This is only a fallback for old mirrors that predate the read-only
+    `heptabase_relations` frontmatter export. Generic wikilinks are never
+    treated as ownership because a log naturally cites many other projects.
+    """
+    labels = "|".join(re.escape(m) for m in marks)
+    pat = (r"(?:\*\*)?(?:" + labels + r")(?:\*\*)?\s*[：:]\s*"
+           r"\[\[([^\]|#^]+)(?:\|[^\]]*)?\]\]")
+    m = re.search(pat, md)
+    return m.group(1) if m else None
+
+
+def project_bundle_membership(catalog, read_md):
+    """Map project/continuation/log card keys to canonical entry card keys.
+
+    Stable Heptabase relation UUIDs win for progress cards. Continuation
+    headers and historical log backrefs are compatibility fallbacks; a final
+    reverse lookup through a project timeline covers legacy logs whose own
+    header predates both forms. Ambiguous ownership is left unresolved.
+    """
+    projects = list(catalog.get("projects") or [])
+    progress = list(catalog.get("progress") or [])
+    project_by_id = {card_key(c): c for c in projects}
+    project_by_name = {}
+    for card in projects:
+        for name in link_names(card):
+            project_by_name[name] = card_key(card)
+
+    parent = {}
+    project_bodies = {}
+    for card in projects:
+        ck = card_key(card)
+        body = read_md(card["id"])
+        project_bodies[ck] = body
+        target = _marked_project_target(body, marks=("母卡",))
+        if target in project_by_name and project_by_name[target] != ck:
+            parent[ck] = project_by_name[target]
+
+    def root(ck):
+        seen = set()
+        while ck in parent and ck not in seen:
+            seen.add(ck)
+            ck = parent[ck]
+        return ck
+
+    membership = {ck: root(ck) for ck in project_by_id}
+    progress_by_name = {}
+    for card in progress:
+        for name in link_names(card):
+            progress_by_name[name] = card_key(card)
+
+    # Reverse timeline ownership is computed once and accepted only when every
+    # referring project card belongs to the same canonical entry.
+    reverse = {}
+    for pck, body in project_bodies.items():
+        proot = root(pck)
+        for target in _wikilink_targets(body):
+            lck = progress_by_name.get(target)
+            if lck:
+                reverse.setdefault(lck, set()).add(proot)
+
+    for card in progress:
+        ck = card_key(card)
+        props = card.get("props") or {}
+        relations = props.get("heptabase_relations") or {}
+        rel_ids = []
+        if isinstance(relations, dict):
+            for name, values in relations.items():
+                if str(name).lower() == "project":
+                    rel_ids += values if isinstance(values, list) else [values]
+        owners = {root(rid) for rid in rel_ids if rid in project_by_id}
+
+        if not owners:
+            body = read_md(card["id"])
+            target = _marked_project_target(body)
+            if target in project_by_name:
+                owners.add(root(project_by_name[target]))
+        if not owners:
+            owners = reverse.get(ck, set())
+        if len(owners) == 1:
+            membership[ck] = next(iter(owners))
+    return membership
+
+
+def route_project_bundles(cfg, targets, catalog, read_md, report):
+    """Apply explicit per-project folder/permission routes to sync targets.
+
+    Config is keyed by the canonical entry-card UUID. Folder ids remain
+    per-machine runtime configuration; no note is duplicated.
+    """
+    bundles = ((cfg.get("hackmd") or {}).get("project_bundles") or {})
+    if not isinstance(bundles, dict) or not bundles:
+        return targets
+    membership = project_bundle_membership(catalog, read_md)
+    routed = []
+    unresolved = []
+    for key, cc, card in targets:
+        ck = card_key(card)
+        entry = membership.get(ck)
+        bundle = bundles.get(entry) if entry else None
+        if key not in ("projects", "progress") or not isinstance(bundle, dict):
+            routed.append((key, cc, card))
+            if key in ("projects", "progress") and not bundle:
+                unresolved.append({"card": ck, "title": card["title"],
+                                   "collection": key})
+            continue
+        override = dict(cc)
+        folder_key = "logs_folder_id" if key == "progress" else "folder_id"
+        if bundle.get(folder_key):
+            override["folder_id"] = bundle[folder_key]
+        for pkey in ("read_permission", "write_permission"):
+            if pkey in bundle:
+                override[pkey] = bundle[pkey]
+        override["_project_entry"] = entry
+        routed.append((key, override, card))
+    if unresolved:
+        report["unbundled"] = unresolved
+    return routed
 
 
 # ── link rewriting (pure) ─────────────────────────────────────────────────────
@@ -499,21 +644,25 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                  '把 "hackmd" 加進 list 才會啟用 HackMD 鏡像')
     state = load_state()
     cards_state = state.setdefault("cards", {})
-    report = {"created": [], "adopted": [], "updated": [], "skipped": 0,
+    report = {"created": [], "adopted": [], "updated": [], "moved": [],
+              "skipped": 0,
               "written_back": [], "conflicts": [], "errors": [],
               "stray_duplicates": [], "vanished": [], "aborted": None}
 
     # gather the full mirror set, plus an id→title map over EVERY configured
     # collection (not just mirrored ones) so mentions of unmirrored cards
     # degrade to their plain TITLE, never to nothing
-    targets = []
+    targets, catalog = [], {}
     for key, cc in conf_cols.items():
+        cards = list(list_cards(key))
+        catalog[key] = cards
         if collections and key not in collections:
             continue
-        for card in list_cards(key):
+        for card in cards:
             if only_card and only_card not in (card["id"], card_key(card)):
                 continue
             targets.append((key, cc, card))
+    targets = route_project_bundles(cfg, targets, catalog, read_md, report)
 
     # key migration: state written when the OTHER id space was the source
     # (vault id ↔ heptabase uuid) moves to the current card_key — otherwise
@@ -525,7 +674,11 @@ def _sync_locked(collections=None, only_card=None, dry=False):
     all_titles = {}
     for key in hbconfig.collections(cfg):
         try:
-            for card in list_cards(key):
+            cards = catalog.get(key)
+            if cards is None:
+                cards = list(list_cards(key))
+                catalog[key] = cards
+            for card in cards:
                 all_titles[card_key(card)] = card["title"]
         except Exception:                                    # noqa: BLE001
             pass  # a collection that doesn't resolve just loses title fallback
@@ -560,7 +713,18 @@ def _sync_locked(collections=None, only_card=None, dry=False):
         # signature of a killed run's phase A. A same-titled note with real
         # content might be hand-made: adopting it would let phase B
         # overwrite it (its state carries no last_changed_at to conflict on)
-        if info2.get("content_md5") == PLACEHOLDER_MD5:
+        remote_md5 = info2.get("content_md5")
+        if remote_md5 is None:
+            try:
+                detail = note_get(nid2)
+                remote_md5 = content_md5(detail.get("content") or "")
+            except Exception as e:                           # noqa: BLE001
+                report["errors"].append(
+                    {"card": None, "title": info2.get("title"),
+                     "err": "無主 note 內容檢查失敗；未收養亦未覆寫："
+                            + str(e)[:160]})
+                continue
+        if remote_md5 == PLACEHOLDER_MD5:
             unclaimed.setdefault((info2["folder"], info2.get("title")),
                                  []).append(nid2)
         else:
@@ -639,10 +803,14 @@ def _sync_locked(collections=None, only_card=None, dry=False):
     wb_enabled = bool(hk.get("write_back")) and be.name == "obsidian"
     book_index = hk.get("book_index")
     want_read_by_card = {}
+    want_write_by_card = {}
     for key, cc, card in targets:
         cid, ck, title = card["id"], card_key(card), card["title"]
         want_read = perm(cfg, "read_permission", "owner", cc)
+        want_write = perm(cfg, "write_permission", "owner", cc)
+        want_folder = cc.get("folder_id")
         want_read_by_card[ck] = want_read
+        want_write_by_card[ck] = want_write
         prev = cards_state.get(ck) or {}
         if not prev.get("note_id"):
             continue  # dry-run create, or create failed above
@@ -663,15 +831,37 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                             "重跑即重建"})
                 continue
             remote = (remote_index or {}).get(prev["note_id"]) or {}
-            # declarative read permission: computed BEFORE the conflict gate
+            # Declarative permissions are computed BEFORE the conflict gate
             # so even conflicted notes (content frozen) get their permission
             # migrated — permission is ours to manage, content is theirs
-            perm_drift = bool(remote and remote.get("read_permission")
-                              and remote["read_permission"] != want_read)
+            read_perm_drift = bool(
+                remote and remote.get("read_permission")
+                and remote["read_permission"] != want_read)
+            write_perm_drift = bool(
+                remote and remote.get("write_permission")
+                and remote["write_permission"] != want_write)
+            folder_drift = bool(remote and want_folder
+                                and remote.get("folder") != want_folder)
+
+            def record_move():
+                report["moved"].append(
+                    {"card": ck, "note": prev["note_id"], "title": title,
+                     "from": remote.get("folder"), "to": want_folder})
+
             if remote_index is not None and prev.get("last_changed_at") and \
                     remote.get("last_changed_at") != prev.get("last_changed_at"):
-                if perm_drift and not dry:
-                    note_set_read_permission(prev["note_id"], want_read)
+                if read_perm_drift or write_perm_drift or folder_drift:
+                    if not dry:
+                        note_set_metadata(
+                            prev["note_id"],
+                            read_permission=want_read
+                            if read_perm_drift else None,
+                            write_permission=want_write
+                            if write_perm_drift else None,
+                            parent_folder_id=want_folder
+                            if folder_drift else None)
+                    if folder_drift:
+                        record_move()
                 # level 2 (opt-in): the HackMD-side edit flows back — but ONLY
                 # for notes nobody else can edit (effective write_permission
                 # owner), never when the source moved too, and only with a
@@ -697,9 +887,16 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                         info = note_get(prev["note_id"])
                         try:
                             # the REMOTE's actual write permission is the
-                            # authority, not the config value — a note opened
-                            # up on hackmd.io means someone else may have
-                            # made this edit
+                            # authority, not the config value.  Also retain
+                            # the pre-reconciliation value from the list
+                            # snapshot: revoking shared write access in this
+                            # run cannot make an already-observed edit safe
+                            # to write back retroactively.
+                            if remote.get("write_permission") not in \
+                                    (None, "owner"):
+                                raise ValueError(
+                                    "遠端實際寫權限非 owner（此編輯可能出自"
+                                    "他人）——本輪已收回權限，但內容仍凍結")
                             if info.get("write_permission") != "owner":
                                 raise ValueError(
                                     "遠端實際寫權限非 owner（此編輯可能出自"
@@ -735,12 +932,22 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                      "why": "HackMD 端在上次同步後被編輯——不覆蓋，"
                             "手動合併後重跑（或刪 state 條目強制覆蓋）" + why_extra})
                 continue
-            # ONE PATCH per card: content and the declarative read
-            # permission ride together — two rapid PATCHes to the same note
+            # ONE PATCH per card: content and declarative metadata ride
+            # together — two rapid PATCHes to the same note
             # race in HackMD's async pipeline and one gets dropped
             if prev.get("md5") == digest:
-                if perm_drift and not dry:
-                    note_set_read_permission(prev["note_id"], want_read)
+                if read_perm_drift or write_perm_drift or folder_drift:
+                    if not dry:
+                        note_set_metadata(
+                            prev["note_id"],
+                            read_permission=want_read
+                            if read_perm_drift else None,
+                            write_permission=want_write
+                            if write_perm_drift else None,
+                            parent_folder_id=want_folder
+                            if folder_drift else None)
+                    if folder_drift:
+                        record_move()
                 if not dry and load_base(ck) is None:
                     save_base(ck, md)   # backfill for pre-level-2 states
                 report["skipped"] += 1
@@ -756,14 +963,20 @@ def _sync_locked(collections=None, only_card=None, dry=False):
                 continue
             if not dry:
                 body = {"content": md}
-                if perm_drift:
+                if read_perm_drift:
                     body["readPermission"] = want_read
+                if write_perm_drift:
+                    body["writePermission"] = want_write
+                if folder_drift:
+                    body["parentFolderId"] = want_folder
                 api("PATCH", f"/notes/{prev['note_id']}", body)
                 cards_state[ck] = {"note_id": prev["note_id"], "md5": digest,
                                    "last_changed_at": None,  # backfilled below
                                    "title": title}
                 save_base(ck, md)
                 save_state(state)
+            if folder_drift:
+                record_move()
             report["updated"].append({"card": ck, "note": prev["note_id"],
                                       "title": title})
         except QuotaExhausted as e:
@@ -790,13 +1003,22 @@ def _sync_locked(collections=None, only_card=None, dry=False):
             try:
                 info = note_get(rec["note_id"])
                 rec["last_changed_at"] = info["last_changed_at"]
-                # freshly created notes were invisible to the pre-create
-                # index — correct their read-permission drift here (the API
-                # silently falls back to owner on values it dislikes)
-                want = want_read_by_card.get(cid2)
-                if want and info.get("read_permission") \
-                        and info["read_permission"] != want:
-                    note_set_read_permission(rec["note_id"], want)
+                # Freshly created notes were invisible to the pre-create
+                # index — correct permission drift here (the API silently
+                # falls back to owner on values it dislikes).
+                want_read = want_read_by_card.get(cid2)
+                want_write = want_write_by_card.get(cid2)
+                read_drift = bool(
+                    want_read and info.get("read_permission")
+                    and info["read_permission"] != want_read)
+                write_drift = bool(
+                    want_write and info.get("write_permission")
+                    and info["write_permission"] != want_write)
+                if read_drift or write_drift:
+                    note_set_metadata(
+                        rec["note_id"],
+                        read_permission=want_read if read_drift else None,
+                        write_permission=want_write if write_drift else None)
                 if rec.get("md5") and info["content_md5"] != rec["md5"]:
                     rec["md5"] = None           # force a re-send next run
                     report["errors"].append(

@@ -19,6 +19,11 @@ spec = importlib.util.spec_from_file_location(
 PLS = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(PLS)
 
+direct_spec = importlib.util.spec_from_file_location(
+    "post_project_sync_under_test", LOG_DIR / "post_project_sync.py")
+PPS = importlib.util.module_from_spec(direct_spec)
+direct_spec.loader.exec_module(PPS)
+
 
 def event(entry="entry-1", log="log-1", timeline="tail-1", eid="ev-1"):
     return {"schema": 1, "kind": "project-card-log", "event_id": eid,
@@ -81,6 +86,60 @@ class TestPostLogPlan(unittest.TestCase):
     def test_heptabase_only_still_consumes_repair(self):
         plan = PLS.command_plan([event()], capabilities=(False, False))
         self.assertEqual([p[0] for p in plan], ["repair"])
+
+
+class TestDirectProjectMutation(unittest.TestCase):
+    @staticmethod
+    def ok_runner(cmd, **kwargs):
+        if "repair_chain.py" in cmd[1]:
+            out = {"entry": cmd[-2], "chain": [cmd[-2]], "sealed": {}}
+        elif "repair.py" in cmd[1]:
+            out = {"results": []}
+        elif "note-sync" in cmd[1]:
+            out = {"total_conflicts": 0}
+        elif "context_mindmap.py" in cmd[1]:
+            out = {"mode": "chain", "sections_total": 4,
+                   "sections_mapped": 4}
+        else:
+            out = {"ok": True}
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(out), "")
+
+    def test_direct_entry_reuses_full_pipeline_in_safe_order(self):
+        rep = PPS.process(["entry-2", "entry-1", "entry-1"],
+                          runner=self.ok_runner)
+        self.assertEqual(rep["status"], "ok")
+        self.assertEqual(rep["projects"], ["entry-1", "entry-2"])
+        self.assertEqual([r["step"] for r in rep["reports"]], [
+            "chain-repair", "chain-repair", "repair", "note-sync",
+            "timeline", "mindmap", "timeline", "mindmap",
+        ])
+
+    def test_direct_entry_failure_is_not_reported_as_success(self):
+        def runner(cmd, **kwargs):
+            if "note-sync" in cmd[1]:
+                out = {"total_conflicts": 1}
+                return subprocess.CompletedProcess(
+                    cmd, 0, json.dumps(out), "")
+            return self.ok_runner(cmd, **kwargs)
+
+        rep = PPS.process(["entry-1"], runner=runner)
+        self.assertEqual(rep["status"], "failed")
+        self.assertEqual(rep["reports"][-1]["step"], "note-sync")
+
+    def test_direct_heptabase_only_still_repairs_chain_and_entry(self):
+        rep = PPS.process(["entry-1"], runner=self.ok_runner,
+                          capabilities=(False, False))
+        self.assertEqual(rep["status"], "ok")
+        self.assertEqual([r["step"] for r in rep["reports"]],
+                         ["chain-repair", "repair"])
+
+    def test_direct_dry_run_is_non_mutating_and_deduplicated(self):
+        rep = PPS.process(["entry-1", "entry-1"], dry_run=True)
+        self.assertEqual(rep["status"], "dry-run")
+        self.assertEqual(rep["projects"], ["entry-1"])
+        self.assertEqual([p["step"] for p in rep["plan"]], [
+            "chain-repair", "repair", "note-sync", "timeline", "mindmap",
+        ])
 
 
 class TestPostLogConsume(unittest.TestCase):

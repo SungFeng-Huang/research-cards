@@ -105,6 +105,7 @@ class TestSyncFlow(unittest.TestCase):
             if method == "GET" and path == "/notes":
                 return [{"id": n, "lastChangedAt": v["lastChangedAt"],
                          "readPermission": v["readPermission"],
+                         "writePermission": v["writePermission"],
                          "title": v.get("title"),
                          "parentFolderId": v.get("folder"),
                          "content": v["content"]}
@@ -129,6 +130,10 @@ class TestSyncFlow(unittest.TestCase):
                     self.notes[nid]["lastChangedAt"] += 1
                 if "readPermission" in (body or {}):
                     self.notes[nid]["readPermission"] = body["readPermission"]
+                if "writePermission" in (body or {}):
+                    self.notes[nid]["writePermission"] = body["writePermission"]
+                if "parentFolderId" in (body or {}):
+                    self.notes[nid]["folder"] = body["parentFolderId"]
                 return {}
             raise AssertionError((method, path))
 
@@ -192,6 +197,23 @@ class TestSyncFlow(unittest.TestCase):
         S.sync()
         nid = next(iter(self.notes))
         self.assertEqual(self.notes[nid]["readPermission"], "signed_in")
+
+    def test_declarative_write_permission_corrects_existing_note(self):
+        global S
+        S.sync()
+        nid = next(iter(self.notes))
+        self.assertEqual(self.notes[nid]["writePermission"], "owner")
+        cfgp = self.tmp / "config.json"
+        cfg = json.loads(cfgp.read_text())
+        cfg["hackmd"]["write_permission"] = "signed_in"
+        cfgp.write_text(json.dumps(cfg))
+        S = load_hackmd_sync()
+        S.STATE_PATH = str(self.tmp / "hackmd-state.json")
+        S.BASE_DIR = str(self.tmp / "hackmd-base")
+        S.api, S.note_create = self._fake_api, self._fake_create
+        rep = S.sync()
+        self.assertEqual(self.notes[nid]["writePermission"], "signed_in")
+        self.assertEqual(rep["skipped"], 1)
 
     def test_first_run_carries_interlinks(self):
         (self.tmp / "Overviews" / "B 卡.md").write_text(
@@ -474,12 +496,81 @@ class TestSyncFlow(unittest.TestCase):
         self.assertEqual(S._folder_of(
             {"folderPaths": [{"id": "F2", "name": "Papers",
                               "parentId": None}]}), "F2")
+        self.assertEqual(S._folder_of(
+            {"folderPaths": [
+                {"id": "PROJECTS", "name": "Projects", "parentId": None},
+                {"id": "LOGS", "name": "Logs", "parentId": "PROJECTS"},
+            ]}), "LOGS")
         self.assertIsNone(S._folder_of({"folderPaths": []}))
         self.assertIsNone(S._folder_of({}))
 
-    def test_adoption_works_with_folderpaths_schema(self):
-        # newer list schema: folderPaths instead of parentFolderId — the
-        # regression that blinded adoption and duplicated 300 notes
+    def test_project_bundle_membership_and_routes_are_canonical(self):
+        entry = {"id": "Projects/Entry", "title": "Entry",
+                 "props": {"heptabase_id": "entry-uuid"}}
+        continuation = {"id": "Projects/Entry · 續 1",
+                        "title": "Entry · 續 1",
+                        "props": {"heptabase_id": "cont-uuid"}}
+        relation_log = {
+            "id": "Projects/Logs/Relation Log", "title": "Relation Log",
+            "props": {
+                "heptabase_id": "relation-log",
+                "heptabase_relations": {"project": ["entry-uuid"]},
+            }}
+        legacy_log = {"id": "Projects/Logs/Legacy Log",
+                      "title": "Legacy Log",
+                      "props": {"heptabase_id": "legacy-log"}}
+        reverse_log = {"id": "Projects/Logs/Reverse Log",
+                       "title": "Reverse Log",
+                       "props": {"heptabase_id": "reverse-log"}}
+        bodies = {
+            entry["id"]: "timeline [[Reverse Log]]",
+            continuation["id"]: "（母卡：[[Entry]]）",
+            relation_log["id"]: "relation owns this",
+            legacy_log["id"]: "**專案**：[[Entry]]",
+            reverse_log["id"]: "no marked backlink",
+        }
+        catalog = {"projects": [entry, continuation],
+                   "progress": [relation_log, legacy_log, reverse_log]}
+        membership = S.project_bundle_membership(
+            catalog, lambda cid: bodies[cid])
+        self.assertEqual(set(membership.values()), {"entry-uuid"})
+
+        cfg = {"hackmd": {"project_bundles": {
+            "entry-uuid": {
+                "folder_id": "PROJECT-FOLDER",
+                "logs_folder_id": "LOGS-FOLDER",
+                "read_permission": "signed_in",
+            }}}}
+        targets = [
+            ("projects", {"folder_id": "PROJECTS"}, entry),
+            ("projects", {"folder_id": "PROJECTS"}, continuation),
+            ("progress", {"folder_id": "ALL-LOGS"}, relation_log),
+        ]
+        routed = S.route_project_bundles(
+            cfg, targets, catalog, lambda cid: bodies[cid], {})
+        self.assertEqual(routed[0][1]["folder_id"], "PROJECT-FOLDER")
+        self.assertEqual(routed[1][1]["folder_id"], "PROJECT-FOLDER")
+        self.assertEqual(routed[2][1]["folder_id"], "LOGS-FOLDER")
+        self.assertTrue(all(r[1]["read_permission"] == "signed_in"
+                            for r in routed))
+
+    def test_existing_note_moves_when_configured_folder_changes(self):
+        S.sync()
+        nid = next(iter(self.notes))
+        self.assertEqual(self.notes[nid]["folder"], "F1")
+        cfg_path = Path(os.environ["RESEARCH_CARDS_CONFIG"])
+        cfg = json.loads(cfg_path.read_text())
+        cfg["hackmd"]["collections"]["overviews"]["folder_id"] = "F2"
+        cfg_path.write_text(json.dumps(cfg))
+        rep = S.sync()
+        self.assertEqual(self.notes[nid]["folder"], "F2")
+        self.assertEqual(len(rep["moved"]), 1)
+        self.assertFalse(rep["updated"])
+
+    def test_adoption_works_with_newer_list_schema(self):
+        # Newer list schema uses folderPaths and omits content. The engine
+        # must take the leaf folder and GET only the unclaimed candidate
+        # before deciding whether its placeholder is safe to adopt.
         real_api = S.api
         def newer_api(method, path, body=None, timeout=60):
             out = real_api(method, path, body, timeout)
@@ -488,6 +579,7 @@ class TestSyncFlow(unittest.TestCase):
                     pf = r.pop("parentFolderId", None)
                     r["folderPaths"] = ([{"id": pf, "name": "?",
                                           "parentId": None}] if pf else [])
+                    r.pop("content", None)
             return out
         S.api = newer_api
         S.sync()

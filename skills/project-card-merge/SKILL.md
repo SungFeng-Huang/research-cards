@@ -219,26 +219,27 @@ state — scan lists it informationally but does NOT flag it（只有鏈上再�
 Report what was folded, what was superseded, the chain layout（if any）, and
 remaining 待補 items.
 
-## Step 5.2 — 跑 note-sync（先於刷視圖，硬規則）
+## Step 5.2 — 自動收斂 repair → note-sync → 全視圖（硬規則）
 
 ```bash
-python3 <plugin 的 skills/note-sync 目錄>/sync.py   # 全鏈；趕時間至少 --mode heptabase
+python3 <plugin 的 skills/project-card-log 目錄>/post_project_sync.py \
+  --card <ENTRY_ID>
 ```
 
-merge 動了整條鏈（entry 重建、子卡 trash、📎→📗 翻轉），鏡像與
-heptabase-sync 的 state 帳全部落後；Step 5.5 的 canvas 讀 vault mirror
-（state 帳＋內容），不 sync 先刷＝舊帳入圖（未鏡像節點、被 trash 的
-子卡殘影）。HackMD 段同輪收斂，續卡/entry 的遠端鏡像才不積壓。
+只在 Step 5 的 child cleanup＋verify 完成後呼叫。runner 與 cluster
+project-log drain **共用同一條實作**，固定依序：
+**repair_chain --seal → pinpoint project-card-repair → 一次 note-sync →
+timeline canvas → 裸跑 context mind map**；若既有 mind map 是 story 且
+coverage 有缺口，再進 `story_auto_expand.py` 的 guarded proposal 流程。
+merge 動了整條鏈（entry 重建、子卡 trash、📎→📗 翻轉），所以 repair
+與 sync 都必須先於視圖；順序反了會把未鏡像節點、trash 殘影或斷 link
+畫進圖。任何一步失敗、note-sync conflict、canvas coverage 不完整都以
+非零退出，修好後重跑同一指令（全流程 idempotent）。
 
-## Step 5.5 — 刷新 project canvas（git-graph 視圖）
-
-```bash
-python3 <plugin 的 skills/project-card-canvas 目錄>/project_canvas.py --card <ENTRY_ID>
-```
-（與本 skill 同層的 `project-card-log` 目錄；plugin 內相對位置固定。）
-merge 後蒸餾狀態的翻轉直接反映在**拓撲**上：entry（HEAD）側貼位置
-跳到最新已蒸餾的 log 那排、HEAD 之上的 📎 backlog 清空（顏色預設為
-來源機器軸；`--color-by state` 仍可看 📎橙/📗綠 舊軸）。
+Heptabase-only、沒有 local hub 時仍完成 repair，並略過不可用的
+note-sync／canvas；`--dry-run` 可先看完整 command plan。merge 後蒸餾狀態
+的翻轉會同輪反映在 timeline 拓撲：entry（HEAD）側貼最新已蒸餾 log，
+HEAD 上方的 📎 backlog 清空。
 
 ## Notes
 - This skill **only consolidates an existing card** — it does not invent content.

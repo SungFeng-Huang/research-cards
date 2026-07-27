@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.58.2 — add-only Codex plugin refresh guidance
+
+- All four README languages now refresh Codex's static plugin cache by
+  rerunning `codex plugin add` directly, without removing the active plugin
+  first and exposing concurrent sessions to a transient missing-cache window.
+- A cross-language regression test keeps install and troubleshooting guidance
+  on the add-only refresh path.
+- Claude and Codex plugin manifests are aligned at the same release version.
+
+## 0.58.1 — canonical per-project HackMD bundles
+
+- HackMD project and progress notes can be routed into one canonical
+  `Projects/<project>/` tree with a nested `Logs/` folder; existing notes move
+  declaratively instead of being duplicated.
+- Bundle membership uses the stable Heptabase `project` relation exported as
+  read-only local frontmatter, with continuation/backlink/timeline fallbacks
+  for historical cards.
+- Each project bundle may override read/write permissions independently, so a
+  selected entry plus its continuations and logs can be shared while every
+  other project remains owner-only.
+
+## 0.58.0 — merge/cleanup share the guarded post-mutation pipeline
+
+- `project-card-merge` and `project-card-cleanup` now finish through
+  `project-card-log/post_project_sync.py --card <ENTRY>`, a direct-entry
+  wrapper around the same tested pipeline used by cluster project-log drain:
+  chain seal, pinpoint link repair, one note-sync, timeline canvas, existing-
+  mode context mind map, and guarded story expansion when coverage is missing.
+- The wrapper deduplicates repeated entries, respects backend capabilities,
+  supports a non-mutating dry run, and fails closed on command errors,
+  note-sync conflicts, incomplete deterministic canvases, or unsuccessful
+  story expansion. It is intentionally invoked only after child cleanup and
+  verification, so no intermediate merge state leaks into mirrors or views.
+
 ## 0.57.0 — guarded semantic expansion for every active project canvas
 
 - The Mac post-log pipeline now validates the active context view after every

@@ -62,7 +62,7 @@ def body_hash(body):
 
 FM_ORDER = ["title", "arxiv_id", "tasks", "topics", "status", "note",
             "source_type", "level"]
-SYSTEM_KEYS = ["heptabase_id", "created", "modified"]
+SYSTEM_KEYS = ["heptabase_id", "heptabase_relations", "created", "modified"]
 
 REBUILD = False
 report = {"created": [], "body_updated": [], "fm_updated": [], "renamed": [],
@@ -243,11 +243,14 @@ def main():
     bootstrap = not state["cards"]
 
     # property schemas (also needed by adoption below)
-    tag_props = {}   # key -> {fm_key: {id, name, type}}
+    tag_props = {}      # key -> {fm_key: {id, name, type}}
+    tag_relations = {}  # key -> [{id, name, type=relation}]
     for col in COLLECTIONS:
         props = cli("tag", "properties", col["tag_id"])["properties"]
         tag_props[col["key"]] = {fm_key(p["name"]): p for p in props
                                  if p["type"] != "relation"}
+        tag_relations[col["key"]] = [p for p in props
+                                     if p["type"] == "relation"]
 
     # Level-3 adoption BEFORE fetching, so new cards join this run normally
     state_in_set = {cid: st["file"] for cid, st in state["cards"].items()}
@@ -357,8 +360,9 @@ def main():
                         {"card": cid, "file": st["file"],
                          "propagated": "local 正本檔已刪→Heptabase 卡已 trash"})
                     continue
-                sync_card(c, col, folder, att_dir, props_by_key, state,
-                          resolver, in_set, bootstrap, dry)
+                sync_card(c, col, folder, att_dir, props_by_key,
+                          tag_relations[col["key"]], state, resolver, in_set,
+                          bootstrap, dry)
             except Exception as e:
                 report["errors"].append({"card": cid, "err": repr(e)[:300]})
 
@@ -457,6 +461,28 @@ def hepta_props_fm(card, props_by_key):
         if v in (None, "", []):
             continue
         out[key] = v
+    return out
+
+
+def hepta_relations_fm(card, relation_defs):
+    """Read-only relation metadata for downstream local-surface routing.
+
+    Relation properties deliberately remain outside the bidirectional
+    frontmatter property engine: editing these ids in Obsidian must never
+    mutate Heptabase relations.  The system field is nevertheless exported
+    so consumers such as hackmd-sync can group a project/progress card by the
+    stable project UUID instead of guessing from its title.
+    """
+    defs = {p["name"]: p for p in relation_defs}
+    out = {}
+    for prop in card.get("properties") or []:
+        name = prop.get("name")
+        if name not in defs:
+            continue
+        ids = [v.get("id") for v in (prop.get("value") or [])
+               if isinstance(v, dict) and v.get("id")]
+        if ids:
+            out[name] = ids
     return out
 
 
@@ -1046,8 +1072,8 @@ def write_back(cid, fname, obs_body, note, resolver, in_set, state, att_dir, dry
     return body2, md5_2
 
 
-def sync_card(card, col, folder, att_dir, props_by_key, state, resolver,
-              in_set, bootstrap, dry):
+def sync_card(card, col, folder, att_dir, props_by_key, relation_defs, state,
+              resolver, in_set, bootstrap, dry):
     cid = card["id"]
     fname = in_set[cid]
     path = os.path.join(folder, fname + ".md")
@@ -1155,6 +1181,9 @@ def sync_card(card, col, folder, att_dir, props_by_key, state, resolver,
     fm = dict(merged_fm)
     fm["title"] = card["title"]
     fm["heptabase_id"] = cid
+    relation_fm = hepta_relations_fm(card, relation_defs)
+    if relation_fm:
+        fm["heptabase_relations"] = relation_fm
     fm["created"] = card.get("createdTime", "")
     fm["modified"] = card.get("lastEditedTime", "")
     new_text = dump_fm(fm) + "\n\n" + body

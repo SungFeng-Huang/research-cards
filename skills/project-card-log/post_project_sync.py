@@ -42,6 +42,7 @@ def events_for_entries(entries):
         "log_card": entry,
         "timeline_card": entry,
         "repair_chain": True,
+        "repair_inline_links": False,
     } for entry in unique]
 
 

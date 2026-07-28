@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
 for sub in ("_shared", "card-rewrite", "project-card-log", "project-card-repair"):
@@ -95,6 +96,65 @@ class TestBackrefGeneralisation(unittest.TestCase):
             [n], marks=(AC.BACKREF_MARK, AC.PROJECTREF_MARK)), 0)
 
 
+class TestInlineCardLiterals(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._env = _mock_config()
+        global AC
+        import append_card as AC
+
+    @classmethod
+    def tearDownClass(cls):
+        _restore_config(cls._env)
+
+    def test_recursive_multiple_links_preserve_prose_and_marks(self):
+        other = "99999999-9999-4999-8999-999999999999"
+        paragraph = _para(_t(
+            f"承接 [[card:{UUID}]]，也比較 [[card:{other}]]。",
+            strong=True))
+        nodes = [{"type": "bullet_list_item", "content": [paragraph]}]
+        self.assertEqual(
+            AC.seal_inline_card_literals(nodes, card_exists=lambda _: True),
+            2)
+        kids = paragraph["content"]
+        self.assertEqual([n["type"] for n in kids],
+                         ["text", "card", "text", "card", "text"])
+        self.assertEqual(kids[0]["marks"], [{"type": "strong"}])
+        self.assertEqual(kids[-1]["marks"], [{"type": "strong"}])
+
+    def test_skips_inline_code_and_code_blocks(self):
+        inline = _para(_t(f"範例 [[card:{UUID}]]", code=True))
+        block = {"type": "code_block", "content": [
+            _t(f"[[card:{UUID}]]")]}
+        self.assertEqual(
+            AC.seal_inline_card_literals(
+                [inline, block], card_exists=lambda _: True),
+            0)
+        self.assertEqual(inline["content"][0]["type"], "text")
+        self.assertEqual(block["content"][0]["type"], "text")
+
+    def test_unreadable_target_stays_literal_and_is_reported(self):
+        missing = set()
+        paragraph = _para(_t(f"見 [[card:{UUID}]]"))
+        self.assertEqual(
+            AC.seal_inline_card_literals(
+                [paragraph], card_exists=lambda _: False, missing=missing),
+            0)
+        self.assertEqual(missing, {UUID})
+        self.assertIn("[[card:", paragraph["content"][0]["text"])
+
+    def test_idempotent_after_conversion(self):
+        paragraph = _para(_t(f"見 [[card:{UUID}]]"))
+        self.assertEqual(
+            AC.seal_inline_card_literals(
+                [paragraph], card_exists=lambda _: True),
+            1)
+        self.assertEqual(
+            AC.seal_inline_card_literals(
+                [paragraph], card_exists=lambda _: True),
+            0)
+
+
 class TestRepairRouting(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -168,6 +228,44 @@ class TestRepairRouting(unittest.TestCase):
         self.assertEqual(r["sealed"], 0)
         self.assertNotIn("cid", saved)
 
+    def test_inline_mode_seals_readable_prose_links(self):
+        doc = {"type": "doc", "content": [
+            _para(_t(f"前情見 [[card:{UUID}]]。"))]}
+        saved = self._patch(doc)
+        with patch.object(repair, "_card_exists", return_value=True):
+            r = repair.repair_card("log-3", include_inline=True)
+        self.assertEqual(r["by_kind"].get("inline"), 1)
+        self.assertEqual(r["missing_inline_targets"], [])
+        self.assertEqual(
+            [n["type"] for n in saved["doc"]["content"][0]["content"]],
+            ["text", "card", "text"])
+
+    def test_inline_mode_reports_unreadable_target_without_save(self):
+        doc = {"type": "doc", "content": [
+            _para(_t(f"前情見 [[card:{UUID}]]。"))]}
+        saved = self._patch(doc)
+        with patch.object(repair, "_card_exists", return_value=False):
+            r = repair.repair_card("log-4", include_inline=True)
+        self.assertEqual(r["sealed"], 0)
+        self.assertEqual(r["missing_inline_targets"], [UUID])
+        self.assertNotIn("cid", saved)
+
+    def test_live_snapshot_excludes_trashed_and_paginates(self):
+        pages = {
+            0: {"results": [{"id": "live-a"}], "total": 2},
+            1: {"results": [{"id": "live-b"}], "total": 2},
+        }
+
+        def fake_cli(*args):
+            self.assertEqual(args[:2], ("card", "list"))
+            return pages[int(args[args.index("--offset") + 1])]
+
+        repair._LIVE_CARD_IDS = None
+        with patch.object(repair, "_cli", side_effect=fake_cli):
+            self.assertTrue(repair._card_exists("live-b"))
+            self.assertFalse(repair._card_exists("trashed-c"))
+        self.assertEqual(repair._LIVE_CARD_IDS, {"live-a", "live-b"})
+
 
 class TestScanResolve(unittest.TestCase):
     """scan_target_ids must never silently drop a collection — the progress
@@ -227,6 +325,10 @@ class TestScanResolve(unittest.TestCase):
         ids, warns = repair.scan_target_ids()
         self.assertIn("g1", [i for i, _ in ids])   # log card NOT dropped
         self.assertEqual(warns, [])
+        targets, _ = repair.scan_targets()
+        modes = {cid: inline for cid, _, inline in targets}
+        self.assertFalse(modes["p1"])
+        self.assertTrue(modes["g1"])
 
     def test_unresolved_collection_warns_not_silent(self):
         self._hb_id()                       # nothing configured

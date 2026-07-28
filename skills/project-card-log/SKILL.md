@@ -210,7 +210,8 @@ child tag `<tag_name>/progress`，如 `project/progress`）——log 卡是進�
   `~/.heptabase-bridge/project-log-events.jsonl` durable queue。啟用新版
   heptabase-ssh-bridge 的 `HB_POST_DRAIN_HOOK` 後，Mac drainer 每次拉取
   queue 會呼叫本目錄 `post_log_sync.py`，固定依序跑：
-  **必要時 repair_chain --seal → pinpoint project-card-repair →
+  **必要時 repair_chain --seal → pinpoint project-card-repair
+  （log 卡含安全 inline 引用；timeline tail 僅結構 link）→
   整批一次 note-sync → 每個 entry 的
   timeline canvas＋裸跑 context mind map**。同一批同專案自動去重；
   任一步失敗／note-sync 有 conflict 都保留事件重試。logs/chain 會驗證

@@ -69,15 +69,23 @@ def parse_lines(lines):
 def command_plan(events, capabilities=(True, True)):
     """Coalesce a batch: repair every affected card once, sync once, refresh
     each project once.  Stable order makes reports/tests deterministic."""
-    repair_cards = sorted({
-        c for e in events for c in (e["timeline_card"], e["log_card"])
-    })
+    inline_cards = {
+        e["log_card"] for e in events
+        if e.get("repair_inline_links", True)
+    }
+    shape_only_cards = (
+        {e["timeline_card"] for e in events}
+        | {e["log_card"] for e in events
+           if not e.get("repair_inline_links", True)}
+    ) - inline_cards
     entries = sorted({e["entry_card"] for e in events})
     chain_entries = sorted({e["entry_card"] for e in events
                             if e.get("repair_chain")})
     repair = [PYTHON, str(SKILLS / "project-card-repair" / "repair.py")]
-    for cid in repair_cards:
+    for cid in sorted(shape_only_cards):
         repair.extend(["--card", cid])
+    for cid in sorted(inline_cards):
+        repair.extend(["--inline-card", cid])
     commands = [
         ("chain-repair", entry,
          [PYTHON, str(HERE / "repair_chain.py"),
@@ -154,11 +162,16 @@ def run_pipeline(events, runner=subprocess.run, capabilities=(True, True)):
             return False, reports
         # repair.py intentionally continues after a per-card error; automation
         # must not publish a canvas from a batch whose targeted repair failed.
-        if step == "repair" and any("error" in r
-                                    for r in (parsed or {}).get("results", [])):
-            rep["error"] = "targeted repair reported a per-card error"
-            reports.append(rep)
-            return False, reports
+        if step == "repair":
+            repair_results = (parsed or {}).get("results", [])
+            if any("error" in r for r in repair_results):
+                rep["error"] = "targeted repair reported a per-card error"
+                reports.append(rep)
+                return False, reports
+            if any(r.get("missing_inline_targets") for r in repair_results):
+                rep["error"] = "targeted repair left unreadable inline targets"
+                reports.append(rep)
+                return False, reports
         # A note-sync conflict requires human resolution.  Keep the event
         # pending instead of rendering a knowingly divergent mirror.
         if step == "note-sync" and (parsed or {}).get("total_conflicts", 0):

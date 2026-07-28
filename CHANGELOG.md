@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.58.3 — safe inline project-log citation repair
+
+- `project-card-repair --inline-card` now converts exact
+  `[[card:<uuid>]]` literals throughout progress/log prose into native card
+  mentions, recursively including lists and tables while leaving inline code
+  and code blocks untouched.
+- Inline targets must be present in a read-only snapshot of the non-trashed
+  Card Library. Missing or trashed targets remain literal and are reported;
+  the cluster post-log hook keeps the durable event for retry instead of
+  publishing divergent note mirrors or canvases.
+- Cluster project-log events now route the log card through safe inline repair
+  while keeping the timeline tail structural-only. Direct Mac project-entry
+  mutations remain structural-only, preserving their unrestricted prose.
+
 ## 0.58.2 — add-only Codex plugin refresh guidance
 
 - All four README languages now refresh Codex's static plugin cache by

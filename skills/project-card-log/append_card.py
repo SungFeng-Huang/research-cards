@@ -347,6 +347,82 @@ def seal_loglink_paragraphs(nodes):
     return sealed
 
 
+def seal_inline_card_literals(nodes, card_exists=None, missing=None):
+    """Convert prose `[[card:<uuid>]]` literals into real card nodes.
+
+    This is deliberately broader than the header/timeline sealers, so callers
+    must restrict it to progress/log cards. Inline-code marks and code-block
+    nodes are never touched: those may be examples rather than navigation.
+    When ``card_exists`` is provided, only live targets are sealed; ids
+    rejected by the callback are added to ``missing`` when supplied.
+
+    The walk is recursive (lists/tables included), converts every qualifying
+    literal in a text node, preserves non-code marks on surrounding text, and
+    is idempotent because card nodes contain no literal text. Returns the
+    number of literals sealed, not the number of paragraphs changed.
+    """
+    pat = re.compile(r"\[\[card:(" + _UUID + r")\]\]")
+    missing = missing if missing is not None else set()
+    readable = {}
+
+    def target_ok(card_id):
+        if card_id not in readable:
+            readable[card_id] = (
+                True if card_exists is None else bool(card_exists(card_id)))
+        if not readable[card_id]:
+            missing.add(card_id)
+        return readable[card_id]
+
+    def split_text(node):
+        marks = node.get("marks") or []
+        if any(mark.get("type") == "code" for mark in marks):
+            return [node], 0
+        text = node.get("text", "")
+        pieces, cursor, count = [], 0, 0
+        for match in pat.finditer(text):
+            if not target_ok(match.group(1)):
+                continue
+            if match.start() > cursor:
+                before = {"type": "text", "text": text[cursor:match.start()]}
+                if marks:
+                    before["marks"] = marks
+                pieces.append(before)
+            pieces.append({
+                "type": "card",
+                "attrs": {"cardId": match.group(1)},
+            })
+            cursor = match.end()
+            count += 1
+        if not count:
+            return [node], 0
+        if cursor < len(text):
+            after = {"type": "text", "text": text[cursor:]}
+            if marks:
+                after["marks"] = marks
+            pieces.append(after)
+        return pieces, count
+
+    def walk(node):
+        if node.get("type") in {"code_block", "codeBlock", "code"}:
+            return 0
+        kids = node.get("content")
+        if not isinstance(kids, list):
+            return 0
+        rebuilt, total = [], 0
+        for child in kids:
+            if child.get("type") == "text":
+                pieces, count = split_text(child)
+                rebuilt.extend(pieces)
+                total += count
+            else:
+                total += walk(child)
+                rebuilt.append(child)
+        node["content"] = rebuilt
+        return total
+
+    return sum(walk(node) for node in nodes or [])
+
+
 def find_relation_pid(props, tag, pname):
     """From `card properties` / `hb props` output, the id of <tag>'s relation
     property named <pname> — the chain convention: a continuation child (or a

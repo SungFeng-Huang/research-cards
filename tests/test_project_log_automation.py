@@ -67,10 +67,12 @@ class TestPostLogPlan(unittest.TestCase):
                          ["repair", "note-sync",
                           "timeline", "mindmap", "timeline", "mindmap"])
         repair = plan[0][2]
-        cards = [repair[i + 1] for i, arg in enumerate(repair[:-1])
-                 if arg == "--card"]
-        self.assertEqual(cards, ["log-1", "log-2", "log-3",
-                                 "tail-1", "tail-2"])
+        shape_cards = [repair[i + 1] for i, arg in enumerate(repair[:-1])
+                       if arg == "--card"]
+        inline_cards = [repair[i + 1] for i, arg in enumerate(repair[:-1])
+                        if arg == "--inline-card"]
+        self.assertEqual(shape_cards, ["tail-1", "tail-2"])
+        self.assertEqual(inline_cards, ["log-1", "log-2", "log-3"])
         self.assertEqual([p[1] for p in plan[2:]],
                          ["entry-1", "entry-1", "entry-2", "entry-2"])
 
@@ -86,6 +88,12 @@ class TestPostLogPlan(unittest.TestCase):
     def test_heptabase_only_still_consumes_repair(self):
         plan = PLS.command_plan([event()], capabilities=(False, False))
         self.assertEqual([p[0] for p in plan], ["repair"])
+
+    def test_direct_project_mutation_never_enables_inline_repair(self):
+        plan = PLS.command_plan(PPS.events_for_entries(["entry-1"]))
+        repair = plan[1][2]
+        self.assertIn("--card", repair)
+        self.assertNotIn("--inline-card", repair)
 
 
 class TestDirectProjectMutation(unittest.TestCase):
@@ -187,6 +195,26 @@ class TestPostLogConsume(unittest.TestCase):
         self.assertEqual(json.loads(self.inbox.read_text())["event_id"], "ev-1")
         self.assertEqual([r["step"] for r in rep["reports"]],
                          ["repair", "note-sync"])
+
+    def test_unreadable_inline_target_requeues_before_sync(self):
+        self.write(event())
+
+        def runner(cmd, **kwargs):
+            if "repair.py" in cmd[1]:
+                out = {"results": [{
+                    "card": "log-1",
+                    "missing_inline_targets": ["missing-card"],
+                }]}
+            else:
+                out = {"total_conflicts": 0}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(out), "")
+
+        rep = PLS.consume(self.inbox, runner=runner)
+        self.assertEqual(rep["status"], "retry")
+        self.assertTrue(self.inbox.exists())
+        self.assertEqual([r["step"] for r in rep["reports"]], ["repair"])
+        self.assertIn("unreadable inline targets",
+                      rep["reports"][0]["error"])
 
     def test_failed_canvas_requeues_whole_idempotent_batch(self):
         self.write(event())

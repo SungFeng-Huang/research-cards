@@ -10,13 +10,16 @@ Architecture:
 """
 
 import base64
+import atexit
 import copy
 import json
 import os
 import re
+import selectors
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,6 +35,12 @@ os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH"
 # ── Constants ─────────────────────────────────────────────────────────────────
 import shutil as _shutil
 CLAUDE_BIN = _shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+CODEX_BIN = (_shutil.which("codex") or
+             next((str(p) for p in (
+                 Path.home() / ".local/bin/codex",
+                 Path.home() / ".node_modules/bin/codex",
+                 Path("/Applications/ChatGPT.app/Contents/Resources/codex"),
+             ) if p.is_file() and os.access(p, os.X_OK)), "codex"))
 # Model/effort for call_claude() text generation (translate/colorize) — a fast
 # tier on purpose; must stay independent of the user's interactive-session pin.
 GEN_MODEL = os.environ.get("SCHOLAR_CLIP_GEN_MODEL", "claude-sonnet-5")
@@ -658,13 +667,161 @@ def select_hf_papers(papers):
     return sel
 
 
-def fetch_alphaxiv(paper_id):
-    """Fetch the alphaXiv overview. Works for numeric arxiv IDs and named
-    slugs (alphaxiv:slug) alike — both have overview/{bare} pages.
+class _CodexAppServerMcpClient:
+    """Minimal model-free MCP bridge through Codex app-server.
 
-    Returns (content, is_ai_report). For the SPA overview we extract the clean
-    `intermediateReport` markdown (is_ai=True); if that key is absent (no report
-    generated yet) we fall back to the arxiv abstract page (is_ai=False)."""
+    `run.py` cannot call the in-process Codex tool directly. The app-server's
+    JSON-RPC `mcpServer/tool/call` method reuses Codex's installed MCP config and
+    OAuth without starting a model turn (unlike `codex exec`, which feeds the
+    full paper back through a model and is prohibitively expensive per paper).
+    """
+
+    def __init__(self, timeout=30):
+        self.timeout = timeout
+        self._next_id = 0
+        self.proc = subprocess.Popen(
+            [CODEX_BIN, "app-server", "--stdio"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            # App-server emits unrelated plugin/state warnings at startup;
+            # JSON-RPC errors and exit codes below are the actionable signal.
+            stderr=subprocess.DEVNULL, bufsize=0,
+        )
+        self._recv_buffer = b""
+        try:
+            self._request("initialize", {
+                "clientInfo": {"name": "scholar-inbox-clip", "version": "1"},
+            }, timeout=timeout)
+            self._send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+            started = self._request("thread/start", {
+                "cwd": os.getcwd(),
+                "ephemeral": True,
+                "sandbox": "read-only",
+                "approvalPolicy": "never",
+            }, timeout=timeout)
+            self.thread_id = started["thread"]["id"]
+        except Exception:
+            self.close()
+            raise
+
+    def _send(self, obj):
+        if self.proc.poll() is not None:
+            raise RuntimeError(f"codex app-server exited ({self.proc.returncode})")
+        payload = (json.dumps(obj, separators=(",", ":")) + "\n").encode()
+        self.proc.stdin.write(payload)
+        self.proc.stdin.flush()
+
+    def _request(self, method, params, timeout=None):
+        self._next_id += 1
+        request_id = self._next_id
+        self._send({"jsonrpc": "2.0", "id": request_id,
+                    "method": method, "params": params})
+        selector = selectors.DefaultSelector()
+        selector.register(self.proc.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + (timeout if timeout is not None else self.timeout)
+        try:
+            while True:
+                while b"\n" in self._recv_buffer:
+                    raw, self._recv_buffer = self._recv_buffer.split(b"\n", 1)
+                    if not raw.strip():
+                        continue
+                    try:
+                        msg = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if msg.get("id") != request_id:
+                        # Notifications are expected during startup. An
+                        # unrelated server request would require interaction;
+                        # ignore it and let the bounded timeout/fallback win.
+                        continue
+                    if msg.get("error"):
+                        raise RuntimeError(f"app-server {method}: {msg['error']}")
+                    return msg.get("result") or {}
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise TimeoutError(f"app-server {method} timed out")
+                chunk = os.read(self.proc.stdout.fileno(), 65536)
+                if not chunk:
+                    raise RuntimeError(f"codex app-server closed during {method}")
+                self._recv_buffer += chunk
+        finally:
+            selector.close()
+
+    def call(self, server, tool, arguments, timeout=90):
+        return self._request("mcpServer/tool/call", {
+            "server": server,
+            "threadId": self.thread_id,
+            "tool": tool,
+            "arguments": arguments,
+        }, timeout=timeout)
+
+    def close(self):
+        proc = getattr(self, "proc", None)
+        if not proc or proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=3)
+
+
+_ALPHAXIV_MCP_CLIENT = None
+_ALPHAXIV_MCP_DISABLED = None
+
+
+def _close_alphaxiv_mcp_client():
+    global _ALPHAXIV_MCP_CLIENT
+    if _ALPHAXIV_MCP_CLIENT is not None:
+        _ALPHAXIV_MCP_CLIENT.close()
+        _ALPHAXIV_MCP_CLIENT = None
+
+
+atexit.register(_close_alphaxiv_mcp_client)
+
+
+def _alphaxiv_transport():
+    """MCP is the Codex default; HTTP remains an emergency/debug override."""
+    configured = os.environ.get("SCHOLAR_CLIP_ALPHAXIV_TRANSPORT", "").strip().lower()
+    if configured in {"mcp", "http"}:
+        return configured
+    return "mcp" if _agent_cli() == "codex" else "http"
+
+
+def _mcp_text(result):
+    if result.get("isError"):
+        raise RuntimeError("alphaXiv MCP returned isError=true")
+    texts = [block.get("text", "") for block in result.get("content", [])
+             if isinstance(block, dict) and block.get("type") == "text"]
+    text = "\n".join(t for t in texts if t).strip()
+    if not text:
+        raise RuntimeError("alphaXiv MCP returned no text content")
+    return text
+
+
+def _looks_like_ai_report(content):
+    head = (content or "")[:2500].lower()
+    return ("research report:" in head or
+            "this report provides a detailed analysis" in head or
+            "the following report provides" in head)
+
+
+def _fetch_alphaxiv_mcp(paper_id):
+    global _ALPHAXIV_MCP_CLIENT
+    if _ALPHAXIV_MCP_CLIENT is None:
+        _ALPHAXIV_MCP_CLIENT = _CodexAppServerMcpClient()
+    slug = bare_id(paper_id)
+    result = _ALPHAXIV_MCP_CLIENT.call(
+        "alphaxiv", "get_paper_content",
+        {"url": f"https://www.alphaxiv.org/abs/{slug}", "fullText": False},
+        timeout=90,
+    )
+    content = _mcp_text(result)
+    return content, _looks_like_ai_report(content)
+
+
+def _fetch_alphaxiv_http(paper_id):
+    """Previous direct-HTTPS implementation, retained as a safety fallback."""
     slug = bare_id(paper_id)
     url = f"https://alphaxiv.org/overview/{slug}"
     try:
@@ -690,6 +847,27 @@ def fetch_alphaxiv(paper_id):
         except Exception as e:
             return f"Failed to fetch content for {paper_id}: {e}", False
     return f"Failed to fetch content for {paper_id}", False
+
+
+def fetch_alphaxiv(paper_id):
+    """Fetch paper content via alphaXiv MCP, with bounded HTTPS fallback.
+
+    Codex scheduled runs use the model-free app-server MCP bridge. One MCP
+    failure disables it for the rest of this process so an unattended batch
+    cannot repeatedly stall; direct HTTPS then preserves the existing retry and
+    raw-arxiv fallback behavior. Claude runs keep the historical HTTP path.
+    """
+    global _ALPHAXIV_MCP_DISABLED
+    if _alphaxiv_transport() == "mcp" and not _ALPHAXIV_MCP_DISABLED:
+        try:
+            content, is_ai = _fetch_alphaxiv_mcp(paper_id)
+            log(f"  [MCP] alphaXiv get_paper_content ({'AI report' if is_ai else 'raw text'})")
+            return content, is_ai
+        except Exception as e:
+            _ALPHAXIV_MCP_DISABLED = str(e)
+            _close_alphaxiv_mcp_client()
+            log(f"  [WARN] alphaXiv MCP unavailable ({e}); using HTTPS fallback for this run")
+    return _fetch_alphaxiv_http(paper_id)
 
 RSVG_CONVERT = _shutil.which("rsvg-convert") or "/opt/homebrew/bin/rsvg-convert"
 
@@ -1327,7 +1505,7 @@ def _call_claude_inner(prompt, timeout):
         out.close()
         try:
             result = subprocess.run(
-                ["codex", "exec", "--skip-git-repo-check", "--ephemeral",
+                [CODEX_BIN, "exec", "--skip-git-repo-check", "--ephemeral",
                  "-s", "read-only", "-o", out.name, "-"],
                 input=prompt, capture_output=True, text=True, timeout=timeout)
             if result.returncode == 0:

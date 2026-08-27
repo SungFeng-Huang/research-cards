@@ -20,9 +20,12 @@ allowed-tools: Bash(osascript *) Bash(heptabase *) Bash(python3 *) Bash(mktemp *
 ## Agent（claude / codex）
 
 本 skill 可由 Claude Code 或 Codex 駕駛（Codex 端：`research-cards@private-plugins` plugin 的 scholar-inbox-clip skill）。
-差異：alphaXiv MCP 工具僅 Claude 有——Codex 駕駛時改用 run.py 內建的 HTTP 抓取
-（`fetch_alphaxiv_*`）取得論文內容。cron/scripts 的文字生成呼叫依 config `agent`
-分流（claude --print / codex exec），互動 session 一律由駕駛中的 agent 本人生成。
+差異：Codex 排程的 `run.py` 透過 Codex app-server 的 model-free
+`mcpServer/tool/call` 呼叫 `alphaxiv.get_paper_content`，直接重用 Codex 的 MCP
+設定與 OAuth；MCP 初始化／呼叫失敗時，該輪才退回內建 HTTPS 抓取，避免無人值守
+漏信。Claude 腳本路徑維持 HTTPS（互動 Claude 可直接用 alphaXiv MCP）。cron/scripts
+的文字生成呼叫依 config `agent` 分流（claude --print / codex exec），互動 session
+一律由駕駛中的 agent 本人生成。
 
 ## Backend（heptabase / obsidian / both）
 
@@ -312,8 +315,16 @@ Use `mcp__alphaxiv__get_paper_content` with the alphaXiv overview URL:
 url: https://alphaxiv.org/overview/{arxiv_id}
 ```
 
-**Offline / `run.py` path (no MCP):** The scripted pipeline cannot use the MCP tool, so
-`run.py`'s `fetch_alphaxiv()` fetches the overview page directly. **The page is
+**Codex scheduled `run.py` path (MCP-first):** `fetch_alphaxiv()` starts one
+ephemeral, read-only Codex app-server thread per pipeline run and calls
+`mcpServer/tool/call` directly — no model turn, no per-paper model-token cost. It
+reuses the logged-in `alphaxiv` MCP OAuth. If startup, OAuth, server, protocol, or
+tool output fails, MCP is disabled for the rest of that run and the pipeline uses
+the HTTPS path below. Set `SCHOLAR_CLIP_ALPHAXIV_TRANSPORT=http` only as an
+emergency/debug override. A fresh Desktop conversation is not required.
+
+**HTTPS fallback / Claude scripted path:** `run.py` fetches the overview page
+directly. **The page is
 a client-rendered SPA — the report is NOT in the rendered HTML** (tag-stripping
 yields ~250 chars of nav chrome). It lives in the serialized JS payload as the
 value of an `intermediateReport:"..."` key, JSON-string-escaped. `run.py` calls
@@ -1194,9 +1205,12 @@ inbox-clip` 每 3 小時跑純腳本 `run.py`（無 model、不標 Tasks，因�
            figure layout defeats the PDF heuristic, or the entry is non-arxiv
            (alphaxiv:/openreview:/aclanthology: — no arxiv source at all).
 
-The Python script bypasses Claude's tool permission system entirely (避免無人值守跳權限提示). Claude CLI is
-invoked only for text→text tasks (translation, summary, colorize, image
-placement) using `claude --print`.
+The Python script bypasses interactive tool approvals (避免無人值守跳權限提示).
+For Codex, alphaXiv text retrieval uses the app-server's direct MCP call with an
+ephemeral read-only thread; image retrieval remains direct arxiv/ar5iv/PDF HTTPS
+because the alphaXiv text tool does not provide figure assets. The configured
+agent CLI is invoked only for text→text tasks (translation, summary, colorize,
+image placement).
 
 **Minimal-PATH gotcha:** a non-login-shell run can get a minimal PATH
 (`/usr/bin:/bin:/usr/sbin:/sbin`) that omits Homebrew, so a bare `heptabase`
@@ -1204,8 +1218,10 @@ placement) using `claude --print`.
 and the failure is silent unless there are new papers to clip (a no-new-email
 run only touches heptabase in the figure-retry step, whose errors are caught).
 `run.py` guards against this by prepending `/opt/homebrew/bin:/usr/local/bin` to
-`os.environ["PATH"]` at import. `claude` and `rsvg-convert` are already absolute
-paths; only `heptabase` was bare. Verify with:
+`os.environ["PATH"]` at import. It also resolves `claude`, `codex`, and
+`rsvg-convert` to absolute paths (`codex` falls back through `~/.local/bin`,
+`~/.node_modules/bin`, then the ChatGPT app bundle); only `heptabase` remains
+bare after the PATH repair. Verify with:
 `env -i HOME=$HOME PATH=/usr/bin:/bin /usr/bin/python3 -c "import run, subprocess; print(subprocess.run(['heptabase','--version']).returncode)"`
 
 Pipeline order in `run.py`:

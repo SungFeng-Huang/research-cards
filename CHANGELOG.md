@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.59.0 — model-free alphaXiv MCP retrieval for Codex schedules
+
+- Codex-driven Scholar Inbox runs now retrieve paper content through
+  `alphaxiv.get_paper_content` over the local Codex app-server's direct MCP
+  JSON-RPC method, reusing the existing OAuth session without a model turn or
+  per-paper model-token cost.
+- The MCP client is one bounded, ephemeral, read-only process per pipeline run.
+  A startup, OAuth, protocol, timeout, or malformed-output failure disables MCP
+  for the rest of that run and falls back to the existing alphaXiv/arXiv HTTPS
+  path, so unattended clipping still converges.
+- Figure retrieval remains on arXiv/ar5iv/PDF HTTPS because the alphaXiv text
+  tool does not return figure assets. Tests cover MCP selection, report/raw
+  detection, malformed responses, and once-per-run failover.
+
 ## 0.58.3 — safe inline project-log citation repair
 
 - `project-card-repair --inline-card` now converts exact

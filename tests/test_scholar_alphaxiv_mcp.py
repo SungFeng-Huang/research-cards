@@ -1,7 +1,10 @@
 """alphaXiv content transport: Codex MCP-first with bounded HTTP fallback."""
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                 "..", "skills", "scholar-inbox-clip"))
@@ -69,6 +72,35 @@ class TestScholarAlphaXivMcp(unittest.TestCase):
             self.skipTest("Codex CLI is not installed in this test environment")
         self.assertTrue(os.path.isabs(run.CODEX_BIN), run.CODEX_BIN)
         self.assertTrue(os.access(run.CODEX_BIN, os.X_OK), run.CODEX_BIN)
+
+    def test_desktop_codex_precedes_stale_path_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app_cli = Path(tmp) / "app-codex"
+            path_cli = Path(tmp) / "path-codex"
+            for cli in (app_cli, path_cli):
+                cli.write_text("#!/bin/sh\n", encoding="utf-8")
+                cli.chmod(0o755)
+            with mock.patch.dict(os.environ, {}, clear=False), \
+                    mock.patch.object(run, "_CODEX_APP_BIN_CANDIDATES",
+                                      (app_cli,)), \
+                    mock.patch.object(run._shutil, "which",
+                                      return_value=str(path_cli)):
+                os.environ.pop("SCHOLAR_CLIP_CODEX_BIN", None)
+                self.assertEqual(run._resolve_codex_bin(), str(app_cli))
+
+    def test_explicit_codex_override_precedes_desktop_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            override_cli = Path(tmp) / "override-codex"
+            app_cli = Path(tmp) / "app-codex"
+            for cli in (override_cli, app_cli):
+                cli.write_text("#!/bin/sh\n", encoding="utf-8")
+                cli.chmod(0o755)
+            with mock.patch.dict(
+                    os.environ,
+                    {"SCHOLAR_CLIP_CODEX_BIN": str(override_cli)}), \
+                    mock.patch.object(run, "_CODEX_APP_BIN_CANDIDATES",
+                                      (app_cli,)):
+                self.assertEqual(run._resolve_codex_bin(), str(override_cli))
 
 
 if __name__ == "__main__":

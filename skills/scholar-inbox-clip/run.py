@@ -35,12 +35,46 @@ os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH"
 # ── Constants ─────────────────────────────────────────────────────────────────
 import shutil as _shutil
 CLAUDE_BIN = _shutil.which("claude") or str(Path.home() / ".local/bin/claude")
-CODEX_BIN = (_shutil.which("codex") or
-             next((str(p) for p in (
-                 Path.home() / ".local/bin/codex",
-                 Path.home() / ".node_modules/bin/codex",
-                 Path("/Applications/ChatGPT.app/Contents/Resources/codex"),
-             ) if p.is_file() and os.access(p, os.X_OK)), "codex"))
+_CODEX_APP_BIN_CANDIDATES = (
+    Path("/Applications/ChatGPT.app/Contents/Resources/codex"),
+    Path.home() / "Applications/ChatGPT.app/Contents/Resources/codex",
+)
+
+
+def _resolve_codex_bin():
+    """Resolve the Codex executable used by unattended Mac runs.
+
+    Prefer the current Desktop app bundle over PATH: npm-installed Codex CLIs
+    can lag behind the app and reject models already configured by the app
+    (for example gpt-6-astra).  An explicit override remains available for
+    debugging and nonstandard installations; non-Mac hosts fall back to PATH
+    and the historical user-local locations.
+    """
+    override = os.environ.get("SCHOLAR_CLIP_CODEX_BIN", "").strip()
+    if override:
+        expanded = Path(override).expanduser()
+        if expanded.is_file() and os.access(expanded, os.X_OK):
+            return str(expanded)
+        resolved = _shutil.which(override)
+        if resolved:
+            return resolved
+        raise RuntimeError(
+            f"SCHOLAR_CLIP_CODEX_BIN is not executable: {override}")
+
+    for path in _CODEX_APP_BIN_CANDIDATES:
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+
+    resolved = _shutil.which("codex")
+    if resolved:
+        return resolved
+    return next((str(path) for path in (
+        Path.home() / ".local/bin/codex",
+        Path.home() / ".node_modules/bin/codex",
+    ) if path.is_file() and os.access(path, os.X_OK)), "codex")
+
+
+CODEX_BIN = _resolve_codex_bin()
 # Model/effort for call_claude() text generation (translate/colorize) — a fast
 # tier on purpose; must stay independent of the user's interactive-session pin.
 GEN_MODEL = os.environ.get("SCHOLAR_CLIP_GEN_MODEL", "claude-sonnet-5")

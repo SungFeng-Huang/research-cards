@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.59.1 — prefer the current Desktop Codex for schedules
+
+- Scholar Inbox scheduled runs on Mac now prefer the Codex binary bundled with
+  the current ChatGPT Desktop app before any `codex` found on `PATH`, preventing
+  a stale npm CLI from rejecting newer configured models such as `gpt-6-astra`.
+- `SCHOLAR_CLIP_CODEX_BIN` provides an explicit executable override for
+  nonstandard or debugging setups; non-Mac environments retain PATH and
+  user-local fallbacks.
+- Regression tests cover Desktop-over-PATH precedence and explicit override
+  precedence, and the resolved Desktop binary passes a live `codex exec`
+  smoke test.
+
 ## 0.59.0 — model-free alphaXiv MCP retrieval for Codex schedules
 
 - Codex-driven Scholar Inbox runs now retrieve paper content through

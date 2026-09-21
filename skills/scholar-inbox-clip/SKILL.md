@@ -1219,8 +1219,11 @@ and the failure is silent unless there are new papers to clip (a no-new-email
 run only touches heptabase in the figure-retry step, whose errors are caught).
 `run.py` guards against this by prepending `/opt/homebrew/bin:/usr/local/bin` to
 `os.environ["PATH"]` at import. It also resolves `claude`, `codex`, and
-`rsvg-convert` to absolute paths (`codex` falls back through `~/.local/bin`,
-`~/.node_modules/bin`, then the ChatGPT app bundle); only `heptabase` remains
+`rsvg-convert` to absolute paths. On Mac, `codex` deliberately prefers the
+current ChatGPT Desktop app bundle before `PATH`: a stale npm CLI can reject a
+model already configured by the newer app. Set `SCHOLAR_CLIP_CODEX_BIN` only
+for an explicit nonstandard/debug override; non-Mac resolution falls back to
+`PATH`, `~/.local/bin`, then `~/.node_modules/bin`. Only `heptabase` remains
 bare after the PATH repair. Verify with:
 `env -i HOME=$HOME PATH=/usr/bin:/bin /usr/bin/python3 -c "import run, subprocess; print(subprocess.run(['heptabase','--version']).returncode)"`
 
